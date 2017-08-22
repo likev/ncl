@@ -118,7 +118,7 @@ static NhlResource resources[] = {
 	{NhlNcnExplicitLabelBarLabelsOn,NhlCcnExplicitLabelBarLabelsOn,
 		 NhlTBoolean,sizeof(NhlBoolean),
 		 Oset(explicit_lbar_labels_on),
-		 NhlTImmediate,_NhlUSET((NhlPointer) False),0,NULL},
+		 NhlTImmediate,_NhlUSET((NhlPointer) True),0,NULL},
 	{"no.res","No.res",NhlTBoolean,sizeof(NhlBoolean),
 		 Oset(lbar_end_labels_on_set),NhlTImmediate,
 		 _NhlUSET((NhlPointer)True),_NhlRES_PRIVATE,NULL},
@@ -2061,6 +2061,7 @@ ContourPlotInitialize
 	NhlContourPlotLayerPart	*cnp = &(cnew->contourplot);
 	NhlSArg			sargs[64];
 	int			nargs = 0;
+	NhlGridType             grid_type;
 
 	cnp->fws_id = -1;
 	cnp->iws_id = -1;
@@ -2247,7 +2248,11 @@ ContourPlotInitialize
 	subret = InitCoordBounds(cnew,NULL,entry_name);
 	if ((ret = MIN(ret,subret)) < NhlWARNING) return(ret);
 
-	switch (cnp->grid_type) {
+	grid_type = cnp->grid_type;
+	if (! cnp->data_init) {  /* grid type known to work with no data */
+		grid_type = NhltrLOGLIN; 
+	}
+	switch (grid_type) {
 	case NhltrLOGLIN:
 	default:
 		subret = SetUpLLTransObj(cnew,(NhlContourPlotLayer) req,True);
@@ -2319,11 +2324,7 @@ ContourPlotInitialize
 	cnp->raster_mode_on_set = False;
 	cnp->fill_mode_set = False;
 	cnp->fill_on_set = False;
-	/* 
-	 * once set, lbar_alignment_set stays set until 
-	 * explcit label bar labels is turned off 
-	 */
-	if (! cnp->explicit_lbar_labels_on) cnp->lbar_alignment_set = False;
+        cnp->lbar_alignment_set = False;
 
         cnew->trans.x_reverse_set = cnew->trans.y_reverse_set = False;
         cnew->trans.x_log_set = cnew->trans.y_log_set = False;
@@ -2415,6 +2416,7 @@ static NhlBoolean NewDrawArgs
 		NhlNlbLabelStrings,
 		NhlNlbLabelFuncCode,
 		NhlNlbLabelAlignment,
+                NhlNlbBoxEndCapStyle,
 		NhlNpmLegendDisplayMode,
 		NhlNlgLabelStrings,
 		NhlNlgLabelFuncCode,
@@ -2474,6 +2476,7 @@ static NhlErrorTypes ContourPlotSetValues
  	NhlContourPlotLayerPart	*cnp = &(cnew->contourplot);
 	NhlContourPlotLayer		cold = (NhlContourPlotLayer) old;
  	NhlContourPlotLayerPart	*ocnp = &(cold->contourplot);
+	NhlGridType             grid_type;
 	/* Note that both ManageLegend and ManageLabelBar add to sargs */
 	NhlSArg			sargs[128];
 	int			nargs = 0;
@@ -2653,7 +2656,11 @@ static NhlErrorTypes ContourPlotSetValues
 	subret = InitCoordBounds(cnew,cold,entry_name);
 	if ((ret = MIN(ret,subret)) < NhlWARNING) return(ret);
 
-	switch (cnp->grid_type) {
+	grid_type = cnp->grid_type;
+	if (! cnp->data_init) {  /* grid type known to work with no data */
+		grid_type = NhltrLOGLIN; 
+	}
+	switch (grid_type) {
 	case NhltrLOGLIN:
 	default:
 		subret = SetUpLLTransObj(cnew,(NhlContourPlotLayer)old,False);
@@ -2720,11 +2727,7 @@ static NhlErrorTypes ContourPlotSetValues
 	cnp->raster_mode_on_set = False;
 	cnp->fill_mode_set = False;
 	cnp->fill_on_set = False;
-	/* 
-	 * once set, lbar_alignment_set stays set until 
-	 * explcit label bar labels is turned off 
-	 */
-	if (! cnp->explicit_lbar_labels_on) cnp->lbar_alignment_set = False;
+	cnp->lbar_alignment_set = False;
 
         cnew->trans.x_reverse_set = cnew->trans.y_reverse_set = False;
         cnew->trans.x_log_set = cnew->trans.y_log_set = False;
@@ -4589,7 +4592,14 @@ static NhlErrorTypes SetUpCrvTransObj
 		trans_class =  NhlcurvilinearTransObjClass;
 		break;
 	case NhltrSPHERICAL:
-		trans_class =  NhlsphericalTransObjClass;
+		if (tfp->overlay_status == _tfCurrentOverlayMember &&
+		    tfp->overlay_trans_obj->base.layer_class->base_class.class_name == NhlmapTransObjClass->base_class.class_name) {
+			/* the spherical trans object only works over a map */
+			trans_class =  NhlsphericalTransObjClass;
+		}
+		else {
+			trans_class =  NhlcurvilinearTransObjClass;
+		}
 		break;
 	case NhltrTRIANGULARMESH:
 		trans_class =  NhltriMeshTransObjClass;
@@ -4605,7 +4615,7 @@ static NhlErrorTypes SetUpCrvTransObj
 
 	if (init)
 		tfp->trans_obj = NULL;
-	if (tfp->trans_obj && 
+	if (! cnew->base.being_destroyed && tfp->trans_obj && 
             tfp->trans_obj->base.layer_class->base_class.class_name !=
 	    trans_class->base_class.class_name) {
 		subret = NhlDestroy(tfp->trans_obj->base.id);
@@ -6037,6 +6047,27 @@ static NhlErrorTypes ManageLabelBar
 
 	if (cnp->const_field && cnp->display_labelbar < NhlFORCEALWAYS && ! cnp->do_constf_fill) return ret;
 	
+	if (! cnp->explicit_lbar_labels_on) {
+		cnp->lbar_labels_set = False; 
+		if (init || set_all ||
+		    cnp->llabel_strings != ocnp->llabel_strings ||
+		    cnp->explicit_lbar_labels_on != ocnp->explicit_lbar_labels_on) {
+			redo_lbar = True;
+		}
+	}
+        else if (cnp->llabel_strings != ocnp->llabel_strings ) {
+            redo_lbar = True;
+        }
+	else if (! cnp->lbar_labels_set) {
+		redo_lbar = True;
+		cnp->lbar_labels_set = True;  /* this must remain set as long as explicit mode is on in order
+						 to prevent the explicit labels from being reset automatically */
+	}
+	else {
+		/* don't copy line label strings if set to explicit and lbar_labels_set is True */
+		redo_lbar = False;
+	}
+
         if (! (cnp->explicit_lbar_labels_on && cnp->lbar_alignment_set)) {
 		if (init || cnp->lbar_end_style != ocnp->lbar_end_style ||
 		    cnp->explicit_lbar_labels_on != ocnp->explicit_lbar_labels_on) {
@@ -6052,25 +6083,6 @@ static NhlErrorTypes ManageLabelBar
 			}
 		}
 	}
-
-	if (! cnp->explicit_lbar_labels_on) {
-		cnp->lbar_labels_set = False; 
-		if (init || set_all ||
-		    cnp->llabel_strings != ocnp->llabel_strings ||
-		    cnp->explicit_lbar_labels_on != ocnp->explicit_lbar_labels_on) {
-			redo_lbar = True;
-		}
-	}
-	else if (! cnp->lbar_labels_set) {
-		redo_lbar = True;
-		cnp->lbar_labels_set = True;  /* this must remain set as long as explcit mode is on in order
-						 to prevent the explicit labels from being reset automatically */
-	}
-	else {
-		/* don't copy line label strings if set to explcit and lbar_labels_set is True */
-		redo_lbar = False;
-	}
-
 
 	if (cnp->lbar_end_style == NhlEXCLUDEOUTERBOXES) {
 		cnp->lbar_fill_count = cnp->level_count - 1;
@@ -6273,6 +6285,8 @@ static NhlErrorTypes ManageLabelBar
 			   NhlNlbFillScales,cnp->lbar_fill_scales ? cnp->lbar_fill_scales : cnp->fill_scales);
 		NhlSetSArg(&sargs[(*nargs)++],
 			   NhlNlbFillDotSizeF,cnp->fill_dot_size);
+                if (cnp->lbar_end_style == NhlEXCLUDEOUTERBOXES)
+                    NhlSetSArg(&sargs[(*nargs)++], NhlNlbBoxEndCapStyle, NhlRECTANGLEENDS);
 		return ret;
 	}
 
@@ -6324,6 +6338,10 @@ static NhlErrorTypes ManageLabelBar
 	if (cnp->fill_dot_size != ocnp->fill_dot_size)
 		NhlSetSArg(&sargs[(*nargs)++],
 			   NhlNlbFillDotSizeF,cnp->fill_dot_size);
+        if (cnp->fill_opacity != ocnp->fill_opacity)
+                NhlSetSArg(&sargs[(*nargs)++], NhlNlbFillOpacityF, cnp->fill_opacity);
+        if (cnp->lbar_end_style == NhlEXCLUDEOUTERBOXES)
+                NhlSetSArg(&sargs[(*nargs)++], NhlNlbBoxEndCapStyle, NhlRECTANGLEENDS);
 
 	return ret;
 }
@@ -10853,7 +10871,7 @@ NhlErrorTypes CellFill2D
 	int             *ibnd;
 	int xmaxix, xminix;
 	int jc, jcp1, jcm1;
-	int lxsize, xc_count,yc_count;
+	int lxsize, xc_count;
 	float xb[BUFSIZE][5];
 	float yb[BUFSIZE][5];
 	float zb[BUFSIZE];
@@ -10861,9 +10879,6 @@ NhlErrorTypes CellFill2D
 	int *glist = NULL;
 	int glist_alloc_count = 0;
 	float flx,frx,fby,fuy,wlx,wrx,wby,wuy; int ll;
-	char climit[4];
-	float r1[2],r2[2],r3[2],r4[2];
-	float sr[4][2];
 	int bufcount;
 	int status;
 	int yminix,ymaxix;
@@ -10914,7 +10929,6 @@ NhlErrorTypes CellFill2D
 
 	lxsize = cnp->sfp->xc_is_bounds ? xsize + 1 : xsize;
 	xc_count = cnp->sfp->xc_is_bounds ? xcount + 1 : xcount;
-	yc_count = cnp->sfp->yc_is_bounds ? ycount + 1 : ycount;
 	xrow_count = 0;
 	yminix = -1;
 	ymaxix = 0;
@@ -11232,24 +11246,8 @@ NhlErrorTypes CellFill2D
 		}
 	}
 		
-
-	sr[0][0] = sr[1][0] = sr[2][0] = sr[3][0] = 0.0;
-	sr[0][1] = sr[1][1] = sr[2][1] = sr[3][1] = 0.0;
-	if (ezmap) {
-		c_mpgetc("AR",climit,4);
-		c_mpgetr("P1",&r1[0]);
-		c_mpgetr("P2",&r2[0]);
-		c_mpgetr("P3",&r3[0]);
-		c_mpgetr("P4",&r4[0]);
-		c_mpgetr("P5",&r1[1]);
-		c_mpgetr("P6",&r2[1]);
-		c_mpgetr("P7",&r3[1]);
-		c_mpgetr("P8",&r4[1]);
-		c_mapset("MA",sr[0],sr[2],sr[3],sr[3]);
-		c_mapint();
-	}
-
 	c_getset(&flx,&frx,&fby,&fuy,&wlx,&wrx,&wby,&wuy,&ll);
+
 #if 0
 	printf("getset - %f,%f,%f,%f,%f,%f,%f,%f\n",
 	       flx,frx,fby,fuy,wlx,wrx,wby,wuy); 
@@ -11280,9 +11278,21 @@ NhlErrorTypes CellFill2D
 		if (! GetXYIn2D(xa,ya,jc,jcm1,jcp1,i,
 				xcount,mode,ezmap,xi,yi))
 			continue;
-		_NhlDataToWin(cnp->trans_obj,
-			      xi,yi,4,xo,yo,
-			      &status,NULL,NULL);
+		if (ezmap) {
+			int n;
+			for (n = 0; n< 4; n++) {
+				c_maptrn(yi[n],xi[n],&xo[n],&yo[n]);
+				if (xo[n] > 1e10) {
+					status = 1;
+					break;
+				}
+			}
+		}
+		else {
+			_NhlDataToWin(cnp->trans_obj,
+				      xi,yi,4,xo,yo,
+				      &status,NULL,NULL);
+		}
 		if (status) {
 			points = GoodPoints(cnp->trans_obj,
 					     xi,yi,xo,yo,
@@ -11315,10 +11325,7 @@ NhlErrorTypes CellFill2D
 		}
 		if (bufcount == BUFSIZE) {
 			int n;
-			if (ezmap) {
-				c_mapset(climit,r1,r2,r3,r4);
-				c_mapint();
-			}
+
 			for (n = 0; n < bufcount; n++) {
 				if (gpoints[n] != 15) {
 					DrawAdjustedCell
@@ -11332,10 +11339,6 @@ NhlErrorTypes CellFill2D
 					DrawCell(cnl,zb[n],xb[n],yb[n],
 						 do_softfill,entry_name);
 				}
-			}
-			if (ezmap) {
-				c_mapset("MA",sr[0],sr[2],sr[3],sr[3]);
-				c_mapint();
 			}
 			bufcount = 0;
 		}
@@ -11351,15 +11354,7 @@ NhlErrorTypes CellFill2D
 		gpoints[bufcount] = points;
 		bufcount++;
 	}
-#if 0
-	c_getset(&flx,&frx,&fby,&fuy,&wlx,&wrx,&wby,&wuy,&ll);
-	printf("getset - %f,%f,%f,%f,%f,%f,%f,%f\n",
-	       flx,frx,fby,fuy,wlx,wrx,wby,wuy); 
-#endif
-	if (ezmap) {
-		c_mapset(climit,r1,r2,r3,r4);
-		c_mapint();
-	}
+
 #if 0
 	c_getset(&flx,&frx,&fby,&fuy,&wlx,&wrx,&wby,&wuy,&ll);
 		printf("getset - %f,%f,%f,%f,%f,%f,%f,%f\n",
@@ -11423,7 +11418,7 @@ NhlErrorTypes CellFill1D
 {
 	NhlContourPlotLayerPart 	  *cnp = &cnl->contourplot;
 	NhlErrorTypes	ret = NhlNOERROR;
-	float 		*xa, *ya, *da, *levels;
+	float 		*xa, *ya, *da;
 	int		xcount,ycount;
 	int		xsize;
 	int             i,j,k;
@@ -11435,7 +11430,6 @@ NhlErrorTypes CellFill1D
 	int             over_sized = 0;
 	int             partial_oor = 0;
 	NhlBoolean      free_xa = False, free_ya = False;
-	NhlBoolean      modular = False;
 	int             adj_count;
 	float           xcellthreshold,ycellthreshold;
 	NhlBoolean      ezmap = False;
@@ -11453,9 +11447,6 @@ NhlErrorTypes CellFill1D
 	int *glist = NULL;
 	int glist_alloc_count = 0;
 	float xt[5],yt[5];
-	char climit[4];
-	float r1[2],r2[2],r3[2],r4[2];
-	float sr[4][2];
 	int empty_count;
 	int bufcount;
 	int status;
@@ -11479,7 +11470,6 @@ NhlErrorTypes CellFill1D
 	xsize = cnp->sfp->fast_dim;
 	xcount = cnp->sfp->fast_len;
 	ycount = cnp->sfp->slow_len;
-        levels = (float*) cnp->levels->data;
 	ibnd = NhlMalloc(ycount * 2 * sizeof(int));
 
 	/*
@@ -11515,8 +11505,6 @@ NhlErrorTypes CellFill1D
 
 	NhlVAGetValues(cnp->trans_obj->base.id,
 		       NhlNtrOutOfRangeF,&out_of_range,NULL);
-
-	modular = ezmap ? True : False;
 
 	xc_count = cnp->sfp->xc_is_bounds ? xcount + 1 : xcount;
 	xrow_count = 0;
@@ -11966,23 +11954,6 @@ NhlErrorTypes CellFill1D
 			empty_count++;
 	}
 		
-	
-	sr[0][0] = sr[1][0] = sr[2][0] = sr[3][0] = 0.0;
-	sr[0][1] = sr[1][1] = sr[2][1] = sr[3][1] = 0.0;
-	if (ezmap) {
-		c_mpgetc("AR",climit,4);
-		c_mpgetr("P1",&r1[0]);
-		c_mpgetr("P2",&r2[0]);
-		c_mpgetr("P3",&r3[0]);
-		c_mpgetr("P4",&r4[0]);
-		c_mpgetr("P5",&r1[1]);
-		c_mpgetr("P6",&r2[1]);
-		c_mpgetr("P7",&r3[1]);
-		c_mpgetr("P8",&r4[1]);
-		c_mapset("MA",sr[0],sr[2],sr[3],sr[3]);
-		c_mapint();
-	}
-
 	c_getset(&flx,&frx,&fby,&fuy,&wlx,&wrx,&wby,&wuy,&ll);
 #if 0
 	printf("getset - %f,%f,%f,%f,%f,%f,%f,%f\n",
@@ -11992,12 +11963,10 @@ NhlErrorTypes CellFill1D
 	memset(xt,0,5 * sizeof(float));
 	memset(yt,0,5 * sizeof(float));
 	for (k = 0; k < partial_oor; k++) {
-		int jd;
 		float zval = *(da + glist[k]);
 
 		j = glist[k] / xsize;
 		i = glist[k] % xsize;
-		jd = j * xsize;
 
 		if (cnp->sfp->yc_is_bounds) {
 			yi[0] = ya[j]; 
@@ -12047,9 +12016,21 @@ NhlErrorTypes CellFill1D
 			xi[2] = (xa[i]+ xa[i+1]) / 2.; 
 			xi[3] = (xa[i-1]+ xa[i]) / 2.; 
 		}
-		_NhlDataToWin(cnp->trans_obj,
-			      xi,yi,4,xo,yo,
-			      &status,NULL,NULL);
+		if (ezmap) {
+			int n;
+			for (n = 0; n< 4; n++) {
+				c_maptrn(yi[n],xi[n],&xo[n],&yo[n]);
+				if (xo[n] > 1e10) {
+					status = 1;
+					break;
+				}
+			}
+		}
+		else {
+			_NhlDataToWin(cnp->trans_obj,
+				      xi,yi,4,xo,yo,
+				      &status,NULL,NULL);
+		}
 		if (status) {
 			points = GoodPoints(cnp->trans_obj,
 					     xi,yi,xo,yo,
@@ -12082,10 +12063,6 @@ NhlErrorTypes CellFill1D
 		}
 		if (bufcount == BUFSIZE) {
 			int n;
-			if (ezmap) {
-				c_mapset(climit,r1,r2,r3,r4);
-				c_mapint();
-			}
 			for (n = 0; n < bufcount; n++) {
 				if (gpoints[n] != 15) {
 					DrawAdjustedCell
@@ -12100,10 +12077,6 @@ NhlErrorTypes CellFill1D
 						 do_softfill,entry_name);
 				}
 			}
-			if (ezmap) {
-				c_mapset("MA",sr[0],sr[2],sr[3],sr[3]);
-				c_mapint();
-			}
 			bufcount = 0;
 		}
 		if (points == 15) {
@@ -12117,15 +12090,6 @@ NhlErrorTypes CellFill1D
 		zb[bufcount] = zval;
 		gpoints[bufcount] = points;
 		bufcount++;
-	}
-#if 0
-	c_getset(&flx,&frx,&fby,&fuy,&wlx,&wrx,&wby,&wuy,&ll);
-	printf("getset - %f,%f,%f,%f,%f,%f,%f,%f\n",
-	       flx,frx,fby,fuy,wlx,wrx,wby,wuy); 
-#endif
-	if (ezmap) {
-		c_mapset(climit,r1,r2,r3,r4);
-		c_mapint();
 	}
 #if 0
 	c_getset(&flx,&frx,&fby,&fuy,&wlx,&wrx,&wby,&wuy,&ll);
@@ -12228,16 +12192,20 @@ NhlErrorTypes CellBoundsFill
 	segments = NhlMalloc(ncells * sizeof(int));
 	colors = NhlMalloc(ncells * sizeof(int));
 	
-
 	for (i = 0; i < ncells; i++) {
 		segments[i] = i * nvertices;
 		colors[i] = -99;
-		for (j = 0; j < nlevels; j++) {
-			if (data[i] < levels[j]) {
-				colors[i] = lcols[j];
-				break;
+		if (cnp->sfp->missing_value_set && data[i] == cnp->sfp->missing_value) {
+			colors[i] = cnp->missing_val.gks_fcolor;
+		}
+		else {
+			for (j = 0; j < nlevels; j++) {
+				if (data[i] < levels[j]) {
+					colors[i] = lcols[j];
+					break;
+				}
+				colors[i] = lcols[nlevels];
 			}
-			colors[i] = lcols[nlevels];
 		}
 	}
 
@@ -12252,7 +12220,7 @@ NhlErrorTypes CellBoundsFill
 		NhlSetSArg(&sargs[(nargs)++],NhlNgsEdgeColor, cnp->cell_fill_edge_color);
 	}
 	NhlSetSArg(&sargs[(nargs)++],NhlNgsFillOpacityF, cnp->fill_opacity);
-		
+
 	sprintf(buffer,"%s",cnl->base.name);
 	strcat(buffer,".GraphicStyle");
 
@@ -12331,4 +12299,329 @@ NhlErrorTypes _NhlCellFill
 	}
 	c_sfseti("ty",save_ty);
 	return ret;
+}
+
+
+/*
+ * Function:	cnInitAreamap
+ *
+ * Description:	
+ *
+ * In Args:	
+ *
+ * Out Args:	NONE
+ *
+ * Return Values: Error Conditions
+ *
+ * Side Effects: NONE
+ */	
+
+NhlErrorTypes cnInitAreamap
+#if	NhlNeedProto
+(
+	NhlContourPlotLayer	cnl,
+	NhlString	entry_name
+)
+#else
+(cnl,entry_name)
+        NhlContourPlotLayer cnl;
+	NhlString	entry_name;
+#endif
+{
+	NhlErrorTypes		ret = NhlNOERROR, subret = NhlNOERROR;
+	char			*e_text;
+	NhlContourPlotLayerPart	*cnp = &(cnl->contourplot);
+
+	if (cnp->aws_id < 1) {
+		cnp->aws_id = 
+			_NhlNewWorkspace(NhlwsAREAMAP,
+					 NhlwsNONE,1000000*sizeof(int));
+		if (cnp->aws_id < 1) 
+			return MIN(ret,(NhlErrorTypes)cnp->aws_id);
+	}
+	if ((cnp->aws = _NhlUseWorkspace(cnp->aws_id)) == NULL) {
+		e_text = 
+			"%s: error reserving label area map workspace";
+		NhlPError(NhlFATAL,NhlEUNKNOWN,e_text,entry_name);
+		return(ret);
+	}
+
+#if 0
+	c_arseti("lc",(int) (cnp->amap_crange * 
+		 MIN(cnl->view.width,cnl->view.height)));
+#endif
+	subret = _NhlArinam(cnp->aws,entry_name);
+	if ((ret = MIN(subret,ret)) < NhlWARNING) return ret;
+
+	return ret;
+}
+
+typedef struct amap_node {
+	int flag;
+	int xcoord;
+	int ycoord;
+	int draw_next;
+	int draw_prev;
+	int coord_next;
+	int coord_prev;
+	int group_id;
+	int left_id;
+	int right_id;
+} Amap_Node;
+
+void fixareamap(int *amap) 
+{
+	int i,j,k;
+	/* find a point that maps into the visible area, 
+	   get the data value for this point, and figure out
+	   its area id. Then destroy the original areamap and create a new one
+	   that only draws a single fill area for the whole viewport.
+	   Color this area based on the area id. */
+
+	float wb,wt,wl,wr;
+	float xp[5],yp[5];
+	float out_of_range = 1e30;
+	int mystatus;
+	NhlErrorTypes subret;
+	float im, jm;
+	float data_val;
+	float *tlat, *tlon;
+	float txw, tyw;
+	int aid = -999;
+	float *levels;
+
+	if (Cnp->const_field  && ! Cnp->do_constf_fill) {
+		return;
+	}
+	if (Cnp->trans_obj->base.layer_class->base_class.class_name == NhlmapTransObjClass->base_class.class_name) {
+		subret = NhlVAGetValues(Cnp->trans_obj->base.id,
+					NhlNmpBottomWindowF,&wb,
+					NhlNmpTopWindowF,&wt,
+					NhlNmpLeftWindowF,&wl,
+					NhlNmpRightWindowF,&wr,
+					NULL);
+	}
+	else {
+		float x,y, width, height;
+		subret = NhlVAGetValues(Cnl->base.id,
+					NhlNvpXF,&x,
+					NhlNvpYF,&y,
+					NhlNvpWidthF,&width,
+					NhlNvpHeightF,&height,
+					NULL);
+		/*subret = _NhlNDCToWin(top,x,y,n,xout,yout,
+		  &mystatus,xmissing,ymissing)*/
+		subret = _NhlNDCToWin(Cnp->trans_obj,&x,&y,1,&wl,&wt,&mystatus,&out_of_range,&out_of_range); 
+		wb = y - height;
+		wr = x + width;
+		subret = _NhlNDCToWin(Cnp->trans_obj,&wr,&wb,1,&wr,&wb,&mystatus,&out_of_range,&out_of_range);
+	}
+
+	/* find a valid data value within the field */
+	if (Cnp->sfp->x_arr && Cnp->sfp->y_arr) {
+		float *ty,*tx, *td;
+
+		if (Cnp->sfp->d_arr->num_dimensions == 1) {    /* a triangular mesh */
+			ty = (float*)Cnp->sfp->y_arr->data;
+			tx = (float*)Cnp->sfp->x_arr->data;
+			td = (float*)Cnp->sfp->d_arr->data;
+			for (i = 0; i < Cnp->sfp->d_arr->num_elements; i++) {
+				subret =  _NhlDataToWin(Cnp->trans_obj,&(tx[i]),&(ty[i]),1,&txw,&tyw,
+							&mystatus,&out_of_range,&out_of_range);
+				if (mystatus) 
+					continue;
+				data_val = td[i];
+				if (data_val == Cnp->sfp->missing_value) 
+					continue;
+				aid = -1;
+				levels = (float*) Cnp->levels->data;
+				for (k=0; k < Cnp->level_count; k++) {
+					if (data_val < levels[k]) {
+						aid = NhlcnAREAID_OFFSET+k;
+						break;
+					}
+				}
+				if (aid == -1) {
+					aid = NhlcnAREAID_OFFSET +
+						Cnp->level_count;
+				}
+				if (aid != -999) 
+					break;
+			}
+		}
+		else if (Cnp->sfp->x_arr->num_dimensions == 1) {
+			float *ty,*tx;
+			ty = (float*)Cnp->sfp->y_arr->data;
+			tx = (float*)Cnp->sfp->x_arr->data;
+			for (j = 0; j < Cnp->sfp->y_arr->num_elements; j++) {
+				int offset = j * Cnp->sfp->x_arr->num_elements;
+				for (i = 0; i < Cnp->sfp->x_arr->num_elements; i++) {
+					subret =  _NhlDataToWin(Cnp->trans_obj,&(tx[i]),&(ty[j]),1,&txw,&tyw,
+								&mystatus,&out_of_range,&out_of_range);
+					if (mystatus) 
+						continue;
+					data_val = ((float*)Cnp->sfp->d_arr->data)[offset + i];
+					if (data_val == Cnp->sfp->missing_value) 
+						continue;
+					aid = -1;
+					levels = (float*) Cnp->levels->data;
+					for (k=0; k < Cnp->level_count; k++) {
+						if (data_val < levels[k]) {
+							aid = NhlcnAREAID_OFFSET+k;
+							break;
+						}
+					}
+					if (aid == -1) {
+						aid = NhlcnAREAID_OFFSET +
+							Cnp->level_count;
+					}
+					if (aid != -999)
+						break;
+				}
+				if (aid != -999)
+					break;
+			}
+		}
+		else {
+			float *ty,*tx;
+			ty = (float*)Cnp->sfp->y_arr->data;
+			tx = (float*)Cnp->sfp->x_arr->data;
+			for (j = 0; j < Cnp->sfp->y_arr->num_elements; j++) {
+				int offset = j * Cnp->sfp->x_arr->num_elements;
+				for (i = 0; i < Cnp->sfp->x_arr->num_elements; i++) {
+					subret =  _NhlDataToWin(Cnp->trans_obj,&(tx[offset+i]),&(ty[offset+i]),1,&txw,&tyw,
+								&mystatus,&out_of_range,&out_of_range);
+					if (mystatus) 
+						continue;
+					data_val = ((float*)Cnp->sfp->d_arr->data)[offset + i];
+					if (data_val == Cnp->sfp->missing_value) 
+						continue;
+					aid = -1;
+					levels = (float*) Cnp->levels->data;
+					for (k=0; k < Cnp->level_count; k++) {
+						if (data_val < levels[k]) {
+							aid = NhlcnAREAID_OFFSET+k;
+							break;
+						}
+					}
+					if (aid == -1) {
+						aid = NhlcnAREAID_OFFSET +
+							Cnp->level_count;
+					}
+					if (aid != -999)
+						break;
+				}
+				if (aid != -999)
+					break;
+			}
+		}
+	}
+	else {
+		double ystep = (Cnp->sfp->y_end - Cnp->sfp->y_start) / Cnp->sfp->slow_len;
+		double xstep = (Cnp->sfp->y_end - Cnp->sfp->y_start) / Cnp->sfp->fast_len;
+		float tx,ty;
+
+		ty = Cnp->sfp->y_start;
+		for (j = 0; j < Cnp->sfp->slow_len; j++) {
+			ty = Cnp->sfp->y_start  + j * ystep;
+			for (i = 0; i < Cnp->sfp->fast_len; i++) {
+				tx = Cnp->sfp->x_start * i * xstep;
+				_NhlDataToWin(Cnp->trans_obj,&tx,&ty,
+					      1,&txw,&tyw,&mystatus,
+					      NULL,NULL);
+				if (mystatus) 
+					continue;
+				data_val = ((float*)Cnp->sfp->d_arr->data)[j * Cnp->sfp->fast_len + i];
+				if (data_val == Cnp->sfp->missing_value) 
+					continue;
+				aid = -1;
+				levels = (float*) Cnp->levels->data;
+				for (k=0; k < Cnp->level_count; k++) {
+					if (data_val < levels[k]) {
+						aid = NhlcnAREAID_OFFSET+k;
+						break;
+					}
+				}
+				if (aid == -1) {
+					aid = NhlcnAREAID_OFFSET +
+						Cnp->level_count;
+				}
+				if (aid != -999)
+					break;
+			}
+			if (aid != -999)
+				break;
+		}
+	}
+
+	if (aid > -999) {
+		/* reinit the areamap */
+		if (Cnp->aws)
+			subret = _NhlIdleWorkspace(Cnp->aws);
+		Cnp->aws = NULL;
+		subret = cnInitAreamap(Cnl,"FixAreaMap");
+/* add the boundary to the areamap */
+		xp[0] = wl;
+		yp[0] = wb;
+		xp[1] = wr;
+		yp[1] = wb;
+		xp[2] = wr;
+		yp[2] = wt;
+		xp[3] = wl;
+		yp[3] = wt;
+		xp[4] = wl;
+		yp[4] = wb;
+		_NhlAredam(Cnp->aws,xp,yp,5,3,aid,-1,"FixAreaMap");
+	}
+
+	return;
+}
+
+/*
+ * checks an areamap to see if there is something drawable within it.
+ * If not calls fixareamap to create a new areamap that will draw
+ * a single filled area covering the viewport
+ */
+
+typedef struct _AmapNode {
+	int flag;
+	int x;
+	int y;
+	int draw_next;
+	int draw_prev;
+	int coord_next;
+	int coord_prev;
+	int gid;
+	int left_id;
+	int right_id;
+} AmapNode;
+	
+void _NHLCALLF(checkareamap,CHECKAREAMAP)(int *amap) 
+{
+	int i,j;
+#if 0
+	if (Cnp->dump_area_map)
+		_NhlDumpAreaMap(Cnp->aws,"checkareamap");
+#endif
+
+	if (amap[0] - amap[5] == amap[6]) 
+		fixareamap(amap);
+	else {
+		for (i = amap[5] ; i <= amap[0] - amap[6]; i++) {
+			if (amap[i-1] > 200 && amap[i-1] < 513) {  /* this the range of valid HLU area ids multiplied by 2 and plus 1 */
+				for (j = 27; j < amap[4]; j += 10) {
+					AmapNode *anode = (AmapNode *) &(amap[j]);
+					if (((anode->left_id == i) || (anode->right_id == i)) 
+                                            /*&& anode->left_id > 0 && anode->right_id > 0 && anode->left_id != anode->right_id*/ ) {
+						if (anode->left_id != anode->gid && anode->right_id != anode->gid &&
+						    anode->left_id != anode->right_id &&
+						    amap[anode->left_id-1] != 19999  && amap[anode->right_id-1] != 19999 )  /* this maps to area id 999 used to draw a boundary around the edge */
+							return;
+					}
+				}
+			}
+		}
+
+		fixareamap(amap);
+	}
 }

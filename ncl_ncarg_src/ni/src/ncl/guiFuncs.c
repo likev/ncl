@@ -62,7 +62,7 @@ NclAdvancedFile _NclCreateAdvancedFile(NclObj inst, NclObjClass theclass, NclObj
 NclFile NclCreateFile(const char *path)
 {
     NclQuark qpath = NrmStringToQuark(path);
-    return (_NclCreateFile(NULL,NULL,Ncl_File,0,TEMPORARY,qpath,1));
+    return (_NclOpenFile(NULL,NULL,Ncl_File,0,TEMPORARY,qpath,1));
 }
 
 #if 1
@@ -84,13 +84,17 @@ NclAdvancedFile NclCreateAdvancedFile(const char *path)
 void guiSetAdvancedFileStructure(const char *format)
 {
     if(0 == strcmp("shp", format))
-        NCLadvancedFileStructure[_NclAdvancedOGR] = 1;
+        NCLadvancedFileStructure[_Nio_Opt_OGR] = 1;
     else if(0 == strcmp("nc", format))
-        NCLadvancedFileStructure[_NclNETCDF] = 1;
+        NCLadvancedFileStructure[_Nio_Opt_NETCDF] = 1;
     else if(0 == strcmp("he5", format))
-        NCLadvancedFileStructure[_NclNewHE5] = 1;
-    else if(0 == strcmp("all", format))
-        NCLadvancedFileStructure[0] = 1;
+        NCLadvancedFileStructure[_Nio_Opt_HDFEOS5] = 1;
+    else if(0 == strcmp("all", format)) {
+	    int i;
+	    for (i = 0; i < _NioNumberOfFileStructOptions; i++) {
+		    NCLadvancedFileStructure[i] = 1;
+	    }
+    }
 }
 
 char **GetNclFileVarNames(NclFile thefile, int *num_vars)
@@ -596,6 +600,9 @@ double* _readDoubleFromMD(NclMultiDValData tmp_md, size_t nelm)
     short *sp = NULL;
     int *ip = NULL;
 
+    if(nelm < 1)
+	return NULL;
+
     value = (double*)NclCalloc(nelm, sizeof(double));
     assert(value);
 
@@ -726,7 +733,7 @@ double** guiGetListArray(NclVar _nclvar, int** itemsizes)
 {
     int i = 0;
     size_t n = 0;
-    double** value = NULL;
+    double** dblval = NULL;
     int *ip = NULL;
     size_t nelm = 1;
     NclMultiDValData tmp_md;
@@ -734,6 +741,7 @@ double** guiGetListArray(NclVar _nclvar, int** itemsizes)
     int _vardimsizes[NCL_MAX_DIMENSIONS];
     int* length;
     NclList thelist = NULL;
+    NclList newlist = NULL;
     NclListObjList *tmp_list = NULL;
     NclObj tmp, tmp_obj;
 
@@ -750,8 +758,8 @@ double** guiGetListArray(NclVar _nclvar, int** itemsizes)
              nelm = thelist->list.nelem;
              ip = (int *) NclCalloc(nelm, sizeof(int));
              assert(ip);
-             value = (double **) NclCalloc(nelm, sizeof(double *));
-             assert(value);
+             dblval = (double **) NclCalloc(nelm, sizeof(double *));
+             assert(dblval);
 
            /*
             *fprintf(stderr, "\nfile %s, line: %d\n", __FILE__, __LINE__);
@@ -765,20 +773,38 @@ double** guiGetListArray(NclVar _nclvar, int** itemsizes)
                      continue;
 
                  tmp_md = (NclMultiDValData) _NclGetObj(tmp_obj->obj.id);
-                 ip[n] = tmp_md->multidval.dim_sizes[1];
-               /*
-                *fprintf(stderr, "\tip[%ld] = %d\n", n, ip[n]);
-                */
-                 value[n] = _readDoubleFromMD(tmp_md, 2*ip[n]);
-             }
+		 if(NCL_list == tmp_md->multidval.data_type)
+                 {
+                     newlist = (NclList) _NclGetObj(*(int*)tmp_md->multidval.val);
+                     tmp_obj = _popListObj(newlist);
+                     if(NULL == tmp_obj)
+                         continue;
 
+                     tmp_md = (NclMultiDValData) _NclGetObj(tmp_obj->obj.id);
+
+                     ip[n] = tmp_md->multidval.dim_sizes[1];
+                     dblval[n] = _readDoubleFromMD(tmp_md, 2*ip[n]);
+                   /*
+                    *fprintf(stderr, "\tip[%ld] = %d\n", n, ip[n]);
+                    *fprintf(stderr, "\tdblval[%ld][0] = %f\n", n, dblval[n][0]);
+                    */
+                 }
+		 else
+                 {
+                     ip[n] = tmp_md->multidval.dim_sizes[1];
+                   /*
+                    *fprintf(stderr, "\tip[%ld] = %d\n", n, ip[n]);
+                    */
+                     dblval[n] = _readDoubleFromMD(tmp_md, 2*ip[n]);
+                 }
+             }
              *itemsizes = ip;
-             return value;
+             return dblval;
         default:
-             *itemsizes = ip;
              break;
     }
 
+    *itemsizes = ip;
     return NULL;
 }
 

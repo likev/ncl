@@ -1,6 +1,3 @@
-;
-;      $Id: gsn_code.ncl,v 1.238.4.3 2010-05-06 17:13:26 haley Exp $
-;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;                                                                      ;
 ;                Copyright (C)  1998                                   ;
@@ -126,100 +123,6 @@ begin
 end
 
 ;***********************************************************************;
-; function : hsv2rgb                                                    ;
-;                 h:float                                               ;
-;                 s:float                                               ;
-;                 v:float                                               ;
-;                                                                       ;
-; Note: after V4.3.1, the built-in function hsvrgb was added. This      ;
-; should be used instead of this one.                                   ;
-;                                                                       ;
-; This function maps values from the HSV color model to the RGB color   ;
-; model. HSV is a good model for generating smooth color maps. See      ;
-; (Computer Graphics: Principles and Practice by Foley). The return     ;
-; value is a 2 dimensional array of rgb color triplets. The return      ;
-; value from this function can be directly assigned to the "wkColorMap" ;
-; resource of a workstation object or to the second argument of         ;
-; gsn_define_colormap.                                                  ;
-;                                                                       ;
-;***********************************************************************;
-undef("hsv2rgb")
-function hsv2rgb (h_old[*]:float,s_old[*]:float,v_old[*]:float)
-begin
-;
-; Make a backup copy of the HSV values.
-;
-  h = h_old
-  s = s_old
-  v = v_old
-;
-; This function converts between HSV and RGB color space
-; Input: h [0.0-360.0], s [0.0-1.0], v [0.0-1.0]
-; Output: r [0.0-1.0], g [0.0-1.0], b [0.0-1.0]
-;
-  r_g_b = new((/3,dimsizes(h)/),float)
-  r_g_b!0 = "rgb"
-  r_g_b!1 = "cmap_len"
- 
-  if (any((s .eq. 0.0).and.(h.eq.0.0.or.h.eq.360))) then
-    indexs = ind((h.eq.0.0.or.h.eq.360).and.s.eq.0.0)
-    r_g_b(:,indexs) = (/v(indexs),v(indexs),v(indexs)/)
-    delete(indexs)
-  end if
-
-  f = new(dimsizes(h),float)
-  p = new(dimsizes(h),float)
-  q = new(dimsizes(h),float)
-  t = new(dimsizes(h),float)
-  i = new(dimsizes(h),integer)
-  if any(h.eq.360.0)  
-    h(ind(h.eq.360.0)) = 0.0
-  end if
-
-  h = h/60.0
-  i = floattoint(floor(h))
-  f = h - i
-  p = v*(1.0 - s)
-  q = v*(1.0 - (s*f))
-  t = v*(1.0 - (s*(1.0 - f)))
-  if any(i.eq.0) then
-    indexs = ind(i.eq.0)
-    r_g_b(:,indexs) = (/v(indexs),t(indexs),p(indexs)/)
-    delete(indexs)
-  end if
-  if any(i.eq.1) then
-    indexs = ind(i.eq.1)
-    r_g_b(:,indexs) = (/q(indexs),v(indexs),p(indexs)/)
-    delete(indexs)
-  end if
-  if any(i.eq.2) then
-    indexs = ind(i.eq.2)
-    r_g_b(:,indexs) = (/p(indexs),v(indexs),t(indexs)/)
-    delete(indexs)
-  end if
-  if any(i.eq.3) then
-    indexs = ind(i.eq.3)
-    r_g_b(:,indexs) = (/p(indexs),q(indexs),v(indexs)/)
-    delete(indexs)
-  end if
-  if any(i.eq.4) then
-    indexs = ind(i.eq.4)
-    r_g_b(:,indexs) = (/t(indexs),p(indexs),v(indexs)/)
-    delete(indexs)
-  end if
-  if any(i.eq.5) then
-    indexs = ind(i.eq.5)
-    r_g_b(:,indexs) = (/v(indexs),p(indexs),q(indexs)/)
-    delete(indexs)
-  end if
-  if(any(ismissing(r_g_b)))
-    print("Warning: hsv2rgb: Some invalid HSV values were passed to hsv2rgb")
-  end if
-  return(r_g_b(cmap_len|:,rgb|:))
-end
-
-
-;***********************************************************************;
 ; function : tofloat_wunits                                             ;
 ;                x:numeric                                              ;
 ;                                                                       ;
@@ -263,19 +166,6 @@ begin
   end if
   return(str)
 end
-
-;***********************************************************************;
-; Function : lower_case                                                 ;
-;           name : string                                               ;
-;                                                                       ;
-; Converts "name" to lowercase. Uses "str_lower" now.                   ;
-;***********************************************************************;
-undef("lower_case")
-function lower_case(name:string)
-begin
-  return(str_lower(name))
-end
-
 
 ;***********************************************************************;
 ; Function : get_long_name_units_string                                 ;
@@ -351,6 +241,91 @@ begin
 end
 
 ;***********************************************************************;
+; This procedure removes the internal resources set by WRFUserARW.ncl
+; These resources are used by the wrf_xxx plotting scripts, but are
+; not recognized by the gsn_csm plotting scripts.
+;***********************************************************************;
+undef("remove_internal_wrf_resources")
+procedure remove_internal_wrf_resources(res:logical)
+local wlist, atts_set
+begin
+  wlist = (/"start_lat","start_lon","end_lat","end_lon","mpNestTime"/)
+  atts_set = isatt(res,wlist)
+  if(all(atts_set)) then
+    do na=0,dimsizes(wlist)-1
+      delete(res@$wlist(na)$)
+    end do
+  end if
+end
+
+;**********************************************************************
+; This procedure fixes invalid settings of various labelbar resources
+; related to contour plots.
+;**********************************************************************
+undef("_fix_labelbar_resources")
+procedure _fix_labelbar_resources(cres)
+local aln_res_name, end_res_name, aln_res_str_val, end_res_str_val
+begin
+  if(.not.cres) then
+    return
+  end if
+
+  end_on_res   = "cnLabelBarEndLabelsOn"
+  aln_res_name = "lbLabelAlignment"
+  str_res_name = "lbLabelStrings"
+  end_res_name = "cnLabelBarEndStyle"
+  cap_res_name = "lbBoxEndCapStyle"
+  if(isatt(cres,end_on_res)) then
+    print("_fix_labelbar_resources: Warning: " + end_on_res + " is deprecated.")
+    if(isatt(cres,end_res_name)) then
+      print("  Your setting of " + end_res_name + " will override it.")
+    else if(cres@$end_on_res$) then
+      print("  Will remove it and set " + end_res_name + " to 'IncludeMinMaxLabels'.")
+      cres@$end_res_name$ = "IncludeMinMaxLabels"
+    else if(.not.cres@$end_on_res$) then
+      print("  Will remove it.")
+    end if
+    end if
+    end if
+    delete(cres@$end_on_res$)
+  end if
+
+;
+; The next set of checks are for if cnLabelBarEndStyle is set to
+; something, and one of lbLabelAlignment, lbBoxEndCapStyle, or 
+; lbLabelStrings is also set to something that doesn't make sense.
+;
+  if(.not.(isatt(cres,aln_res_name).or.\
+           isatt(cres,cap_res_name).or.\
+           isatt(cres,str_res_name)).and.\
+     .not.isatt(cres,end_res_name)) then
+    return
+  end if
+
+  if(isatt(cres,aln_res_name).and.\
+     (.not.check_attr_enum_value(cres,aln_res_name,"ExternalEdges").and.\
+      check_attr_enum_value(cres,end_res_name,"IncludeMinMaxLabels"))) then
+    print("_fix_labelbar_resources: Warning: if you set " + end_res_name + " to")
+    print("  IncludeMinMaxLabels, then you should not set " + aln_res_name + ".")
+    print("  Will remove the "+ aln_res_name + " resource.")
+    delete(cres@$aln_res_name$)
+  end if
+
+  if((isatt(cres,cap_res_name).and.isatt(cres,end_res_name)).and.\
+     (.not.check_attr_enum_value(cres,cap_res_name,"RectangleEnds").and.\
+           check_attr_enum_value(cres,end_res_name,"ExcludeOuterBoxes"))) then
+    print("_fix_labelbar_resources: Warning: if you set " + end_res_name + " to")
+    print("  ExcludeOuterBoxes, then you should not set " + cap_res_name + " to")
+    print("  any of the triangle ends.")
+    print("  Will remove the " + cap_res_name + " resource.")
+    if(isatt(cres,str_res_name)) then
+      print("  Be sure to check that " + str_res_name + " is correct!")
+    end if
+    delete(cres@$cap_res_name$)
+  end if
+end
+
+;***********************************************************************;
 ; Function : get_resources                                              ;
 ;                res:logical                                            ;
 ;                                                                       ;
@@ -370,7 +345,8 @@ begin
 ;
     res2 = True
   end if
-
+  remove_internal_wrf_resources(res2)
+  _fix_labelbar_resources(res2)
   return(res2)
 end
 
@@ -393,54 +369,19 @@ begin
 end
 
 ;***********************************************************************;
-; Function : check_attr                                                 ;
-;                res    : logical                                       ;
-;           att_name    : string                                        ;
-;          att_value                                                    ;
-;          convert_lower: logical                                       ;
+; Procedure : delete_attr                                               ;
+;                res:logical                                            ;
+;           att_name: string                                            ;
 ;                                                                       ;
-; Checks if res@att_name exists and if it is equal to att_value.        ;
+; Delete a resource if it exists.                                       ;
 ;***********************************************************************;
-undef("check_attr")
-function check_attr(res:logical,att_name:string,att_value, \
-                    convert_lower:logical)
-local res2, new_att_value, is_att_value_string, is_att_name_string
+undef("delete_attr")
+procedure delete_attr(res:logical,att_name:string)
 begin
-  res2 = res
-
-  if(res2.and.isatt(res2,att_name))
-    if(typeof(att_value).eq."string") then
-      is_att_value_string = True
-    else
-      is_att_value_string = False
-    end if
-
-    if(typeof(res@$att_name$).eq."string") then
-      is_att_name_string = True
-     else
-      is_att_name_string = False
-    end if
-;
-; If one value is a string and the other isn't, then we can't
-; compare them, and we just have to return False.
-
-    if(is_att_name_string.ne.is_att_value_string) then
-      return(False)
-    end if
-
-    if(is_att_value_string.and.convert_lower)
-      new_att_value   = lower_case(att_value)
-      res2@$att_name$ = lower_case(res2@$att_name$)
-    else
-      new_att_value = att_value
-    end if
-
-    if(res2@$att_name$.eq.new_att_value)
-      return(True)
-    end if
+  if(isatt(res,att_name))
+    delete(res@$att_name$)
   end if
-
-  return(False)
+  return
 end
 
 ;***********************************************************************;
@@ -555,63 +496,6 @@ begin
 end
 
 
-;***********************************************************************;
-; Function : get_res_value                                              ;
-;                res                                                    ;
-;            resname:string                                             ;
-;        default_val                                                    ;
-;                                                                       ;
-; This function checks to see if the given resource has been set, and if;
-; so, it returns its value and removes it from the resource list.       ;
-; Otherwise, it returns the default value which is the last argument    ;
-; passed in.                                                            ;
-;***********************************************************************;
-undef("get_res_value")
-function get_res_value(res,resname:string,default_val)
-local return_val
-begin
-  if(((typeof(res).eq."logical".and.res).or.(typeof(res).ne."logical")).and.\
-     .not.any(ismissing(getvaratts(res)))) then
-    if(isatt(res,resname)) then
-      return_val = res@$resname$
-      delete(res@$resname$)
-    else
-      return_val = default_val
-    end if
-  else
-    return_val = default_val
-  end if
-  return(return_val)
-end
-
-;***********************************************************************;
-; Function : get_res_value_keep                                         ;
-;                res:logical                                            ;
-;            resname:string                                             ;
-;        default_val                                                    ;
-;                                                                       ;
-; This function checks to see if the given resource has been set, and if;
-; so, it returns its value and keeps it from the resource list.         ;
-; Otherwise, it returns the default value which is the last argument    ;
-; passed in.                                                            ;
-;                                                                       ;
-;***********************************************************************;
-undef("get_res_value_keep")
-function get_res_value_keep(res,resname:string,default_val)
-local return_val
-begin
-  if(((typeof(res).eq."logical".and.res).or.(typeof(res).ne."logical")).and.\
-     .not.any(ismissing(getvaratts(res)))) then
-    if(isatt(res,resname)) then
-      return_val = res@$resname$
-    else
-      return_val = default_val
-    end if
-  else
-    return_val = default_val
-  end if
-  return(return_val)
-end
 
 
 ;***********************************************************************;
@@ -666,33 +550,21 @@ end
 ; an integer value if it's set as a string.                             ;
 ;***********************************************************************;
 undef("get_display_mode")
-function get_display_mode(res:logical,name:string,value)
+function get_display_mode(res[1]:logical,name[1]:string,value[1])
 local display_mode, new_display_mode 
 begin
   display_mode = get_res_value_keep(res,name,value)
 
   if(typeof(display_mode).ne."string") then
     return(display_mode)
-  else
-    new_display_mode = -1      ; Default is -1 ("nocreate")
-
-    if(lower_case(display_mode).eq."nocreate") then
-      new_display_mode = -1
-    end if
-    if(lower_case(display_mode).eq."never") then
-      new_display_mode = 0
-    end if
-    if(lower_case(display_mode).eq."always") then
-      new_display_mode = 1
-    end if
-    if(lower_case(display_mode).eq."conditional") then
-      new_display_mode = 2
-    end if
-    delete(display_mode)
-    display_mode = new_display_mode
   end if
-
-  return(new_display_mode)
+  
+  new_display_mode = get_enum_value(display_mode)
+  if(any(ismissing(new_display_mode))) then
+    return(get_enum_value("NoCreate"))
+  else
+    return(new_display_mode)
+  end if
 end
 
 ;***********************************************************************;
@@ -710,471 +582,6 @@ begin
     attsetvalues(plot,res)
   end if
   return
-end
-
-;***********************************************************************;
-; This function returns the list of named colors in the rgb.txt file.
-; This can be used to test for valid color names.
-;***********************************************************************;
-undef("get_named_color_list")
-function get_named_color_list()
-local db_dir, lines
-begin
-;---Read the rgb.txt file.
-  db_dir = ncargpath("database")
-  lines  = asciiread(db_dir + "/rgb.txt",-1,"string")
-;
-; Read list of named colors off the file.
-;
-; Need to use str_get_cols and not str_get_field,
-; because some color names have spaces in them,
-; and hence we can't use a space as a delimiter.
-;
-  named_colors = str_strip(str_get_cols(lines,12,-1))
-  return(named_colors)
-end
-
-;***********************************************************************;
-; This function checks the list of named colors to make sure they are
-; all valid.  It will return a logical array of the same size as the 
-; input array.
-;***********************************************************************;
-undef("is_valid_named_colors")
-function is_valid_named_colors(colors[*]:string)
-local i, valid_named_colors, ncolors
-begin
-  named_colors = str_lower(get_named_color_list())   ; list of valid colors
-
-  ncolors            = dimsizes(colors)
-  valid_named_colors = new(ncolors,logical)
-  valid_named_colors = False    ; initialize to False
-  do i=0,ncolors-1
-    if(any(str_lower(colors(i)).eq.named_colors)) then
-      valid_named_colors(i) = True
-    end if
-  end do
-  return(valid_named_colors)
-end
-
-;***********************************************************************;
-; This function returns the type of color being used: 
-;    color index     - values 0 to 255    "index"
-;    named color     - "blue"             "named"
-;    RGB triplet     - (/1,0,0.5/)        "rgb"
-;    RGBA quadruplet - (/1,0,0.5,0.5/)    "rgba"
-;
-; A missing string is returned if no valid type is detected.
-;***********************************************************************;
-undef("get_color_type")
-function get_color_type(color)
-local dims_color, rank_color
-begin
-  dims_color = dimsizes(color)
-  rank_color = dimsizes(dims_color)
-
-  if(rank_color.eq.1.and.dims_color.eq.1.and.\
-     typeof(color).eq."string".and.is_valid_named_colors(color)) then
-    return("named")
-  end if
-
-  if(rank_color.eq.1.and.dims_color.eq.1.and.\ 
-    any(typeof(color).eq.(/"short","integer","long"/)).and.\
-     color.ge.0.and.color.le.255) then
-    return("index")
-  end if
-
-  if((rank_color.eq.1.and.dims_color(0).eq.3.or.\ 
-      rank_color.eq.2.and.dims_color(1).eq.3).and.\
-     isnumeric(color).and.all(color.ge.0).and.all(color.le.1.0)) then
-    return("rgb")
-  end if
-
-  if((rank_color.eq.1.and.dims_color(0).eq.4.or.\ 
-      rank_color.eq.2.and.dims_color(1).eq.4).and.\
-     isnumeric(color).and.all(color.ge.0).and.all(color.le.1.0)) then
-    return("rgba")
-  end if
-
-  return(new(1,string))    ; otherwise return missing
-end
-
-;***********************************************************************;
-; This function returns the RGB triplets associated with a 
-; given list of named colors.
-; 
-; A n x 3 array is returned, where "n" is the number of 
-; named colors input.
-;
-; If a color is not found, missing values are returned for 
-; that color.
-;***********************************************************************;
-undef("namedcolor2rgb")
-function namedcolor2rgb(names[*]:string)
-local db_dir, lines, named_colors, i, ii, ncolors, \
-lnames, rgb_array
-begin
-;---Read list of named colors off the file.
-  named_colors = str_lower(get_named_color_list())
-;
-; Use str_sub_str to remove all tabs and spaces around
-; and inside the color name.
-;
-  named_colors = str_sub_str(named_colors," ","")
-  named_colors = str_sub_str(named_colors,"	","")
-  lnames       = str_lower(names)
-  ncolors      = dimsizes(names)
-  rgb_array    = new((/ncolors,3/),float)
-
-;---Read the rgb.txt file.
-  db_dir = ncargpath("database")
-  lines  = asciiread(db_dir + "/rgb.txt",-1,"string")
-
-;---Loop through named colors and find the requested one(s).
-  do i=0,ncolors-1
-;---Get index into rgb.txt table. There can be more than one.
-    ii = ind(lnames(i).eq.named_colors)
-
-;---Get associated RGB triplet
-    if(.not.any(ismissing(ii))) then
-      rgb_array(i,0) = tointeger(str_get_field(lines(ii(0)),1,\
-                                 " 	"))/255.
-      rgb_array(i,1) = tointeger(str_get_field(lines(ii(0)),2,\
-                                 " 	"))/255.
-      rgb_array(i,2) = tointeger(str_get_field(lines(ii(0)),3,\
-                                 " 	"))/255.
-    else
-      print("Warning: namedcolor2rgb: '" + names(i)  + "' is not a valid named color.")
-      print("Will return missing values for this color.")
-    end if
-    delete(ii)
-  end do
-  return(rgb_array)
-end
-
-;***********************************************************************;
-; This function returns the RGBA triplets associated with a 
-; given list of named colors.  The "A" value is always returned 
-; as the value of 1.0. This function basically calls namedcolor2rgb and
-; adds the "A" value.
-; 
-; A n x 4 array is returned, where "n" is the number of 
-; named colors input.
-;
-; If a color is not found, missing values are returned for 
-; that color.
-;***********************************************************************;
-undef("namedcolor2rgba")
-function namedcolor2rgba(names[*]:string)
-local rgb_array, rgba_array
-begin
-  rgb_array  = namedcolor2rgb(names)
-  ncolors    = dimsizes(rgb_array(:,0))
-  rgba_array = new((/ncolors,4/),typeof(rgb_array))
-  rgba_array(:,0:2) = rgb_array
-  rgba_array(:,3) = where(.not.ismissing(rgb_array(:,2)),1.0,\
-                           rgba_array@_FillValue)
-  return(rgba_array)
-end
-
-;***********************************************************************;
-; This function returns the RGBA values given an RGB array. The
-; "alpha" index is set to 1.0.
-; 
-; A n x 4 array is returned, where "n" is the number of 
-; named colors input.
-;***********************************************************************;
-undef("rgb2rgba")
-function rgb2rgba(rgb)
-local ncolors, rgba
-begin
-  dims = dimsizes(rgb)
-  rank = dimsizes(dims)
-
-  if((rank.eq.1.and.dims.ne.3).or.(rank.eq.2.and.dims(1).ne.3).or.\
-     rank.lt.1.or.rank.gt.2) then
-    print("rgb2rgba: The input must be an RGB array of length 3 or n x 3")
-    print("   Returning missing.")
-    return(new(4,float))
-  end if
-  if(rank.eq.2) then
-    ncolors     = dimsizes(rgb(:,0))
-    rgba        = new((/ncolors,4/),typeof(rgb))
-    rgba(:,0:2) = rgb
-    rgba(:,3)   = 1
-  else
-    rgba      = new(4,typeof(rgb))
-    rgba(0:2) = rgb
-    rgba(3)   = 1
-  end if
-  return(rgba)
-end
-
-;***********************************************************************;
-; This function returns the RGBA quadruplets associated with a 
-; given list of index colors.
-; 
-; A n x 4 array is returned, where "n" is the number of 
-; named colors input.
-;
-; If any input colors are invalid, then missing will be returned.
-;***********************************************************************;
-undef("indexcolor2rgba")
-function indexcolor2rgba(wks,color_indexes[*])
-local rgba_cmap, rgb_cmap, ncolors
-begin
-  getvalues wks
-      "wkColorMap" : rgb_cmap
-  end getvalues
-
-  ncolors = dimsizes(rgb_cmap(:,0))
-  if(any(color_indexes.lt.0.or.color_indexes.ge.ncolors)) then
-    print("Error:indexcolor2rgba: one or more of the index colors")
-    print("are invalid. Will return missing values.")
-    msg = new(4,float)
-    return(msg)
-  else
-    rgba_cmap = rgb2rgba(rgb_cmap)
-    return(rgba_cmap(color_indexes,:))
-  end if
-end
-
-;***********************************************************************;
-; Given a list of color indexes, named colors, RGB, or RGBA colors,
-; convert them to RGBA colors.
-;***********************************************************************;
-undef("convert_color_to_rgba")
-function convert_color_to_rgba(wks,colors)
-begin
-  color_type = get_color_type(colors)
-  if(color_type.eq."unknown")
-    print("Error: convert_color_to_rgba: invalid color(s). Returning missing.")
-    return(new(4,float))
-  end if
-
-  if(color_type.eq."rgba") then
-    rgba_colors = colors
-  end if
-  if(color_type.eq."index") then
-    rgba_colors = indexcolor2rgba(wks,colors)
-  end if
-  if(color_type.eq."named") then
-    rgba_colors = namedcolor2rgba(colors)
-  end if
-  if(color_type.eq."rgb") then
-    rgba_colors = rgb2rgba(colors)
-  end if
-
-  if(all(dimsizes(rgba_colors).eq.(/1,4/))) then
-    return(rgba_colors(0,:))
-  else
-    return(rgba_colors)
-  end if
-end
-
-
-;***********************************************************************;
-; Given two named colors and the number of colors, this
-; function creates a series of RGB triplets that spans
-; between the two colors.
-;***********************************************************************;
-undef("span_two_named_colors")
-function span_two_named_colors(named1[1]:string,named2[1]:string,ncolors,\
-                               opt[1]:logical)
-local rgb, msg, hsv1, hsv2, ii, hsv_array, debug, opt2, \
-      beg_hue, end_hue, beg_sat, end_sat, beg_val, end_val
-begin
-  opt2 = opt
-
-;---For debug prints
-  debug = get_res_value_keep(opt2,"Debug",False)
-
-  rgb = namedcolor2rgb((/named1,named2/))
-  msg = new(3,float)
-  if(any(ismissing(rgb))) then
-    print("Error:span_two_named_colors one or both of the named colors")
-    print("are invalid. Returning missing.")
-    return(msg)
-  end if
-
-;---Convert to HSV.
-  hsv1 = rgbhsv(rgb(0,:))
-  hsv2 = rgbhsv(rgb(1,:))
-
-  if(debug)
-    rgbstr1 = "(" + sprintf("%7.2f", rgb(0,0)) + ", " + \
-                    sprintf("%7.2f", rgb(0,1)) + ", " + \
-                    sprintf("%7.2f", rgb(0,2)) + ") "
-    hsvstr1 = "(" + sprintf("%7.2f", hsv1(0)) + ", " + \
-                    sprintf("%7.2f", hsv1(1)) + ", " + \
-                    sprintf("%7.2f", hsv1(2)) + ") "
-    rgbstr2 = "(" + sprintf("%7.2f", rgb(1,0)) + ", " + \
-                    sprintf("%7.2f", rgb(1,1)) + ", " + \
-                    sprintf("%7.2f", rgb(1,2)) + ") "
-    hsvstr2 = "(" + sprintf("%7.2f", hsv2(0)) + ", " + \
-                    sprintf("%7.2f", hsv2(1)) + ", " + \
-                    sprintf("%7.2f", hsv2(2)) + ") "
-
-    print(named1 + ", RGB: " + rgbstr1)
-    print(named2 + ", RGB: " + rgbstr2)
-    print(named1 + ", HSV: " + hsvstr1)
-    print(named2 + ", HSV: " + hsvstr2)
-  end if
-
-  if(ncolors.le.0.or.ncolors.gt.256) then
-    print("Error:span_two_named_colors: Invalid number of colors requested.")
-    print("Defaulting to 256.")
-    ncolors = 256
-  end if
-
-;---Create array to return
-  hsv_array = new((/ncolors,3/),float)
-
-;---Generate a span of colors from first color to second
-  beg_hue = hsv1(0)    ; begin HUE value
-  end_hue = hsv2(0)    ; end HUE value
-  beg_sat = hsv1(1)    ; begin SAT value
-  end_sat = hsv2(1)    ; end SAT value
-  beg_val = hsv1(2)    ; begin VAL value
-  end_val = hsv2(2)    ; end VAL value
-
-  ii             = ispan(0,ncolors-1,1)
-  hsv_array(:,0) = beg_hue + \
-                   ii*((end_hue-beg_hue)/(ncolors-1))
-  hsv_array(:,1) = beg_sat + \
-                   ii*((end_sat-beg_sat)/(ncolors-1))
-  hsv_array(:,2) = beg_val + \
-                   ii*((end_val-beg_val)/(ncolors-1))
-
-  return(hsvrgb(hsv_array))
-end
-
-;***********************************************************************;
-; Given a list of named colors, this function creates a 
-; series of RGB triplets that creates a span between each 
-; set of colors. The first two colors will be set to white
-; and black.
-;
-; By default, it will create a color map with 256 triplets.
-; The "opt" variable can be used to set the following
-; options:
-;
-;   opt@NumColorsInTable
-;      Number of colors to put in the color table.
-;      Must be <= 256 and > # of named colors specified.
-;
-;   opt@NumColorsInRange
-;      Number of colors to span between each set of
-;      named colors. For example, if you specify three 
-;      colors (/"red", "green", "blue","purple"/), and
-;      NumColorsInRange of (/5, 8, 4/), then you'll have a
-;      color table with:
-;
-;   0        1        2         6         13      16
-;  white   black     red......green......blue....purple
-;***********************************************************************;
-undef("span_named_colors")
-function span_named_colors(named_colors,opt[1]:logical)
-local i, ncolt, ncols_per_rng, def_ncols_per_rng, nnamed, \ 
-      rgb_array, nbeg, nend, ncpg, debug, rgbtmp, opt2
-begin
-  opt2 = opt
-
-;---For debug prints
-  debug = get_res_value_keep(opt2,"Debug",False)
-
-
-;---Get # of colors in color table.
-  ncolt  = get_res_value_keep(opt2,"NumColorsInTable",256)
-  if(ncolt.le.0.or.ncolt.gt.256) then
-    print("Error:span_named_colors: Invalid number of colors requested.")
-    print("Defaulting to 256.")
-    ncolt = 256
-  end if
-
-;---Check # of named colors.
-  nnamed = dimsizes(named_colors)
-  if(nnamed.le.1) then
-    print("Error:span_named_colors: You must specify more than one named color.")
-    return(new((/1,3/),float))
-  end if
-
-;
-; Get number of colors between each set of named colors.
-; The number in the range includes both end colors.
-;
-; Default is to use equally spaced colors.
-;
-  ncpg              = (ncolt-2)/(nnamed-1)
-  def_ncols_per_rng = new(nnamed-1,integer)
-  def_ncols_per_rng = ncpg
-  if(opt2.and.isatt(opt2,"NumColorsInRange")) then
-    ncols_per_rng = get_res_value_keep(opt2,"NumColorsInRange",-1)
-    if(dimsizes(ncols_per_rng).ne.(nnamed-1)) then
-      print("span_named_colors: Invalid # of colors per range.")
-      print("Using equally spaced colors.")
-      delete(ncols_per_rng)
-      ncols_per_rng = def_ncols_per_rng
-    end if
-  else
-    ncols_per_rng = def_ncols_per_rng
-  end if
-
-;
-; Calculate total number of colors and create RGB 
-; array to populate.
-;
-; Since the inside colors are part of two ranges, but only
-; counted once, you need to account for this. The "2" is
-; for the background, foreground coors.
-;
-  ncolt     = sum(ncols_per_rng)+2-(nnamed-2)
-  rgb_array = new((/ncolt,3/),float)
-
-  if(debug) then
-    print("# colors in table  = " + ncolt)
-  end if
-
-;---Background color defaults to white.
-  rgb_array(0,:) = (/1.,1.,1./)      ; White
-  if(opt2.and.isatt(opt2,"BackgroundColor")) then
-    rgbtmp = namedcolor2rgb(opt2@BackgroundColor)
-    if(any(ismissing(rgbtmp))) then
-      print("span_named_colors: Invalid background color.")
-      print("Defaulting to white.")
-    else
-      rgb_array(0,:) = rgbtmp
-    end if
-  end if
-
-;---Foreground color defaults to black.
-  rgb_array(1,:) = (/0.,0.,0./)      ; Black
-  if(opt2.and.isatt(opt2,"ForegroundColor")) then
-    rgbtmp = namedcolor2rgb(opt2@ForegroundColor)
-    if(any(ismissing(rgbtmp))) then
-      print("span_named_colors: Invalid foreground color.")
-      print("Defaulting to black.")
-    else
-      rgb_array(1,:) = rgbtmp
-    end if
-  end if
-
-  nbeg = 2
-  nend = nbeg + ncols_per_rng(0) - 1
-  do i=0,nnamed-2
-    if(debug) then
-      print("Indexes " + nbeg + " to " + nend + \
-            ", "+named_colors(i)+" to "+named_colors(i+1)+\
-            ", " + ncols_per_rng(i) + " colors per range")
-    end if
-    rgb_array(nbeg:nend,:) = span_two_named_colors(named_colors(i), \
-                                                   named_colors(i+1), \
-                                                   ncols_per_rng(i),opt2)
-    if(i.lt.(nnamed-2)) then
-      nbeg = nend     ; Start where we ended
-      nend = nbeg + ncols_per_rng(i+1) -1
-    end if
-  end do
-  return(rgb_array)
 end
 
 ;***********************************************************************;
@@ -1899,8 +1306,8 @@ end
 ;                plot:graphic                                           ;
 ;                                                                       ;
 ; Determine what class type "plot" is. If it's a logLinPlotClass, then  ;
-; It should have an attribute "contour" or "vector" that is the         ;
-; corresponding contour or vector plot.                                 ;
+; It should have an attribute "contour", "vector", "xy", or             ;
+; "streamine" that is the corresponding contour or vector plot.         ;
 ;                                                                       ;
 ;***********************************************************************;
 undef("get_plot_not_loglin")
@@ -1913,61 +1320,71 @@ begin
   class = NhlClassName(plot)
 
   if(class(0).ne."contourPlotClass".and.class(0).ne."vectorPlotClass".and. \
-     class(0).ne."xyPlotClass") then
+     class(0).ne."xyPlotClass".and.class(0).ne."streamlinePlotClass") then
     if(isatt(plot,"contour")) then
       new_plot = plot@contour
       new_plot@plot_type = "contour"
+    else if(isatt(plot,"vector")) then
+      new_plot = plot@vector
+      new_plot@plot_type = "vector"
+    else if(isatt(plot,"streamline")) then
+      new_plot = plot@streamline
+      new_plot@plot_type = "streamline"
     else
-      if(isatt(plot,"vector")) then
-        new_plot = plot@vector
-        new_plot@plot_type = "vector"
-      else
-        found = False
-        getvalues plot
-          "pmOverlaySequenceIds" : base_ids
-        end getvalues
-        if(.not.any(ismissing(base_ids))) then
-	  nbase = dimsizes(base_ids)
-	  i = 0
-	  do while(.not.found.and.i.lt.nbase) 
-            bclass = NhlClassName(base_ids(i))
-            if(bclass.eq."contourPlotClass") then
-              new_plot = base_ids(i)
-              new_plot@plot_type = "contour"
-	      found = True
-            end if
-            if(bclass.eq."vectorPlotClass") then
-              new_plot = base_ids(i)
-              new_plot@plot_type = "vector"
-	      found = True
-            end if
-            if(bclass.eq."xyPlotClass") then
-              new_plot = base_ids(i)
-              new_plot@plot_type = "xy"
-	      found = True
-            end if
-	    i = i + 1
-	  end do
-	end if
-        if(.not.found) then
-          new_plot = plot(0)
-        end if
+      found = False
+      getvalues plot
+        "pmOverlaySequenceIds" : base_ids
+      end getvalues
+      if(.not.any(ismissing(base_ids))) then
+        nbase = dimsizes(base_ids)
+        i = 0
+        do while(.not.found.and.i.lt.nbase) 
+          bclass = NhlClassName(base_ids(i))
+          if(bclass.eq."contourPlotClass") then
+            new_plot = base_ids(i)
+            new_plot@plot_type = "contour"
+            found = True
+          else if(bclass.eq."vectorPlotClass") then
+            new_plot = base_ids(i)
+            new_plot@plot_type = "vector"
+            found = True
+          else if(bclass.eq."streamlinePlotClass") then
+            new_plot = base_ids(i)
+            new_plot@plot_type = "streamline"
+            found = True
+          else if(bclass.eq."xyPlotClass") then
+            new_plot = base_ids(i)
+            new_plot@plot_type = "xy"
+            found = True
+          end if
+          end if
+          end if
+          end if
+          i = i + 1
+        end do
       end if
+      if(.not.found) then
+        new_plot = plot(0)
+      end if
+    end if
+    end if
     end if
   else
     if(class(0).eq."contourPlotClass") then
       new_plot = plot(0)
       new_plot@plot_type = "contour"
-    else
-      if(class(0).eq."vectorPlotClass") then
-        new_plot = plot(0)
-        new_plot@plot_type = "vector"
-      else
-        if(class(0).eq."xyPlotClass") then
-          new_plot = plot(0)
-          new_plot@plot_type = "xy"
-        end if
-      end if
+    else if(class(0).eq."vectorPlotClass") then
+      new_plot = plot(0)
+      new_plot@plot_type = "vector"
+    else if(class(0).eq."streamlinePlotClass") then
+      new_plot = plot(0)
+      new_plot@plot_type = "streamline"
+    else if(class(0).eq."xyPlotClass") then
+      new_plot = plot(0)
+      new_plot@plot_type = "xy"
+    end if
+    end if
+    end if
     end if
   end if
   return(new_plot)
@@ -1980,9 +1397,9 @@ end
 ; This function is for gsn_panel, to help it determine which plot info  ;
 ; to use to construct a labelbar.                                       ;
 ;                                                                       ;
-; In a future release of NCL (> 6.1.0), we hope to make the PlotManager ;
-; the default labelbar, so we added some checks to this code for        ; 
-; pmLabelBarDisplayMode being equal to 1 ("Always").                    ;
+; In a future release of NCL we hope to make the PlotManager the        ;
+; default labelbar, so we added some checks to this code for            ; 
+; pmLabelBarDisplayMode being equal to "Always".                        ;
 ;***********************************************************************;
 undef("get_plot_labelbar")
 function get_plot_labelbar(plot:graphic)
@@ -2010,8 +1427,7 @@ begin
     getvalues plot
       "pmLabelBarDisplayMode" : lbar_mode
     end getvalues
-;---lbar_mode.eq.1 --> "Always"
-    if(lbar_mode.eq.1) then
+    if(lbar_mode.eq.get_enum_value("Always")) then
       new_plot = plot
       new_plot@PlotManagerLabelBar = True
       return(new_plot)
@@ -2040,17 +1456,13 @@ begin
         "cnFillOn"              : cn_fillon
         "pmLabelBarDisplayMode" : lbar_mode
       end getvalues 
-      if(lbar_mode.eq.1.or.cn_fillon) then
+      if(lbar_mode.eq.get_enum_value("Always").or.cn_fillon) then
         found = True
         new_plot = ids(i)
         new_plot@plot_type = "contour"
       end if
     end if
     if(id_class.eq."vectorPlotClass") then
-;
-;  Glyph styles:
-     ; 0 = linearrow, 1 = fillarrow, 2 = windbarb, 3 = curlyvector
-;
       getvalues ids(i)
         "vcGlyphStyle"             : vc_glyphstyle
         "vcMonoFillArrowFillColor" : vc_monofillarrowfillcolor
@@ -2058,11 +1470,11 @@ begin
         "vcMonoWindBarbColor"      : vc_monowindbarbcolor
         "pmLabelBarDisplayMode"    : lbar_mode
       end getvalues
-      if( (lbar_mode.eq.1) .or.\
-          (vc_glyphstyle.eq.0.and..not.vc_monolinearrowcolor) .or.\
-          (vc_glyphstyle.eq.1.and..not.vc_monofillarrowfillcolor) .or. \
-          (vc_glyphstyle.eq.2.and..not.vc_monowindbarbcolor)  .or. \
-          (vc_glyphstyle.eq.3.and..not.vc_monolinearrowcolor)) then
+      if( (lbar_mode.eq.get_enum_value("Always")) .or.\
+          (vc_glyphstyle.eq.get_enum_value("LineArrow").and..not.vc_monolinearrowcolor) .or.\
+          (vc_glyphstyle.eq.get_enum_value("FillArrow").and..not.vc_monofillarrowfillcolor) .or. \
+          (vc_glyphstyle.eq.get_enum_value("WindBarb").and..not.vc_monowindbarbcolor)  .or. \
+          (vc_glyphstyle.eq.get_enum_value("CurlyVector").and..not.vc_monolinearrowcolor)) then
         found = True
         new_plot = ids(i)
         new_plot@plot_type = "vector"
@@ -2073,7 +1485,7 @@ begin
         "stMonoLineColor"       : st_monolinecolor
         "pmLabelBarDisplayMode" : lbar_mode
       end getvalues
-      if(lbar_mode.eq.1.or..not.st_monolinecolor) then
+      if(lbar_mode.eq.get_enum_value("Always").or..not.st_monolinecolor) then
         found = True
         new_plot = ids(i)
         new_plot@plot_type = "streamline"
@@ -2324,15 +1736,19 @@ begin
                 "gsn_csm_streamline_contour_map_polar", \
                 "gsn_csm_streamline_map", "gsn_csm_streamline_map_ce", \
                 "gsn_csm_streamline_map_other", \
-                "gsn_csm_streamline_map_polar", "gsn_csm_time_lat", \
-                "gsn_csm_vector", "gsn_csm_vector_map", \
+                "gsn_csm_streamline_map_polar",  \
+                "gsn_csm_streamline_scalar_map", \
+                "gsn_csm_streamline_scalar_map_ce", \
+                "gsn_csm_streamline_scalar_map_other", \
+                "gsn_csm_streamline_scalar_map_polar", \
+                "gsn_csm_time_lat", "gsn_csm_vector", "gsn_csm_vector_map", \
                 "gsn_csm_vector_map_ce", "gsn_csm_vector_map_other", \
                 "gsn_csm_vector_map_polar", "gsn_csm_vector_scalar", \
                 "gsn_csm_vector_scalar_map", \
                 "gsn_csm_vector_scalar_map_ce", \
                 "gsn_csm_vector_scalar_map_other", \
-                "gsn_csm_vector_scalar_map_polar", "gsn_csm_xy", \
-                "gsn_csm_y", "gsn_histogram", "gsn_map", \
+                "gsn_csm_vector_scalar_map_polar", \
+                "gsn_csm_xy", "gsn_csm_y", "gsn_histogram", "gsn_map", \
                 "gsn_streamline", "gsn_streamline_contour", \
                 "gsn_streamline_map", "gsn_vector", \
                 "gsn_vector_contour", "gsn_vector_contour_map", \
@@ -2965,7 +2381,7 @@ begin
       lc_orient = "landscape"
     end if
   else
-    lc_orient = lower_case(paper_orient)
+    lc_orient = str_lower(paper_orient)
   end if
 ;
 ; Get the bounding box that covers all the plots.  If gsnPanel 
@@ -3045,7 +2461,7 @@ begin
 ;
 ; Initialization
 ;
-  dpi        = 72                       ; Dots per inch.
+  dpi        = 72.                       ; Dots per inch.
   dpi_pw     = paper_width  * dpi
   dpi_ph     = paper_height * dpi
   dpi_margin = paper_margin * dpi
@@ -3567,15 +2983,9 @@ end
 ; perimeter is turned off, and the fill patterns are set to solid.      ;
 ;                                                                       ;
 ; "EndStyle" is a special internal resource that comes from the         ;
-; cnLabelBarEndStyle resource. It defaults to 0 (include outer boxes),  ;
-; and can be set to 1 (include min/max labels) or 2 (exclude outer      ; 
-; boxes). The assumption is that if this resource is set to 2, then the ;
-; nbox, colors, and labels that are input are set up expecting one more ;
-; box than you have labels (i.e. you are expecting to label the         ;
-; interior edges only). If set to 2, then the assumption is that the    ;
-; labels already contain the min/max values, and you have the correct   ;
-; nbox and colors.                                                      ;
-;                                                                       ;
+; cnLabelBarEndStyle resource. Since there is no specific EndStyle      ;
+; resource for labelbar objects, we may have to subset the colors and   ;
+; the labels to account for this. This is what "SubsetStuff" is for.    ;
 ;***********************************************************************;
 undef("create_labelbar")
 function create_labelbar(wks:graphic, nbox:integer, colors, labels, \
@@ -3594,25 +3004,36 @@ begin
   perim_on      = get_res_value(lbres,"lbPerimOn",False)
   font_height   = get_res_value(lbres,"lbLabelFontHeightF",0.1)
   mono_fill_pat = get_res_value(lbres,"lbMonoFillPattern",True);
+  subset_stuff  = get_res_value(lbres,"SubsetStuff",False)
 
+  ncolors = dimsizes(colors)
   if(isatt(lbres,"EndStyle")) then
-    end_style = get_res_value(lbres,"EndStyle",0)
-    if(.not.(end_style.ge.0.and.end_style.le.2)) then
-      end_style = 0
+    end_style = get_res_value(lbres,"EndStyle",get_enum_value("IncludeOuterBoxes"))
+    if(.not.any(end_style.eq.(/get_enum_value("IncludeOuterBoxes"),\
+                               get_enum_value("IncludeMinMaxLabels"),\
+                               get_enum_value("ExcludeOuterBoxes")/))) then
+      end_style = get_enum_value("IncludeOuterBoxes")
     end if
-    if(end_style.eq.2) then
-; Exclude outer boxes
-      nbox2       = nbox-2
-      new_colors  = get_res_value(lbres,"lbFillColors",colors(1:))
+    if(end_style.eq.get_enum_value("ExcludeOuterBoxes")) then
       label_align = get_res_value(lbres,"lbLabelAlignment","ExternalEdges")
+      if(subset_stuff) then
+        nbox2       = nbox-2
+        new_colors  = get_res_value(lbres,"lbFillColors",colors(1:ncolors-2))
+;;        if(label_align.eq.get_enum_value("InteriorEdges"))
+;;          tmp_labels = new_labels(1:)
+;;          delete(new_labels)
+;;          new_labels = tmp_labels
+;;        end if
+      else
+        nbox2       = nbox
+        new_colors  = get_res_value(lbres,"lbFillColors",colors)
+      end if
     else
       nbox2       = nbox
       new_colors  = get_res_value(lbres,"lbFillColors",colors)
-      if(end_style.eq.0) then
-; Include outer boxes
+      if(end_style.eq.get_enum_value("IncludeOuterBoxes")) then
         label_align = get_res_value(lbres,"lbLabelAlignment","InteriorEdges")
-      else
-; Include min max labels
+      else ; IncludeMinMaxLabels
         label_align = get_res_value(lbres,"lbLabelAlignment","ExternalEdges")
       end if
     end if
@@ -3651,7 +3072,7 @@ undef("is_cairo_ps")
 function is_cairo_ps(wtype)
 local lwtype, cpsenv
 begin
-  lwtype = lower_case(wtype)
+  lwtype = str_lower(wtype)
   cpsenv = getenv("NCARG_OLD_PS")
   if(lwtype.eq."newps".or.(lwtype.eq."ps".and.ismissing(cpsenv))) then
     return(True)
@@ -3667,7 +3088,7 @@ undef("is_cairo_pdf")
 function is_cairo_pdf(wtype)
 local lwtype, cpdfenv
 begin
-  lwtype  = lower_case(wtype)
+  lwtype  = str_lower(wtype)
   cpdfenv = getenv("NCARG_OLD_PDF")
   if(lwtype.eq."newpdf".or.(lwtype.eq."pdf".and.ismissing(cpdfenv))) then
     return(True)
@@ -3683,7 +3104,7 @@ undef("is_cairo_png")
 function is_cairo_png(wtype)
 local lwtype
 begin
-  lwtype = lower_case(wtype)
+  lwtype = str_lower(wtype)
   if(lwtype.eq."newpng".or.lwtype.eq."png") then
     return(True)
   else
@@ -3698,7 +3119,7 @@ undef("is_cairo_eps")
 function is_cairo_eps(wtype)
 local lwtype, cpsenv
 begin
-  lwtype = lower_case(wtype)
+  lwtype = str_lower(wtype)
   cpsenv = getenv("NCARG_OLD_EPS")
   if (lwtype.eq."eps".and.ismissing(cpsenv)) then
     return(True)
@@ -3714,7 +3135,7 @@ undef("is_cairo_svg")
 function is_cairo_svg(wtype)
 local lwtype
 begin
-  lwtype = lower_case(wtype)
+  lwtype = str_lower(wtype)
   if (lwtype.eq."svg") then
     return(True)
   else
@@ -4027,7 +3448,7 @@ function gsn_open_wks(type[1]:string,name[1]:string)
 local i, wks, appusrdir, name_char, not_found, res_file, res_dir, type2, realtype, suffix
 begin
     type2   = type          ; Make copy of type and its resources
-    type2  = lower_case(type)
+    type2  = str_lower(type)
     res_dir = "./"          ; Default resource directory.
     res_file = "gsnapp"     ; Default resource file name.
     valid_type = False      ; Is type valid?
@@ -5738,55 +5159,54 @@ end
 undef("gsn_create_text_ndc")
 function gsn_create_text_ndc(wks:graphic, texto:string, xo:numeric, \
                              yo:numeric, resources:logical )
-local i, txid, plot_object, res, tx_res_index, x2, y2, x, y, res2, \
-calldraw, callframe
+local i, txid, plot_object, res, tx_res_index, x, y, res2, \
+calldraw, callframe, xsize, ysize, tsize, len, dims
 begin
 ;
 ; Any one of xo, yo, and texto can just be one element, but if two or more
 ; are more than one element, then they must be exactly the same size.
 ;
-  xsizes = dimsizes(xo)
-  ysizes = dimsizes(yo)
-  tsizes = dimsizes(texto)
-  xrank  = dimsizes(xsizes)
-  yrank  = dimsizes(ysizes)
-  trank  = dimsizes(tsizes)
-  if(xrank.gt.1.and.yrank.gt.1.and..not.all(xsizes.eq.ysizes)) then
-    print("Error: gsn_text_ndc: x and y must have the same dimension sizes, or either be a single value.")
+  xsize = product(dimsizes(xo))
+  ysize = product(dimsizes(yo))
+  tsize = product(dimsizes(texto))
+  if((xsize.gt.1.and.ysize.gt.1.and.xsize.ne.ysize).or.\
+     (xsize.gt.1.and.tsize.gt.1.and.xsize.ne.tsize).or.\
+     (ysize.gt.1.and.tsize.gt.1.and.ysize.ne.tsize))
+    print("Error: gsn_create_text_ndc: x, y, and text must have the same dimension sizes, or be scalars.")
     dummy = new(1,graphic)
     return(dummy)
   end if
-  if(trank.gt.1.and. \
-     (xrank.gt.1.and..not.all(xsizes.eq.tsizes)) .or. \
-     (yrank.gt.1.and..not.all(ysizes.eq.tsizes))) then
-    print("Error: gsn_text_ndc: text must be a single string or the same dimension size as x and/or y.")
-    dummy = new(1,graphic)
-    return(dummy)
-  end if
-;
-; Convert to 1-dimensional arrays of all the same length.
-;
-  if(xrank.gt.1) then
-    x    = ndtooned(new(xsizes, typeof(xo)))
-    y    = ndtooned(new(xsizes, typeof(yo)))
-    text = ndtooned(new(xsizes, typeof(texto)))
-  else
-    if(yrank.gt.1) then
-      x    = ndtooned(new(ysizes, typeof(xo)))
-      y    = ndtooned(new(ysizes, typeof(yo)))
-      text = ndtooned(new(ysizes, typeof(texto)))
+
+;---Convert to 1-dimensional arrays of all the same length.
+  all_scalar = all((/xsize,ysize,tsize/).eq.1)
+  if(all_scalar.or.all((/xsize,ysize,tsize/).gt.1)) then
+    len  = xsize
+    dims = dimsizes(xo)
+    x    = ndtooned(xo)
+    y    = ndtooned(yo)
+    text = ndtooned(texto)
+  else  
+;---We know at least one of these is not a scalar.
+    len = max((/xsize,ysize,tsize/))
+    if(xsize.gt.1) then
+      x    = ndtooned(xo)
+      dims = dimsizes(xo)
     else
-      x    = new(xsizes > ysizes, typeof(xo))
-      y    = new(xsizes > ysizes, typeof(yo))
-      text = new(xsizes > ysizes, typeof(texto))
+      x = conform_dims(len,xo,-1)
+    end if
+    if(ysize.gt.1) then
+      y    = ndtooned(yo)
+      dims = dimsizes(yo)
+    else
+      y = conform_dims(len,yo,-1)
+    end if
+    if(tsize.gt.1) then
+      text = ndtooned(texto)
+      dims = dimsizes(texto)
+    else
+      text = conform_dims(len,texto,-1)
     end if
   end if
-
-  x    = ndtooned(xo)
-  y    = ndtooned(yo)
-  text = ndtooned(texto)
-  len  = dimsizes(x)
-
   res2 = get_resources(resources)
 
   wksname = get_res_value_keep(wks,"name","gsnapp")
@@ -5848,13 +5268,11 @@ begin
     end if
   end if
 
-  if(xrank.gt.1) then
-    return(onedtond(txid,xsizes))
+  if(all_scalar) then
+    return(txid)
+  else
+    return(reshape(txid,dims))
   end if
-  if(yrank.gt.1) then
-    return(onedtond(txid,ysizes))
-  end if
-  return(txid)
 end
 
 ;***********************************************************************;
@@ -6283,27 +5701,19 @@ local type_xcoord, type_ycoord, pres, res2, pres, dims, rank, \
   is_nonmsgclr_trans, is_defclr_trans, tmpstr, i, imsg
 begin
   res2 = res                     ; Make copy so we can modify it
-  imsg = new(1,integer)
 
 ;---Check for special resources
   maxbb         = get_bb_res(res2)
   defclr        = get_res_value(res2,"gsMarkerColor",1)
   defmrk        = get_res_value(res2,"gsMarkerIndex",16)
-  msgclr        = get_res_value(res2,"gsnCoordsMissingColor",imsg)
-  nonmsgclr     = get_res_value(res2,"gsnCoordsNonMissingColor",imsg)
+  msgclr        = get_res_value(res2,"gsnCoordsMissingColor",defclr)
+  msgidx        = get_res_value(res2,"gsnCoordsMissingIndex",defmrk)
+  nonmsgclr     = get_res_value(res2,"gsnCoordsNonMissingColor",defclr)
+  nonmsgidx     = get_res_value(res2,"gsnCoordsNonMissingIndex",defmrk)
   attach_coords = get_res_value(res2,"gsnCoordsAttach",False)
   draw_lines    = get_res_value(res2,"gsnCoordsAsLines",False)
-
-;---Check if color is transparent.
-  is_defclr_trans    = ((typeof(defclr).eq."string".and. \
-                         str_lower(defclr).eq."transparent").or. \
-                        (typeof(defclr).eq."integer".and.defclr.eq.-1))
-  is_msgclr_trans    = ((typeof(msgclr).eq."string".and. \
-                         str_lower(msgclr).eq."transparent").or. \
-                        (typeof(msgclr).eq."integer".and.msgclr.eq.-1))
-  is_nonmsgclr_trans = ((typeof(nonmsgclr).eq."string".and. \
-                         str_lower(nonmsgclr).eq."transparent").or. \
-                        (typeof(nonmsgclr).eq."integer".and.nonmsgclr.eq.-1))
+  draw_msg      = .not.is_color_transparent(msgclr)        ; this is for markers only
+  draw_nonmsg   = .not.is_color_transparent(nonmsgclr)     ; ditto
 
   if(attach_coords) then
     calldraw  = get_res_value(res2,"gsnDraw", False)
@@ -6315,6 +5725,7 @@ begin
 ;
 ; Figure out what kind of X and Y coordinates we have.
 ; Valid kinds include:
+;    gsnCoordsLon or gsnCoordsLat attributes attached to res ("res_coord").
 ;    gsnCoordsX or gsnCoordsY attributes attached to res ("res_coord").
 ;    1D coord array attached to data ("data_coord").
 ;    2D lat2d/lon2d attributes attached to data ("data_att")
@@ -6461,17 +5872,7 @@ begin
     draw_and_frame(wks,plot,calldraw,False,False,maxbb)
   end if
 
-;----------------------------------------------------------------------
-; There are three ways the markers can get drawn:
-;    - the markers in missing data locations
-;    - the markers in non-missing data locations
-;    - the markers at all locations.
-;
-; If a color is specified as -1 or "transparent", then don't
-; waste time drawing the markers.
-;
-; If drawing lines, then you get all of them.
-;----------------------------------------------------------------------
+;---Draw coordinates using lines.
   if(draw_lines) then
     if(attach_coords) then
       do i=0,ny-1
@@ -6495,10 +5896,25 @@ begin
       end do
     end if
   else
-    if(.not.ismissing(msgclr).and..not.is_msgclr_trans) then
-      pres@gsMarkerColor = msgclr
-      pres@gsMarkerIndex = defmrk
-      ii = ind(ismissing(ndtooned(data)))
+;---Draw coordinates using markers.
+    if(draw_nonmsg) then
+      pres@gsMarkerColor := nonmsgclr
+      pres@gsMarkerIndex := nonmsgidx
+      ii = ind(.not.ismissing(ndtooned(data)))
+      if(.not.all(ismissing(ii))) then
+        if(attach_coords) then
+          tmpstr = unique_string("markers_nonmsg")
+          plot@$tmpstr$ = gsn_add_polymarker(wks,plot,xcoord_1d(ii),\
+                                             ycoord_1d(ii),pres)
+        else
+          gsn_polymarker(wks,plot,xcoord_1d(ii),ycoord_1d(ii),pres)
+        end if
+      end if
+    end if ; draw_nonmsg
+    if(draw_msg) then
+      pres@gsMarkerColor := msgclr
+      pres@gsMarkerIndex := msgidx
+      ii := ind(ismissing(ndtooned(data)))
       if(.not.all(ismissing(ii))) then
         if(attach_coords) then
           tmpstr = unique_string("markers_msg")
@@ -6508,60 +5924,9 @@ begin
           gsn_polymarker(wks,plot,xcoord_1d(ii),ycoord_1d(ii),pres)
         end if
       end if
-      delete(ii)
-    end if
-    draw_non_msg = False
-;
-; Somewhat complicated logic to determine whether we want to
-; draw the markers at non-missing locations.
-;
-    if(.not.ismissing(msgclr).or..not.ismissing(nonmsgclr)) then
-      if(.not.is_nonmsgclr_trans) then
-        if(isatt(pres,"gsMarkerColor")) then
-          delete(pres@gsMarkerColor)
-        end if
-        pres@gsMarkerColor = nonmsgclr
-        pres@gsMarkerIndex = defmrk
-        draw_non_msg       = True
-      else
-        if(ismissing(nonmsgclr).and..not.is_defclr_trans) then
-          if(isatt(pres,"gsMarkerColor")) then
-            delete(pres@gsMarkerColor)
-          end if
-          pres@gsMarkerColor = defclr
-          pres@gsMarkerIndex = defmrk
-          draw_non_msg       = True
-        end if
-      end if
-      if(draw_non_msg) then
-        ii = ind(.not.ismissing(ndtooned(data)))
-        if(.not.all(ismissing(ii))) then
-          if(attach_coords) then
-            tmpstr = unique_string("markers_nonmsg")
-            plot@$tmpstr$ = gsn_add_polymarker(wks,plot,xcoord_1d(ii),\
-                                               ycoord_1d(ii),pres)
-          else
-            gsn_polymarker(wks,plot,xcoord_1d(ii),ycoord_1d(ii),pres)
-         end if
-       end if
-        delete(ii)
-      end if
-     end if
+    end if ; draw_msg
+  end if   ; draw_lines
 
-    if(ismissing(msgclr).and.ismissing(nonmsgclr).and. \
-       .not.is_defclr_trans) then
-      pres@gsMarkerColor = defclr
-      pres@gsMarkerIndex = defmrk
-      if(attach_coords) then
-        tmpstr = unique_string("markers_all")
-        plot@$tmpstr$ = gsn_add_polymarker(wks,plot,xcoord_1d,\
-                                           ycoord_1d,pres)
-      else
-        gsn_polymarker(wks,plot,xcoord_1d,ycoord_1d,pres)
-      end if
-    end if
-
-  end if  ; draw_lines
   if(attach_coords) then
     draw_and_frame(wks,plot,calldraw,callframe,False,maxbb)
   else
@@ -6569,6 +5934,205 @@ begin
       frame(wks)
     end if
   end if
+end
+
+;----------------------------------------------------------------------
+; Retrieve resource needed to determine the end style for a 
+; labelbar. This resource is only available for contour plots, so
+; we have to default it to "IncludeOuterBoxes" for other plot types.
+;----------------------------------------------------------------------
+undef("get_lbar_end_style")
+function get_lbar_end_style(plot[1]:graphic)
+begin
+  if(plot@plot_type.eq."contour") then
+    getvalues plot
+      "cnLabelBarEndStyle" : end_style
+    end getvalues
+  else
+    end_style = get_enum_value("IncludeOuterBoxes")
+  end if
+  return(end_style)
+end
+
+;----------------------------------------------------------------------
+; Retrieve resource values from a labelbar object so we can construct
+; a new labelbar object for a panel plot.
+;----------------------------------------------------------------------
+undef("get_panel_labelbar_info_from_lbar")
+function get_panel_labelbar_info_from_lbar(plot[1]:graphic,\
+                                           lbar_object[1]:graphic)
+local subset_stuff
+begin
+  panel_labelbar = True
+  getvalues lbar_object
+    "lbMonoFillColor" : mono_fill_color
+    "lbMonoFillPattern" : mono_fill_pattern
+    "lbFillPatterns" : fill_patterns
+    "lbMonoFillScale" : mono_fill_scale
+    "lbFillScales" : fill_scales
+    "lbBoxEndCapStyle" : cap_style
+    "lbLabelStrings" : label_strings
+    "lbLabelAlignment"  : label_alignment
+    "lbFillColors" : fill_colors
+  end getvalues
+  end_style = get_lbar_end_style(plot)
+  
+  subset_stuff = False
+  return([/panel_labelbar,label_strings,fill_colors,fill_patterns,\
+           fill_scales,mono_fill_color,mono_fill_pattern,mono_fill_scale,\
+           end_style,cap_style,label_alignment,subset_stuff/])
+end
+
+;----------------------------------------------------------------------
+; Retrieve resource values from a plot object so we can construct
+; a new labelbar object for a panel plot.  Unfortunately, we can't
+; allow a cnLabelBarEndStyle of IncludeMinMaxLabels, because we
+; don't have an easy way to reconstruct the min/max labels from the
+; plot object.
+;----------------------------------------------------------------------
+undef("get_panel_labelbar_info_from_plot")
+function get_panel_labelbar_info_from_plot(plot[1]:graphic)
+local end_style,cap_style,fill_on,colors,fill_on,fill_patterns,\
+fill_scales,mono_fill_pat,mono_fill_scl,mono_fill_col,levels,gstyle,\
+fill_arrows_on,mono_line_color,mono_fill_arrow,mono_wind_barb,colors,\
+levels,tmp_levels,nlevels,dmin,dmax, data_id, subset_stuff
+begin
+
+;---Set these defaults just in case
+  end_style   = get_enum_value("IncludeOuterBoxes")
+  cap_style   = get_enum_value("RectangleEnds")
+  label_align = get_enum_value("InteriorEdges")
+
+  panel_labelbar = True
+  if(plot@plot_type.eq."contour") then
+    getvalues plot
+      "cnFillOn" : fill_on
+    end getvalues
+    if(fill_on) then
+      getvalues plot
+        "cnFillColors"       : colors
+        "cnFillPatterns"     : fill_patterns
+        "cnFillScales"       : fill_scales
+        "cnMonoFillPattern"  : mono_fill_pat
+        "cnMonoFillScale"    : mono_fill_scl
+        "cnMonoFillColor"    : mono_fill_col
+        "cnLevels"           : tmp_levels
+        "cnLabelBarEndStyle" : end_style
+        "lbBoxEndCapStyle"   : cap_style
+        "lbLabelAlignment"   : label_align
+        "lbLabelStrings"     : label_strings
+      end getvalues
+      if(end_style.eq.get_enum_value("IncludeMinMaxLabels")) then
+        getvalues plot
+          "cnScalarFieldData" : data_id    
+        end getvalues
+        getvalues data_id
+          "sfDataMinV" : dmin
+          "sfDataMaxV" : dmax
+        end getvalues
+        nlevels = dimsizes(tmp_levels)
+        levels = new(nlevels+2,typeof(tmp_levels))
+        levels(0)         = dmin  
+        levels(1:nlevels) = tmp_levels
+        levels(nlevels+1) = dmax
+      else
+        levels = tmp_levels
+      end if
+    else
+      panel_labelbar = False
+    end if
+  end if
+  if(plot@plot_type.eq."vector") then
+    getvalues plot
+      "vcGlyphStyle"             : gstyle
+      "vcFillArrowsOn"           : fill_arrows_on
+      "vcMonoLineArrowColor"     : mono_line_color
+      "vcMonoFillArrowFillColor" : mono_fill_arrow
+      "vcMonoWindBarbColor"      : mono_wind_barb
+    end getvalues
+    if(    (fill_arrows_on .and. .not.mono_fill_arrow) .or. \
+      (.not.fill_arrows_on .and. .not.mono_line_color) .or. \
+      (gstyle.eq.get_enum_value("FillArrow") .and. .not.mono_fill_arrow) .or. \
+      (gstyle.eq.get_enum_value("WindBarb") .and. .not.mono_wind_barb) .or. \
+      (gstyle.eq.get_enum_value("LineArrow") .or. get_enum_value("CurlyVector")) .and. \
+        .not.mono_line_color) then
+;---There are no fill patterns in VectorPlot, only solids.
+      mono_fill_pat = True
+      mono_fill_scl = True
+      mono_fill_col = False
+      fill_scales = -1
+      getvalues plot
+        "vcLevels"         : levels
+        "vcLevelColors"    : colors
+        "lbBoxEndCapStyle" : cap_style
+        "lbLabelAlignment" : label_align
+        "lbLabelStrings"   : label_strings
+      end getvalues
+    else
+      panel_labelbar = False
+    end if
+  else if(plot@plot_type.eq."streamline") then
+    getvalues plot
+      "stMonoLineColor"  : mono_line_color
+    end getvalues
+    if(.not.mono_line_color) then
+;---There are no fill patterns in StreamlinePlot, only solids.
+      mono_fill_pat = True
+      mono_fill_scl = True
+      mono_fill_col = False
+      getvalues plot
+        "stLevels"         : levels
+        "stLevelColors"    : colors
+        "lbBoxEndCapStyle" : cap_style
+        "lbLabelAlignment" : label_align
+        "lbLabelStrings"   : label_strings
+      end getvalues
+    else
+      panel_labelbar = False
+    end if
+  else
+  end if
+  end if
+  if(.not.isvar("fill_scales")) then
+    fill_scales = -1
+  end if
+  if(.not.isvar("fill_patterns")) then
+    fill_patterns = -1
+  end if
+
+;
+; There's no lb resource equivalent for removing the end boxes 
+; from a contour label bar (cnLabelBarEndStyle = ExcludeOuterBoxes),
+; so we have to set a flag that will be used by the create_labelbar
+; routine, telling it to remove the first and last colors.
+;
+  subset_stuff = True
+  return([/panel_labelbar,label_strings,colors,fill_patterns,fill_scales,\
+           mono_fill_col,mono_fill_pat,mono_fill_scl,end_style,cap_style,\
+           label_align,subset_stuff/])
+end
+
+;----------------------------------------------------------------------
+; Determine if we have to retrieve the labelbar information from
+; a plot, or from a labelbar added as an annotation, and then call
+; the appropriate function to get the necessary information to 
+; reconstruct the labelbar from scratch.
+;----------------------------------------------------------------------
+undef("get_panel_labelbar_info")
+function get_panel_labelbar_info(plot[1]:graphic)
+local pm_annos, class_name, ilab
+begin
+  getvalues plot
+    "pmAnnoViews" : pm_annos
+  end getvalues
+  class_names = NhlClassName(pm_annos)
+  ilab = ind(class_names.eq."labelBarClass")
+  if(.not.all(ismissing(ilab))) then
+    lbar_list = get_panel_labelbar_info_from_lbar(plot,pm_annos(ilab))
+  else
+    lbar_list = get_panel_labelbar_info_from_plot(plot)
+  end if
+  return(lbar_list)
 end
 
 ;***********************************************************************;
@@ -6605,6 +6169,12 @@ end
 ;   gsnPanelSave                                                        ;
 ;   gsnDraw                                                             ;
 ;                                                                       ;
+; Added in V6.4.0 to replace txStringXXX:                               ;
+;    gsnPanelMainString                                                 ;
+;    gsnPanelMainStringFontHeightF                                      ;
+;    gsnPanelMainPosYF / gsnPanelMainPosXF                              ;
+;    Other gsnPanelMainXXXX resources                                   ;  
+;                                                                       ;
 ;***********************************************************************;
 undef("gsn_panel_return")
 function gsn_panel_return(wks:graphic,plot[*]:graphic,dims[*]:integer,\
@@ -6616,7 +6186,8 @@ begin
 ;
 ; First check if paneling is to be specified by (#rows x #columns) or
 ; by #columns per row.  The default is rows x columns, unless 
-; resource gsnPanelRowSpec is set to True
+; resource gsnPanelRowSpec is set to True, in which case "dims"
+; will represent number of plots per row.
 ; 
   is_row_spec = get_res_value(res,"gsnPanelRowSpec",False)
 ;
@@ -6630,14 +6201,14 @@ begin
     ncols = max(row_spec)
     do i=0,nrows-1
       if(row_spec(i).lt.0)
-        print("Error: gsn_panel: you have specified a negative value for the number of plots in a row.")
+        print("gsn_panel: Error: you have specified a negative value for the number of plots in a row.")
         exit
       end if
       npanels = npanels + row_spec(i)
     end do
   else
     if(ddims.ne.2)
-      print("Error: gsn_panel: for the third argument of gsn_panel, you must either specify # rows by # columns or set gsnPanelRowSpec to True and set the number of plots per row.")
+      print("gsn_panel: Error: for the third argument of gsn_panel, you must either specify # rows by # columns or set gsnPanelRowSpec to True and set the number of plots per row.")
       exit
     end if
     nrows    = dims(0)
@@ -6650,7 +6221,7 @@ begin
   nplots  = dimsizes(plot)      ; Total number of plots.
 
   if(nplots.gt.npanels)
-    print("Warning: gsn_panel: you have more plots than you have panels.")
+    print("gsn_panel: warning: you have more plots than you have panels.")
     print("Only " + npanels + " plots will be drawn.")
     nplots = npanels
   end if
@@ -6672,7 +6243,7 @@ begin
   x_rgt          = get_res_value_keep(res,"gsnPanelRight",1.)
   y_bot          = get_res_value_keep(res,"gsnPanelBottom",0.)
   y_top          = get_res_value_keep(res,"gsnPanelTop",1.)
-  main_string    = get_res_value_keep(res,"txString","")
+  main_string    = get_res_value_keep(res,(/"gsnPanelMainString","txString"/),"")
   maxbb          = get_bb_res(res)
 
   lft_pnl        = isatt(res,"gsnPanelLeft")
@@ -6687,17 +6258,20 @@ begin
 ; 
   if(main_string.ne."") then
     main_string_on = True
-    main_font_hgt  = get_res_value_keep(res,"txFontHeightF",0.02)
+    main_font_hgt  = get_res_value_keep(res,(/"gsnPanelMainFontHeightF","txFontHeightF"/),0.02)
 ;
 ; By default, we want a distance of 0.01 between top of title and the
 ; frame, and a distance of 0.03  between the bottom of the title (txPosYF)
 ; and the top of the panel box (gsnPanelTop).
 ;
     if(y_top.eq.1.) then
-      if(isatt(res,"txPosYF"))
+      if(isatt(res,"gsnPanelMainPosYF"))
+        y_top = min((/1.,res@gsnPanelMainPosYF - 0.03/))
+      else if(isatt(res,"txPosYF"))
         y_top = min((/1.,res@txPosYF - 0.03/))
       else
         y_top = min((/1.,0.96-main_font_hgt/))
+      end if
       end if
     end if
   else
@@ -6705,7 +6279,8 @@ begin
   end if
 ;
 ; Calculate number of plot objects that will actually be drawn.
-; (Panel plots plus labelbar and main string, if any.)
+; This include the panel plots, the labelbar (if any), and 
+; main string (if any).
 ;
   nnewplots = nplots
   if(panel_labelbar) then
@@ -6744,7 +6319,7 @@ begin
     orths = (/     1.0,          -1.0,      -1.0,        1.0/)
 
     amres = get_res_eq(res,"am")
-    just  = lower_case(get_res_value(amres,"amJust","bottomright"))
+    just = str_lower(get_res_value(res,(/"gsnPanelFigureStringsJust","amJust"/),"bottomright"))
 ;
 ; Look for all resources that start with gsnPanelFigureStrings, and replace
 ; this with just "tx". This is what allows us to sneak in text resources
@@ -6761,63 +6336,66 @@ begin
 ; they are valid.
 ;
   if(xwsp_perc.lt.0.or.xwsp_perc.ge.100.)
-    print("Warning: gsn_panel: attribute gsnPanelXWhiteSpacePercent must be >= 0 and < 100.")
+    print("gsn_panel: Warning: attribute gsnPanelXWhiteSpacePercent must be >= 0 and < 100.")
     print("Defaulting to 1.")
     xwsp_perc = 1.
   end if
 
   if(ywsp_perc.lt.0.or.ywsp_perc.ge.100.)
-    print("Warning: gsn_panel: attribute gsnPanelYWhiteSpacePercent must be >= 0 and < 100.")
+    print("gsn_panel: Warning: attribute gsnPanelYWhiteSpacePercent must be >= 0 and < 100.")
     print("Defaulting to 1.")
     ywsp_perc = 1.
   end if
 
   if(x_lft.lt.0..or.x_lft.ge.1.)
-    print("Warning: gsn_panel: attribute gsnPanelLeft must be >= 0.0 and < 1.0")
+    print("gsn_panel: Warning: attribute gsnPanelLeft must be >= 0.0 and < 1.0")
     print("Defaulting to 0.")
     x_lft = 0.0
   end if
 
   if(x_rgt.le.0..or.x_rgt.gt.1.)
-    print("Warning: gsn_panel: attribute gsnPanelRight must be > 0.0 and <= 1.0")
+    print("gsn_panel: Warning: attribute gsnPanelRight must be > 0.0 and <= 1.0")
     print("Defaulting to 1.")
     x_rgt = 1.0
   end if
 
   if(y_top.le.0..or.y_top.gt.1.)
-    print("Warning: gsn_panel: attribute gsnPanelTop must be > 0.0 and <= 1.0")
+    print("gsn_panel: Warning: attribute gsnPanelTop must be > 0.0 and <= 1.0")
     print("Defaulting to 1.")
     y_top = 1.0
   end if
 
   if(y_bot.lt.0..or.y_bot.ge.1.)
-    print("Warning: gsn_panel: attribute gsnPanelBottom must be >= 0.0 and < 1.0")
+    print("gsn_panel: Warning: attribute gsnPanelBottom must be >= 0.0 and < 1.0")
     print("Defaulting to 0.")
     y_bot = 0.0
   end if
 
   if(x_rgt.le.x_lft)
-    print("Error: gsn_panel: attribute gsnPanelRight ("+x_rgt+") must be greater")
+    print("gsn_panel: Error: attribute gsnPanelRight ("+x_rgt+") must be greater")
     print("than gsnPanelLeft ("+x_lft+").")
     exit
   end if
 
   if(y_top.le.y_bot)
-    print("Error: gsn_panel: attribute gsnPanelTop ("+y_top+") must be greater")
+    print("gsn_panel: Error: attribute gsnPanelTop ("+y_top+") must be greater")
     print("than gsnPanelBottom ("+y_bot+").")
     exit
   end if
 
 ;
+; Get the plot object id that we will use to determine the scale factor
+; for resizing all of the plots. If gsnPanelScalePlotId was set
+; (panel_id), then use this. Otherwise, we will start at the first
+; plot and keep going until we find a "valid" (non missing) plot.
+;
 ; We assume all plots are the same size, so if we get the size of
 ; one of them, then this should represent the size of the rest
-; of them.  Also, count the number of non-missing plots for later.
-; Since some of the plots might be missing, grab the first one that
-; isn't, and use this one to determine plot size.
+; of them. Also, count the number of non-missing plots for later.
 ;
   ind_nomsg = ind(.not.ismissing(plot(0:nplots-1)))
   if(all(ismissing(ind_nomsg))) then
-    print("Error: gsn_panel: all of the plots passed to gsn_panel appear to be invalid")
+    print("gsn_panel: Error: all of the plots passed to gsn_panel appear to be invalid")
     exit
   end if
   if(panel_plotid.ge.0.and.panel_plotid.le.(nplots-1).and. \
@@ -6841,117 +6419,72 @@ begin
 
 ;
 ; Get the type of plots we have. "plot" can be a map, in which case
-; the vector or contour plot overlaid on it will be indicated
-; by "plot@contour" or "plot@vector"
+; the contour, vector, streamine plot overlaid on it will be indicated
+; by an attribute, for example, "plot@contour" or "plot@vector".
 ;
   new_plot     = get_plot_not_loglin(plot(valid_plot))
   new_plot_lab = get_plot_labelbar(plot(valid_plot))
-
 ;
-; Get the font height.
+; Get the font height of a particular plot element, so we can
+; use this for panel plot elements, like the size of the 
+; common labelbar labels, the main title, etc.
 ;
   if(is_figure_strings.or.panel_labelbar) then
     if(new_plot@plot_type.eq."contour") then
       getvalues new_plot
         "cnInfoLabelFontHeightF" : font_height
       end getvalues
+    else if(new_plot@plot_type.eq."vector") then
+      getvalues new_plot
+        "vcRefAnnoFontHeightF" : font_height
+      end getvalues
+    else if(new_plot@plot_type.eq."xy") then
+      getvalues new_plot
+        "tiXAxisFontHeightF" : font_height
+      end getvalues
+      font_height = 0.6*font_height
+    else if(new_plot@plot_type.eq."streamline") then
+;
+; There's no equivalent font height resource for streamline to 
+; retrieve, so just set it here.
+;
+      font_height = 0.01
     else
-      if(new_plot@plot_type.eq."vector") then
-        getvalues new_plot
-          "vcRefAnnoFontHeightF"     : font_height
-        end getvalues
-      else
-        if(new_plot@plot_type.eq."xy") then
-          getvalues new_plot
-            "tiXAxisFontHeightF" : font_height
-          end getvalues
-          font_height = 0.6*font_height
-        else
-          font_height = 0.01
-          if((is_figure_strings.and. \
-              .not.isatt(res,"gsnPanelFigureStringsFontHeightF"))) then
-            print("Warning: gsn_panel: unrecognized plot type.")
-            print("Unable to get information for various font heights.")
-            print("Make sure your font heights look okay.")
-            print("Set gsnPanelFigureStringsFontHeightF resource to control figure strings font height.")
-          end if
-        end if
-      end if
+      font_height = 0.01
+    end if
+    end if
+    end if
     end if
 ;
-; Use this font height for the panel strings, if any, unless the user
-; has set gsnPanelFigureStringsFontHeightF.
+; Use this font height for the panel figure strings, if any, unless
+; the user has set gsnPanelFigureStringsFontHeightF.
 ;
     pfont_height = get_res_value(res,"gsnPanelFigureStringsFontHeightF",\
                                  font_height)
   end if
-;
-; Get labelbar info.
-;
+
+;---Get information needed for reconstructing a labelbar from scratch.
   if(panel_labelbar) then
-;
-; The cnLabelBarEndStyle resource is only available with contour 
-; plots, and it is 0 by default (IncludeOuterBoxes). We need to check
-; if it is 1 (IncludeMinMaxLabels) or 2 (ExcludeOuterBoxes) and do
-; the appropriate thing. IncludeMinMaxLabels is not currently supported.
-;
-    end_style = 0     ; IncludeOuterBoxes
-    if(new_plot_lab@plot_type.eq."contour") then
-      getvalues new_plot_lab
-        "cnFillOn" : fill_on
-      end getvalues
-      if(fill_on) then
-        getvalues new_plot_lab
-          "cnFillColors"      : colors
-          "cnFillPatterns"    : fill_patterns
-          "cnFillScales"      : fill_scales
-          "cnMonoFillPattern" : mono_fill_pat
-          "cnMonoFillScale"   : mono_fill_scl
-          "cnMonoFillColor"   : mono_fill_col
-          "cnLevels"          : levels
-          "cnLabelBarEndStyle" : end_style
-        end getvalues
-      else
-        panel_labelbar = False
-      end if
-    else
-      if(new_plot_lab@plot_type.eq."vector") then
-        getvalues new_plot_lab
-          "vcGlyphStyle"             : gstyle
-          "vcFillArrowsOn"           : fill_arrows_on
-          "vcMonoLineArrowColor"     : mono_line_color
-          "vcMonoFillArrowFillColor" : mono_fill_arrow
-          "vcMonoWindBarbColor"      : mono_wind_barb
-        end getvalues
-;
-; 0 = linearrow, 1 = fillarrow, 2 = windbarb, 3 = curlyvector
-;
-        if(    (fill_arrows_on .and. .not.mono_fill_arrow)     .or. \
-            (.not.fill_arrows_on .and. .not.mono_line_color)   .or. \
-            (gstyle.eq.1 .and. .not.mono_fill_arrow)  .or. \
-            (gstyle.eq.2 .and. .not.mono_wind_barb)  .or. \
-            (gstyle.eq.0 .or. gstyle.eq.3) .and. .not.mono_line_color) then
-;
-; There are no fill patterns in VectorPlot, only solids.
-;
-          mono_fill_pat = True
-          mono_fill_scl = True
-          mono_fill_col = False
-          getvalues new_plot_lab
-            "vcLevels"      : levels
-            "vcLevelColors" : colors
-          end getvalues
-        else
-          panel_labelbar = False
-        end if
-      else
-        if(.not.isatt(res,"lbLabelFontHeightF")) then
-          print("Set lbLabelFontHeightF resource to control labelbar font heights.")
-        end if
-      end if
-    end if
+    lbar_list = get_panel_labelbar_info(new_plot_lab)
+    panel_labelbar = lbar_list[0]
+    lb_label_strings = lbar_list[1]
+    lb_fill_colors = lbar_list[2]
+    lb_fill_patterns = lbar_list[3]
+    lb_fill_scales = lbar_list[4]
+    lb_mono_fill_color = lbar_list[5]
+    lb_mono_fill_pattern = lbar_list[6]
+    lb_mono_fill_scale = lbar_list[7]
+    lb_end_style = lbar_list[8]
+    lb_cap_style = lbar_list[9]
+    lb_label_alignment = lbar_list[10]
+    lb_subset_stuff = lbar_list[11]
   end if
 
+;
+; This section calculates the scale factor needed to rescale the 
+; plots so they fit on one page.  It has to account for white 
+; space between each plot, and space for the labelbar and main title, 
+; if any.
 ;
 ; plot_width  : total width of plot with all of its annotations
 ; plot_height : total height of plot with all of its annotations
@@ -6968,13 +6501,12 @@ begin
   total_height = 2.*ywsp + plot_height  ; with white space added.
 ;
 ; If we are putting a global labelbar at the bottom (right), make 
-; it 2/10 the height (width) of the plot.
+; it 0.2x the height (width) of the plot.
 ;
   lbhor = True
   if(panel_labelbar) then
     lbres = get_res_eq(res,(/"lb","pmLabelBar","vp"/))  ; Get labelbar resources.
-    if(check_attr(lbres,"lbOrientation","vertical",True).or.\
-       check_attr(lbres,"lbOrientation",1,True)) then
+    if(check_attr_enum_value(lbres,"lbOrientation","vertical")) then
       lbhor = False
       labelbar_width = 0.20 * plot_width + 2.*xwsp
 ;
@@ -7021,8 +6553,7 @@ begin
 ;
 ; Previously, we used to include xrange and yrange as part of the min
 ; statement. This seemed to cause problems if you set one of
-; gsnPanelTop/Bottom/Right/Left however, so I removed it.  Initial
-; testing on Sylvia's panel examples seems to indicate this is okay.
+; gsnPanelTop/Bottom/Right/Left however, so I removed it.
 ;
     row_scale = yrange/(nrows*total_height+labelbar_height)
     col_scale = xrange/(ncols*total_width)
@@ -7068,10 +6599,7 @@ begin
 
   ypos = y_top - ywsp - dyt -(ysp/2.+new_total_height*ispan(0,nrows-1,1))
 
-  delete(top)
-  delete(bottom)
-  delete(right)
-  delete(left)
+  delete([/top,bottom,right,left/])
 ;
 ; If we have figure strings, then determine white spacing around 
 ; the text box.
@@ -7265,15 +6793,10 @@ begin
   scaled_width  = scale*max(old_vp(:,2))
   scaled_height = scale*max(old_vp(:,3))
 ;
-; Check if a labelbar is to be drawn at the bottom.
+; Check if a labelbar is to be drawn.
 ;
   if(panel_labelbar) then
-    if(end_style.eq.0.or.end_style.eq.2) then
-      lbres@EndStyle = end_style
-    else
-      lbres@EndStyle = 0
-      print("Warning: gsn_panel: this routine only supports a cnLabelBarEndStyle that is set to 'IncludeOuterBoxes' or 'ExcludeOuterBoxes'")
-    end if
+    lbres@EndStyle = lb_end_style
 ;
 ; If plot type is unknown or xy, then we can't get labelbar information.
 ;
@@ -7331,27 +6854,30 @@ begin
 ; Check if we want different fill patterns or fill scales.  If so, we
 ; have to pass these on to the labelbar.
 ;
-      set_attr(lbres,"lbMonoFillColor",mono_fill_col)
-      if(.not.mono_fill_pat)
+      set_attr(lbres,"lbMonoFillColor",lb_mono_fill_color)
+      if(.not.lb_mono_fill_pattern)
         set_attr(lbres,"lbMonoFillPattern", False)
-        set_attr(lbres,"lbFillPatterns",    fill_patterns)
+        set_attr(lbres,"lbFillPatterns", lb_fill_patterns)
       end if
-      if(.not.mono_fill_scl)
+      if(.not.lb_mono_fill_scale)
         set_attr(lbres,"lbMonoFillScale", False)
-        set_attr(lbres,"lbFillScales",    fill_scales)
+        set_attr(lbres,"lbFillScales", lb_fill_scales)
       end if
-;
-; Create the labelbar.  First check the levels to make sure that a
-; contour level with a value like 1e-8 is not really supposed to be
-; a value of 0.
-;
-      levels = fix_zero_contour(levels)
+      if(isvar("lb_cap_style"))
+        set_attr(lbres,"lbBoxEndCapStyle",lb_cap_style)
+      end if
+      set_attr(lbres,"lbLabelAlignment",lb_label_alignment)
+;      if(isvar("lb_levels"))
+;        lb_label_strings = fix_zero_contour(lb_levels)   ; Make sure level 0 is not something like 1e-8
+;      end if
+      lbres@SubsetStuff = lb_subset_stuff
 
-      newplots(nplot) = create_labelbar(wks,dimsizes(colors),colors, \
-                                        levels,lbres)
+;---Create the labelbar.
+      newplots(nplot) = create_labelbar(wks,dimsizes(lb_fill_colors),lb_fill_colors, \
+                                        lb_label_strings,lbres)
       nplot = nplot + 1
     else
-       print("Warning: gsn_panel: unrecognized plot type for getting labelbar information. Ignoring labelbar request.")
+       print("gsn_panel: Warning: unrecognized plot type for getting labelbar information. Ignoring labelbar request.")
     end if
   end if
 ;
@@ -7359,9 +6885,8 @@ begin
 ;
   if(main_string_on) then
     y_top     = min((/y_top,max_top/))
-    main_ypos = get_res_value_keep(res,"txPosYF",y_top + 0.03)
-    main_xpos = get_res_value_keep(res,"txPosXF",0.5)
-
+    main_ypos = get_res_value_keep(res,(/"gsnPanelMainPosYF","txPosYF"/),y_top + 0.03)
+    main_xpos = get_res_value_keep(res,(/"gsnPanelMainPosXF","txPosXF"/),0.5)
     if(panel_debug) 
       print("-------Panel title values-------")
       print("    title                = " + main_string)
@@ -7370,16 +6895,23 @@ begin
     end if
 
     if((main_ypos+main_font_hgt).gt.1)
-       print("Warning: gsn_panel: font height (" + main_font_hgt + ") of main string is too large to fit in space provided. Either decrease font size or set gsnPanelTop.")
+       print("gsn_panel: Warning: font height (" + main_font_hgt + ") of main string is too large to fit in space provided. Either decrease font size or set gsnPanelTop.")
     end if
 
-    mntxres               = get_res_eq(res,"tx")
+;
+; Look for all resources that start with gsnPanelMain, and replace
+; this with just "tx". This is is for backwards compatibility in
+; V6.3.0 and earlier, where "gsnPanelMain" resources weren't
+; recognized, but "tx" resources were.
+;
+    mntxres               = get_res_eq_replace(res,"gsnPanelMain","tx")
     mntxres               = True
     mntxres@gsnDraw       = False
     mntxres@gsnFrame      = False
     mntxres@txFontHeightF = main_font_hgt
     newplots(nplot) = gsn_create_text_ndc(wks, main_string, main_xpos, \
                       main_ypos, mntxres)
+    mntxres = get_res_eq(res,"tx")   ; This is a kludge to remove any tx*** resources from "res"
   end if
 ;
 ; If some of the paneled plots are missing, we need to take these into
@@ -7691,8 +7223,9 @@ begin
   getvalues new_base
     "trGridType" : grid_type
   end getvalues
-  if(grid_type.ge.3) then
-    print("Warning: gsn_attach_plots: the base plot is either spherical or triangular, so can't fix the tickmarks")
+  if(any(grid_type.eq.(/get_enum_value("Spherical"),\
+                        get_enum_value("TriangularMesh")/))) then
+    print("Warning: gsn_attach_plots: the base plot is either spherical or a triangular mesh, so can't fix the tickmarks")
     found_base = False
   end if
 ;
@@ -8104,8 +7637,8 @@ begin
 
   do i=0,nplots-1
     setvalues plots(i)
-      "vpHeightF"               : new_scales * heights(i)
-      "vpWidthF"                : new_scales * widths(i)
+      "vpHeightF"               : new_scales(i) * heights(i)
+      "vpWidthF"                : new_scales(i) * widths(i)
     end setvalues
 
     if(found_plots(i)) then
@@ -8249,21 +7782,6 @@ begin
 end
 
 ;***********************************************************************;
-; Function : get_rgb_values                                             ;
-;              named_colors: string array of named colors               ;
-;                                                                       ;
-; This is a deprecated function. Use namedcolor2rgb instead.            ;
-;***********************************************************************;
-undef("get_rgb_values")
-function get_rgb_values(named_colors)
-begin
-  print("get_rgb_values: this function is deprecated.")
-  print("   Use 'namedcolor2rgb' instead.")
-  return(namedcolor2rgb(named_colors))
-end
-
-
-;***********************************************************************;
 ; Procedure : gsn_define_colormap                                       ;
 ;                   wks: workstation object                             ;
 ;                  cmap: Colormap                                       ;
@@ -8394,21 +7912,21 @@ begin
 ; colors and only append colors 2 and on.  If it is named colors, 
 ; then we'll append all of the named colors.
 ;
-    rgb_values = namedcolor2rgb(cmap2)
-    indices    = ind(.not.ismissing(rgb_values(:,0)))
-	if(all(ismissing(indices)))
-      gsn_define_colormap(wks,cmap2)    ; Must be a color map name.
-      tmp_cmap2 = gsn_retrieve_colormap(wks)
-      new_cmap2 = tmp_cmap2(2:,:)
-    else
+    if(all(is_valid_named_colors(cmap2))) then
+      rgb_values = namedcolor2rgb(cmap2)
+      indices    = ind(.not.ismissing(rgb_values(:,0)))
       new_cmap2 = new((/dimsizes(indices),3/),"float")
       new_cmap2(:,0) = rgb_values(indices,0)   ; Must be named colors.
       new_cmap2(:,1) = rgb_values(indices,1)
       new_cmap2(:,2) = rgb_values(indices,2)
+      delete([/indices,rgb_values/])
+    else
+      gsn_define_colormap(wks,cmap2)    ; Must be a color map name.
+      tmp_cmap2 = gsn_retrieve_colormap(wks)
+      new_cmap2 = tmp_cmap2(2:,:)
+      delete(tmp_cmap2)
     end if
     len_cmap2 = dimsizes(new_cmap2(:,0))
-    delete(indices)
-    delete(rgb_values)
   end if
 
 ;
@@ -8612,7 +8130,7 @@ end
 ;  binvalues - the number of values in the corresponding bin            ;
 ;  barlocs   - the start of the first bar in each bin                   ;
 ;  width     - the width of the bar                                     ;
-;  colors    - array of colors to use (ints or color names)             ; 
+;  colors    - array of colors to use                                   ;
 ;  gsres     - optional primitive resources                             ;
 ;                                                                       ;
 ; This function creates the columns for a histogram plot. The Y axis    ;
@@ -8719,14 +8237,25 @@ begin
 ;
 ;  fillindex = min((/max((/max(fillindex),0/)),17/))
 
-  col_dims = dimsizes(colors)
+  rgba_arr = convert_color_to_rgba(wks,colors)
+  col_dims = dimsizes(rgba_arr)   ; better be 2D or 3D
   col_rank = dimsizes(col_dims)
-  ncolors = col_dims(0)
+  if(col_rank.gt.3.or.(col_rank.eq.3.and.col_dims(0).ne.nbarsinbin)) then
+    print("Error: hist_columns: Invalid dimensionality of array of colors passed in.")
+    print("   Was expecting a 1D or 2D array of colors")
+    exit
+  end if
+  if(col_rank.eq.3) then
+    ncolors = col_dims(1)
+  else
+    ncolors = col_dims(0)
+  end if
   do i = 0, nbars - 1
     if(col_rank.eq.1) then
-      gsres@gsFillColor = colors(i % ncolors)
-    else
-      gsres@gsFillColor = colors(i % ncolors,:)
+      gsres@gsFillColor = rgba_arr
+    else if(col_rank.eq.2) then
+      gsres@gsFillColor = rgba_arr(i % ncolors,:)
+    end if
     end if
     if(multibars) 
 ;
@@ -8735,6 +8264,9 @@ begin
 ; they are being stacked.
 ;
       do j=nbarsinbin-1,0,1
+        if(col_rank.eq.3) then
+          gsres@gsFillColor = rgba_arr(j,i % ncolors,:)
+        end if
         gsres@gsFillIndex = fillindex(j)
         if(binvalues@horizontal) then
           polygons(j,i) = gsn_add_polygon(wks,xy,ypoints(j,i,:), \
@@ -9246,12 +8778,8 @@ begin
 ;
 ; Delete so they don't get passed on to other routines.
 ;
-      if(isatt(res2,"gsnHistogramDiscreteBinValues")) then
-        delete(res2@gsnHistogramDiscreteBinValues)
-      end if
-      if(isatt(res2,"gsnHistogramDiscreteClassValues")) then
-        delete(res2@gsnHistogramDiscreteClassValues)
-      end if
+      delete_attr(res2,"gsnHistogramDiscreteBinValues")
+      delete_attr(res2,"gsnHistogramDiscreteClassValues")
     else
       setdiscrete = True
       if(isnumeric(xdata)) then
@@ -9778,7 +9306,6 @@ begin
   return(histogram)
 end
 
-
 ;***********************************************************************;
 ; Function : gsn_contour                                                ;
 ;                   wks: workstation object                             ;
@@ -9859,6 +9386,7 @@ begin
 ; create time. Too bad it has to be so clunky.
 ;
     is_lb_mode = isatt(res2,"pmLabelBarDisplayMode")
+
     if(is_lb_mode) then
       lb_mode = get_display_mode(res2,"pmLabelBarDisplayMode","NoCreate")
       delete(res2@pmLabelBarDisplayMode)
@@ -9977,9 +9505,7 @@ begin
       "trYMinF"    : trymin
       "trYMaxF"    : trymax
       end getvalues
-      if(isatt(cnres,"pmTickMarkDisplayMode")) then
-        delete(cnres@pmTickMarkDisplayMode)
-      end if
+      delete_attr(cnres,"pmTickMarkDisplayMode")
       if (force_x_linear .or. force_x_log) then
         if(isatt(cnres,"trXMinF")) then
           if (cnres@trXMinF .lt. trxmin) then
@@ -11104,14 +10630,14 @@ begin
       end if
     end if
 
-    overlay(vector_object,contour_object)
+    overlay(contour_object,vector_object)
 
 ;
 ; If gsnScale was set to True, then make sure the X and Y axis labels
 ; and tick marks are the same size.
 ; 
     if(scale)
-      gsnp_scale_plot(vector_object,"vf",resources)
+      gsnp_scale_plot(contour_object,"vf",resources)
     end if
 
 ;
@@ -11119,17 +10645,17 @@ begin
 ; the scales are proportionally correct.
 ; 
     if(shape)
-      gsnp_shape_plot(vector_object)
+      gsnp_shape_plot(contour_object)
     end if
 
-    draw_and_frame(wks,vector_object,calldraw,callframe,0,maxbb)
+    draw_and_frame(wks,contour_object,calldraw,callframe,0,maxbb)
 
 ; Return plot object and data object (as attribute of plot object).
 
-    vector_object@vfdata = vfdata_object
-    vector_object@sfdata = sfdata_object
-    vector_object@contour = contour_object
-    return(vector_object)
+    contour_object@vfdata = vfdata_object
+    contour_object@sfdata = sfdata_object
+    contour_object@vector = vector_object
+    return(contour_object)
 end
 
 ;***********************************************************************;
@@ -11477,8 +11003,8 @@ begin
       end if
     end if
 
-    overlay(map_object,vector_object)
     overlay(map_object,contour_object)
+    overlay(map_object,vector_object)
 
 ;
 ; If gsnScale was set to True, then make sure the X and Y axis labels
@@ -12500,7 +12026,7 @@ begin
    if (isatt(opt,"gsnShadeLow")) then
      shaden_set = True
      if(shade_type.eq."color") then
-       shaden = convert_color_to_rgba(tmp_wks,opt@gsnShadeLow)
+       shaden = rm_single_dims_no_meta(convert_color_to_rgba(tmp_wks,opt@gsnShadeLow))
      else
        shaden      = opt@gsnShadeLow
        shaden_type = typeof(shaden)
@@ -12518,7 +12044,7 @@ begin
    if (isatt(opt,"gsnShadeMid")) then
      shadem_set = True
      if(shade_type.eq."color") then
-       shadem      = convert_color_to_rgba(tmp_wks,opt@gsnShadeMid)
+       shadem      = rm_single_dims_no_meta(convert_color_to_rgba(tmp_wks,opt@gsnShadeMid))
        shadem_type = "rgba"
      else
        shadem      = opt@gsnShadeMid
@@ -12537,7 +12063,7 @@ begin
    if (isatt(opt,"gsnShadeHigh")) then
      shadep_set = True
      if(shade_type.eq."color") then
-       shadep      = convert_color_to_rgba(tmp_wks,opt@gsnShadeHigh)
+       shadep      = rm_single_dims_no_meta(convert_color_to_rgba(tmp_wks,opt@gsnShadeHigh))
        shadep_type = "rgba"
      else
        shadep      = opt@gsnShadeHigh
@@ -12606,7 +12132,8 @@ begin
 ;---Create array for fill, set all to transparent or white
    if(shade_type.eq."color") then
      colist      = new((/N+1,4/),double)
-     colist(:,3) = 0.
+     colist      = 1.d     ; initialize to all white so no missing values are used
+     colist(:,3) = 0.      ; now set all colors to transparent.
    else
      colist = new(N+1,integer)
      colist = -1
@@ -12951,27 +12478,27 @@ begin
 ;
           txjust = txres2@txJust
 
-          if(any(lower_case(txjust).eq. \
+          if(any(str_lower(txjust).eq. \
                  (/"bottomleft","bottomcenter","bottomright"/))) then
             ypos = y(1) - ((nr+1) * ysize)
           end if
-          if(any(lower_case(txjust).eq. \
+          if(any(str_lower(txjust).eq. \
                  (/"centerleft","centercenter","centerright"/))) then
             ypos = (y(1) - ((nr+1) * ysize)) + ysize2
           end if
-          if(any(lower_case(txjust).eq. \
+          if(any(str_lower(txjust).eq. \
                  (/"topleft","topcenter","topright"/))) then
             ypos = y(1) - (nr * ysize)
           end if
-          if(any(lower_case(txjust).eq. \
+          if(any(str_lower(txjust).eq. \
                  (/"bottomleft","centerleft","topleft"/))) then
             xpos = x(0) + (nc * xsize)
           end if
-          if(any(lower_case(txjust).eq. \
+          if(any(str_lower(txjust).eq. \
                  (/"bottomcenter","centercenter","topcenter"/))) then
             xpos = (x(0) + (nc * xsize)) + xsize2
           end if
-          if(any(lower_case(txjust).eq. \
+          if(any(str_lower(txjust).eq. \
                  (/"bottomright","centerright","topright"/))) then
             xpos = x(0) + ((nc+1) * xsize)
           end if

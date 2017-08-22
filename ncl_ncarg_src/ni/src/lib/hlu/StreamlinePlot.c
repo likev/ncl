@@ -1448,6 +1448,7 @@ StreamlinePlotInitialize
 	char			*e_text;
 	NhlStreamlinePlotLayer	stnew = (NhlStreamlinePlotLayer) new;
 	NhlStreamlinePlotLayerPart	*stp = &(stnew->streamlineplot);
+	NhlGridType             grid_type;
 	NhlSArg			sargs[64];
 	int			nargs = 0;
 
@@ -1557,7 +1558,11 @@ StreamlinePlotInitialize
 	subret = InitCoordBounds(stnew,NULL,entry_name);
 	if ((ret = MIN(ret,subret)) < NhlWARNING) return(ret);
         
-	switch (stnew->trans.grid_type) {
+	grid_type = stnew->trans.grid_type;
+	if (! stp->data_init) {  /* grid type known to work with no data */
+		grid_type = NhltrLOGLIN; 
+	}
+	switch (grid_type) {
 	case NhltrLOGLIN:
 	default:
 		subret = SetUpLLTransObj
@@ -1743,6 +1748,7 @@ static NhlErrorTypes StreamlinePlotSetValues
  	NhlStreamlinePlotLayerPart	*stp = &(stnew->streamlineplot);
 	NhlStreamlinePlotLayer		stold = (NhlStreamlinePlotLayer) old;
  	NhlStreamlinePlotLayerPart	*ostp = &(stold->streamlineplot);
+	NhlGridType             grid_type;
 	/* Note that ManageLabelBar add to sargs */
 	NhlSArg			sargs[128];
 	int			nargs = 0;
@@ -1870,7 +1876,11 @@ static NhlErrorTypes StreamlinePlotSetValues
 	subret = InitCoordBounds(stnew,(NhlStreamlinePlotLayer)old,entry_name);
 	if ((ret = MIN(ret,subret)) < NhlWARNING) return(ret);
         
-	switch (stnew->trans.grid_type) {
+	grid_type = stnew->trans.grid_type;
+	if (! stp->data_init) {  /* grid type known to work with no data */
+		grid_type = NhltrLOGLIN; 
+	}
+	switch (grid_type) {
 	case NhltrLOGLIN:
 	default:
 		subret = SetUpLLTransObj
@@ -3577,7 +3587,14 @@ static NhlErrorTypes SetUpCrvTransObj
 		trans_class =  NhlcurvilinearTransObjClass;
 		break;
 	case NhltrSPHERICAL:
-		trans_class =  NhlsphericalTransObjClass;
+		if (tfp->overlay_status == _tfCurrentOverlayMember &&
+		    tfp->overlay_trans_obj->base.layer_class->base_class.class_name == NhlmapTransObjClass->base_class.class_name) {
+			/* the spherical trans object only works over a map */
+			trans_class =  NhlsphericalTransObjClass;
+		}
+		else {
+			trans_class =  NhlcurvilinearTransObjClass;
+		}
 		break;
 	default:
 		e_text = "%s:internal error determinining trans type";
@@ -3588,7 +3605,7 @@ static NhlErrorTypes SetUpCrvTransObj
 
 	if (init)
 		tfp->trans_obj = NULL;
-	if (tfp->trans_obj && 
+	if (! stnew->base.being_destroyed && tfp->trans_obj && 
             tfp->trans_obj->base.layer_class->base_class.class_name !=
 	    trans_class->base_class.class_name) {
 		subret = NhlDestroy(tfp->trans_obj->base.id);

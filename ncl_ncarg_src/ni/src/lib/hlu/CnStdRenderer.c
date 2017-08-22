@@ -365,6 +365,127 @@ static NhlErrorTypes SetCpParams
 	return ret;
 }
 
+#if 0
+static NhlBoolean IsCyclic( NhlContourPlotLayer	cl) 
+{
+	float tlat1, tlon1, tlat2, tlon2;
+	float *tlat, *tlon;
+	int status = 1;
+	NhlContourPlotLayerPart	*cnp = &cl->contourplot;
+	ng_size_t ix;
+	ng_size_t nlat, nlon;
+	int ndims;
+	NhlProjection  proj;
+	float center_lat, center_rot;
+       
+        return False;
+
+	/* actually this flag is used to decide whether to use the grid boundary introduced by CPCLAM; the only time it
+	   it not used is when the projection is one of the cylindrical types and not rotated and the center lat is 0 */
+
+	if (! (cnp->trans_obj->base.layer_class->base_class.class_name == NhlmapTransObjClass->base_class.class_name)) {
+		return False;
+	}
+	NhlVAGetValues(cnp->trans_obj->base.id,
+		       NhlNmpProjection,&proj,
+		       NhlNmpCenterLatF,&center_lat,
+		       NhlNmpCenterRotF,&center_rot,
+		       NULL);
+	switch (proj) {
+	default:
+		return False;
+	case NhlCYLINDRICALEQUIDISTANT:
+	case NhlCYLINDRICALEQUALAREA:
+	case NhlMERCATOR:
+	case NhlROTATEDMERCATOR:
+		if (center_lat != 0.0 && center_rot != 0.0)
+			return False;
+	}
+
+	if (cnp->sfp->y_arr && cnp->sfp->x_arr) {
+		ndims = cnp->sfp->y_arr->num_dimensions;
+		tlat = (float *)cnp->sfp->y_arr->data;
+		tlon = (float *)cnp->sfp->x_arr->data;
+
+		if (ndims == 2) {
+			nlat = cnp->sfp->y_arr->len_dimensions[0];
+			nlon = cnp->sfp->y_arr->len_dimensions[1];
+		}
+		else {
+			nlat = cnp->sfp->y_arr->len_dimensions[0];
+			nlon = cnp->sfp->x_arr->len_dimensions[0];
+		}
+	}
+	else {
+		float ystep = (cnp->sfp->y_end - cnp->sfp->y_start) / cnp->sfp->slow_len;
+		float ty;
+		ty = cnp->sfp->y_start;
+		while (ty < cnp->sfp->y_end) {
+			if (fabs(ty) < 89) {
+				_NhlDataToWin(cnp->trans_obj,&(cnp->sfp->x_start),&ty,
+					      1,&tlon1,&tlat1,&status,
+					      NULL,NULL);
+				_NhlDataToWin(cnp->trans_obj,&(cnp->sfp->x_end),&(ty),
+					      1,&tlon2,&tlat2,&status,
+					      NULL,NULL);
+				if (! status) {
+					if (_NhlCmpFAny2(tlon1,tlon2,6,1e-32) == 0.0) {
+						return True;
+					}
+					return False;
+				}
+			}
+			ty += ystep;
+		}
+		return False;
+	}
+			
+
+	if (ndims == 2) {
+		ix = 0;
+		while (ix < 2 + nlon * (nlat-1)) {
+
+			if (fabs(tlat[ix]) < 89 && fabs(tlat[ix + nlon -1]) < 89) {
+				_NhlDataToWin(cnp->trans_obj,&(tlon[ix]),&(tlat[ix]),
+					      1,&tlon1,&tlat1,&status,
+					      NULL,NULL);
+				_NhlDataToWin(cnp->trans_obj,&(tlon[ix + nlon-1]),&(tlat[ix + nlon-1]),
+					      1,&tlon2,&tlat2,&status,
+					      NULL,NULL);
+				if (! status) {
+					if (_NhlCmpFAny2(tlon1,tlon2,6,1e-32) == 0.0) {
+						return True;
+					}
+					return False;
+				}
+			}
+			ix = ix + nlon;
+		}
+		return False;
+	}
+	else {
+		for (ix = 0; ix < nlat; ix++) {
+			if (fabs(tlat[ix]) < 89) {
+				_NhlDataToWin(cnp->trans_obj,&(tlon[0]),&(tlat[ix]),
+					      1,&tlon1,&tlat1,&status,
+					      NULL,NULL);
+				_NhlDataToWin(cnp->trans_obj,&(tlon[nlon-1]),&(tlat[ix]),
+					      1,&tlon2,&tlat2,&status,
+					      NULL,NULL);
+				if (! status) {
+					if (_NhlCmpFAny2(tlon1,tlon2,6,1e-32) == 0.0) {
+						return True;
+					}
+					return False;
+				}
+			}
+		}
+		return False;
+	}
+			
+}
+#endif
+
 /*
  * Function:	SetRegionAttrs
  *
@@ -410,18 +531,12 @@ static void SetRegionAttrs
 	else
 		c_cpseti("CLU",1);
 
-	/* Only set the grid bound identifier (99) if the GridBoundFill resources are set to allow the grid bound area to be visible;
-	   this is because the grid boundary needs to be calculated with more precision, potentially impacting performance */
-	if (cpix == -1 && reg_attrs->fill_color > NhlTRANSPARENT && reg_attrs->fill_pat > NhlHOLLOWFILL) {
-		c_cpseti("AIA",99);
-		c_cpsetr("PIT",0.001); /* forced to the minimum recommended value, regardless of max_point_distance */
-	}
-	else if (cpix == -1)
-                c_cpseti("AIA",0);
+	if (cpix == -1)
+		c_cpseti("AIA",-1);
 	else if (cpix == -2)
 		c_cpseti("AIA",98);
 	else if (cpix == -3)
-		c_cpseti("AIA",97);
+		c_cpseti("AIA",-3);
 	else
 		c_cpseti("AIA",-1);
 
@@ -856,6 +971,7 @@ static NhlErrorTypes UpdateFillInfo
 	float *levels = (float *) cnp->levels->data;
 	int i;
 
+	*almost_const = False;
         _NhlSetFillOpacity(cl, cnp->fill_opacity);
 /*
  * Since the missing value fill resources are not supposed to be affected
@@ -871,7 +987,6 @@ static NhlErrorTypes UpdateFillInfo
 
 	*do_fill = True;
 
-	*almost_const = False;
 	for (i = 0; i< cnp->level_count -1 ; i++) { 
 		if (cnp->zmin >= levels[i] &&
 		    cnp->zmax <= levels[i + 1]) {
@@ -994,6 +1109,7 @@ static NhlErrorTypes AddDataBoundToAreamap
 #endif
 #define _cnMAPBOUNDINC	100
 
+	/*return NhlNOERROR; */
 	if (cnp->trans_obj->base.layer_class->base_class.class_name ==
 	    NhlmapTransObjClass->base_class.class_name) {
 		ezmap = True;
@@ -1006,7 +1122,8 @@ static NhlErrorTypes AddDataBoundToAreamap
 	c_arseti("RC(1)",1);
 	c_arseti("RC(3)",2);
 #endif
-	c_arseti("RC",1);
+	/* RC has been set to 1 ; I am now finding better results with 0 -- we'll see */
+
 	if (! ezmap) {
 		float twlx,twrx,twby,twuy;
 		float gwlx,gwrx,gwby,gwuy;
@@ -1014,6 +1131,13 @@ static NhlErrorTypes AddDataBoundToAreamap
 		float gxmin,gxmax,gymin,gymax;
 		NhlBoolean lbox, rbox, bbox, tbox;
 
+#if 0
+		if (cnp->smoothing_on)
+			c_arseti("RC",1);
+		else
+			c_arseti("RC",0);
+#endif 
+		c_arseti("RC",1);
 		ret = NhlVAGetValues(cnp->trans_obj->base.id,
 				     NhlNtrXMinF,&txmin,
 				     NhlNtrXMaxF,&txmax,
@@ -1065,9 +1189,33 @@ static NhlErrorTypes AddDataBoundToAreamap
 			ret = MIN(ret,NhlWARNING);
 			return ret;
 		}
+#if 0
+		if (twlx < twrx) {
+			xrev = cl->trans.x_reverse;
+		}
+		else {
+			xrev = ! cl->trans.x_reverse;
+		}
+		if (twby < twuy) {
+			yrev = cl->trans.y_reverse;
+		}
+		else {
+			yrev = ! cl->trans.y_reverse;
+		}
+#endif
+		if (cnp->sfp->x_start < cnp->sfp->x_end) {
+			xrev = cl->trans.x_reverse;
+		}
+		else {
+			xrev = ! cl->trans.x_reverse;
+		}
+		if (cnp->sfp->y_start < cnp->sfp->y_end) {
+			yrev = cl->trans.y_reverse;
+		}
+		else {
+			yrev = ! cl->trans.y_reverse;
+		}
 
-		xrev = twlx > twrx;
-		yrev = twby > twuy;
 /*
  * added a hack to prevent fill dropout in certain cases, where because
  * of floating point precision issues in the mapping routines, contour
@@ -1209,6 +1357,8 @@ static NhlErrorTypes AddDataBoundToAreamap
 		char		cval[4];
 
 #if 0
+		float wb,wt,wl,wr;
+
 		/* apparently none of this stuff is necessary as long as you set the vertical strips correctly*/
 		if (! cnp->fix_fill_bleed)
 			return NhlNOERROR;
@@ -1244,68 +1394,16 @@ static NhlErrorTypes AddDataBoundToAreamap
 		_NhlAredam(cnp->aws,xa,ya,1,3,0,-1,entry_name);
 
 #endif
+
+		c_arseti("RC",1);
 		c_mpgetc("OU",cval,3);
 		c_mpsetc("OU","NO");
-		c_mpseti("G2",3);
+		c_mpseti("G2",2);
 		c_mpseti("VS",1);
 		_NhlMapbla(cnp->aws,entry_name);
 		c_mpsetc("OU",cval);
 	}
 	return NhlNOERROR;
-}
-
-/*
- * Function:	cnInitAreamap
- *
- * Description:	
- *
- * In Args:	
- *
- * Out Args:	NONE
- *
- * Return Values: Error Conditions
- *
- * Side Effects: NONE
- */	
-
-static NhlErrorTypes cnInitAreamap
-#if	NhlNeedProto
-(
-	NhlContourPlotLayer	cnl,
-	NhlString	entry_name
-)
-#else
-(cnl,entry_name)
-        NhlContourPlotLayer cnl;
-	NhlString	entry_name;
-#endif
-{
-	NhlErrorTypes		ret = NhlNOERROR, subret = NhlNOERROR;
-	char			*e_text;
-	NhlContourPlotLayerPart	*cnp = &(cnl->contourplot);
-
-	if (cnp->aws_id < 1) {
-		cnp->aws_id = 
-			_NhlNewWorkspace(NhlwsAREAMAP,
-					 NhlwsNONE,1000000*sizeof(int));
-		if (cnp->aws_id < 1) 
-			return MIN(ret,(NhlErrorTypes)cnp->aws_id);
-	}
-	if ((cnp->aws = _NhlUseWorkspace(cnp->aws_id)) == NULL) {
-		e_text = 
-			"%s: error reserving label area map workspace";
-		NhlPError(NhlFATAL,NhlEUNKNOWN,e_text,entry_name);
-		return(ret);
-	}
-
-#if 0
-	c_arseti("lc",(int) (cnp->amap_crange * 
-		 MIN(cnl->view.width,cnl->view.height)));
-#endif
-	subret = _NhlArinam(cnp->aws,entry_name);
-	if ((ret = MIN(subret,ret)) < NhlWARNING) return ret;
-
-	return ret;
 }
 
 static float Xsoff,Xeoff,Ysoff,Yeoff;
@@ -1485,6 +1583,13 @@ static NhlErrorTypes DoConstFillHack(
 		save_mono_fill_scale;
 	float test_val;
 	static float save_test_val;
+	static int save_ix;
+#if 0
+	float flx,frx,fby,fuy,wlx,wrx,wby,wuy; int ll;
+	c_getset(&flx,&frx,&fby,&fuy,&wlx,&wrx,&wby,&wuy,&ll);
+	printf("getset - %f,%f,%f,%f,%f,%f,%f,%f\n",
+	       flx,frx,fby,fuy,wlx,wrx,wby,wuy); 
+#endif
 
 	if (! on) {
 		cnp->mono_fill_color = save_mono_fill_color;
@@ -1493,7 +1598,7 @@ static NhlErrorTypes DoConstFillHack(
 		cnp->fill_color = save_fill_color;
 		cnp->fill_pattern = save_fill_pattern;
 		cnp->fill_scale = save_fill_scale;
-		cnp->data[0] = save_test_val;
+		cnp->data[save_ix] = save_test_val;
 		return NhlNOERROR;
 	}
 
@@ -1501,7 +1606,9 @@ static NhlErrorTypes DoConstFillHack(
 		printf("no data\n");
 		return NhlWARNING;
 	}
-	save_test_val = test_val = cnp->data[0];
+	
+	save_ix = (cnp->sfp->slow_len / 2) * cnp->sfp->fast_len + cnp->sfp->fast_len / 2;
+	save_test_val = test_val = cnp->data[save_ix];
 
 	ix = -1;
 	for (i = 0; i< cnp->level_count; i++) {
@@ -1515,10 +1622,10 @@ static NhlErrorTypes DoConstFillHack(
 		ix = cnp->level_count;
 	}
 	if (ix > 1) {
-		cnp->data[0] = levels[0];
+		cnp->data[save_ix] = levels[0];
 	}
 	else {
-		cnp->data[0] = levels[cnp->level_count - 1];
+		cnp->data[save_ix] = levels[cnp->level_count - 1];
 	}
 	
 	save_mono_fill_color = cnp->mono_fill_color;
@@ -1606,15 +1713,11 @@ static NhlErrorTypes CnStdRender
 			MAX((double)fabs((double)tfp->data_ystart),(double)fabs((double)tfp->data_yend)) > 91;
 		if (out_of_bounds) {
 			if (cnp->fill_on && (cnp->fill_mode == NhlAREAFILL || cnp->fill_mode == NhlRASTERFILL)) {
-				char *mode = "AreaFill";
-				if (cnp->fill_mode == NhlRASTERFILL) {
-					mode = "RasterFill";
-				}
 				e_text =  "%s: out of range coordinates encountered; standard %s rendering method may be unreliable;\n consider setting the resource trGridType to \"TriangularMesh\" if coordinates contain missing values";
 				NhlPError(NhlWARNING,NhlEUNKNOWN,e_text,entry_name,cnp->fill_mode == NhlAREAFILL ? "AreaFill" : "RasterFill");
 			}
 			else if (cnp->lines_on || cnp->line_lbls.on) {
-				e_text =  "%s: out of range coordinates encountered; standard %s rendering method may be unreliable;\n consider setting the resource trGridType to \"TriangularMesh\" if coordinates contain missing values";
+				e_text =  "%s: out of range coordinates encountered; standard line rendering method may be unreliable;\n consider setting the resource trGridType to \"TriangularMesh\" if coordinates contain missing values";
 				NhlPError(NhlWARNING,NhlEUNKNOWN,e_text,entry_name);
 			}
 		}
@@ -1674,10 +1777,12 @@ static NhlErrorTypes CnStdRender
 		gset_clip_ind(clip_ind_rect.clip_ind);
 		return ret;
 	}
+#if 0
 	if (cnp->fill_mode == NhlAREAFILL && (almost_const || (cnp->const_field  && cnp->do_constf_fill))) {
 		DoConstFillHack(cnp, True);
 		do_const_fill_hack = 1;
 	}
+#endif
 
 
 /* Retrieve workspace pointers */
@@ -1697,6 +1802,15 @@ static NhlErrorTypes CnStdRender
 		return(ret);
 	}
 	/* Draw the contours */
+#if 0
+	{ /* for debugging */
+		float flx,frx,fby,fuy,wlx,wrx,wby,wuy; int ll;
+		c_getset(&flx,&frx,&fby,&fuy,&wlx,&wrx,&wby,&wuy,&ll);
+		printf("getset - %f,%f,%f,%f,%f,%f,%f,%f\n",
+		       flx,frx,fby,fuy,wlx,wrx,wby,wuy); 
+		/*c_set(flx,frx,fby,fuy,wlx,wrx,wuy,wby,ll);*/
+  	}
+#endif
 
 	subret = _NhlCprect(cnp->data,cnp->sfp->fast_dim,cnp->sfp->fast_len,
 			    cnp->sfp->slow_len,cnp->fws,cnp->iws,entry_name);
@@ -1750,6 +1864,7 @@ static NhlErrorTypes CnStdRender
 				gset_clip_ind(clip_ind_rect.clip_ind);
 				return NhlFATAL;
 			}
+
 			subret = AddDataBoundToAreamap(cnl,entry_name);
 			if ((ret = MIN(subret,ret)) < NhlWARNING) {
 				ContourAbortDraw(cnl);
@@ -1768,6 +1883,21 @@ static NhlErrorTypes CnStdRender
 			if (cnp->dump_area_map)
 				_NhlDumpAreaMap(cnp->aws,entry_name);
 
+			/* flag1 is set to 999 to indicate that the HLU version
+			   of ARPRAM should be called. It has special handling
+			   to fix a problem with the grid boundary */
+
+			_NhlArpram(cnp->aws,999,0,0,entry_name);
+
+			/* Call this twice because the areamap will have changed if there
+			   is a constant fill situation (because the first call will invoke
+			   the HLU routine fixareamap_ after finishing). 
+			   This will not impact performance because if the areamap 
+			   has not changed, arpram will know that and not do anything */
+
+			_NhlArpram(cnp->aws,999,0,0,entry_name);
+
+
 			subret = _NhlArscam(cnp->aws,
 					    (_NHLCALLF(hlucpfill,HLUCPFILL)),
 					    entry_name);
@@ -1779,10 +1909,12 @@ static NhlErrorTypes CnStdRender
 			subret = _NhlIdleWorkspace(cnp->aws);
 			ret = MIN(subret,ret);
 			cnp->aws = NULL;
+#if 0
 			if (do_const_fill_hack) {
 				DoConstFillHack(cnp, False);
 				do_const_fill_hack = 0;
 			}
+#endif
 			
 		}
 		else if (fill_mode == NhlCELLFILL) {
@@ -2323,6 +2455,7 @@ int (_NHLCALLF(hlucpfill,HLUCPFILL))
 	float fscale;
 	int *colp, *patp;
 	float *sclp;
+	float fill_opacity;
 
 	if (Cnp == NULL) return 0;
 
@@ -2375,8 +2508,7 @@ int (_NHLCALLF(hlucpfill,HLUCPFILL))
 				fscale = reg_attrs->fill_scale;
 			}
                         
-                        float fill_opacity;
-                        int ret  = NhlVAGetValues(Cnl->base.wkptr->base.id,
+                        NhlVAGetValues(Cnl->base.wkptr->base.id,
                                         _NhlNwkFillOpacityF, &fill_opacity, 
                                         NULL);
                         
@@ -2468,7 +2600,7 @@ void  (_NHLCALLF(hlucpscae,HLUCPSCAE))
 	   
 
 	if (*iaid > 99 && *iaid < 100 + Cnp->fill_count) {
-		col_ix = Cnp->gks_fill_colors[*iaid - 100];
+		col_ix = Cnp->mono_fill_color ? Cnp->fill_color : Cnp->gks_fill_colors[*iaid - 100];
 		if (col_ix < 0) col_ix = NhlTRANSPARENT_CI;
 	}
 	else if (*iaid == 99) {
@@ -3252,6 +3384,7 @@ void   (_NHLCALLF(hlucpmpxy,HLUCPMPXY))
 				       xinp,yinp,1,xotp,yotp,
 				       &status,NULL,NULL);
 	}
+	/*printf("hlucpmpxy: in %f %f out %f %f\n",*xinp, *yinp, *xotp, *yotp);*/
 	return;
 }
 
@@ -3657,26 +3790,21 @@ NhlErrorTypes _NhlMeshFill
 
 	float		orv,spv;
 	float		xc1,xcm,yc1,ycn;
-	float		xmn,xmx,ymn,ymx;
 	int		i,j,k,izd1,izdm,izdn,icaf,map,iaid;
         float		*levels;
-	float		cxstep,cystep;
-	float           xsoff,xeoff,ysoff,yeoff;
-	NhlBoolean      x_isbound,y_isbound;
-	float           tol1,tol2;
+	float		cxstep;
 	int             grid_fill_ix;
 
 	float *xarr, *yarr;
 	NhlBoolean ezmap = False;
 	float xcount,ycount;
-        int lxsize,xc_count,yc_count,mode;
+        int lxsize,mode;
 	int jc,jcm1,jcp1;
 	float avg_cells_per_grid_box;
 	int status;
 	float mflx,mfby,mfrx,mfuy;
 	float min_minx, max_maxx, min_miny, max_maxy;
 	float max_coverage = 0;
-	int twice;
 
         if (Cnp == NULL) {
 		e_text = "%s: invalid call to _NhlRasterFill";
@@ -3704,10 +3832,6 @@ NhlErrorTypes _NhlMeshFill
 	c_cpgeti("ZD1",&izd1);
 	c_cpgeti("CAF",&icaf);
 	c_cpgeti("MAP",&map);
-	xmn = MIN(xc1,xcm);
-	xmx = MAX(xc1,xcm);
-	ymn = MIN(yc1,ycn);
-	ymx = MAX(yc1,ycn);
 	if (!Cnp->sfp->x_arr || Cnp->sfp->x_arr->num_dimensions == 1) {
 		return (_NhlRasterFill(zdat,cell,ica1,icam,ican,
 				       xcpf,ycpf,xcqf,ycqf,entry_name));
@@ -3718,17 +3842,7 @@ NhlErrorTypes _NhlMeshFill
 
 
 	cxstep = (xcqf-xcpf)/(float)icam;
-	cystep = (ycqf-ycpf)/(float)ican;
- 	x_isbound = Cnp->sfp->xc_is_bounds;
- 	y_isbound = Cnp->sfp->yc_is_bounds;
 
-	xsoff = Xsoff + .5 * (1.0 - Xsoff);
-	xeoff = Xeoff + .5 * (1.0 - Xeoff);
-	ysoff = Ysoff + .5 * (1.0 - Ysoff);
-	yeoff = Yeoff + .5 * (1.0 - Yeoff);
-
-	tol1 = 0.00001 * MIN(Cnl->view.width,Cnl->view.height);
-	tol2 = 0.5 * MIN(Cnl->view.width,Cnl->view.height);
 	
 /*
  *      initialize cell array with the missing value.
@@ -3773,8 +3887,6 @@ NhlErrorTypes _NhlMeshFill
 	xcount = xcm - xc1;
 	ycount = ycn - yc1;
 	lxsize = Cnp->sfp->xc_is_bounds ? izd1 + 1 : izd1;
-	xc_count = Cnp->sfp->xc_is_bounds ? xcount + 1 : xcount;
-	yc_count = Cnp->sfp->yc_is_bounds ? ycount + 1 : ycount;
 	mode = 0;
 	mode |= Cnp->sfp->xc_is_bounds ? X_BOUNDS : 0;
 	mode |= Cnp->sfp->yc_is_bounds ? Y_BOUNDS : 0;
@@ -3790,7 +3902,6 @@ NhlErrorTypes _NhlMeshFill
 	mfuy = ycqf + (ycqf - ycpf) * .1;
 	min_minx = min_miny = 1e30;
 	max_maxx = max_maxy = 0;
-	twice = 0;
 	for (j = yc1; j < ycn; j++) {
 		if (j == 0) {
 			jc = jcm1 =  0;
@@ -3808,7 +3919,6 @@ NhlErrorTypes _NhlMeshFill
 		}
 				
 		for (i = xc1; i <xcm; i++) {
-			float ival,jval;
 			int ix = i + j * izd1;
 			int iplus,jplus;
 			float fvali;
@@ -3819,7 +3929,6 @@ NhlErrorTypes _NhlMeshFill
 			int p,p1,p2,p0;
 			int jcv,icv;
 
-			twice = 1;
 
 			if (! GetXYIn2D(xarr,yarr,jc,jcm1,jcp1,i,
 					xcount,mode,ezmap,xi,yi))
@@ -3827,8 +3936,6 @@ NhlErrorTypes _NhlMeshFill
 
 			pps = &ps[0];
 			
-			ival = i;
-			jval = j;
 
 #if 0
 			if (ezmap) {
@@ -3900,7 +4007,6 @@ NhlErrorTypes _NhlMeshFill
 #if 1
 			if (maxx - minx > icam / 2.0) {
 				float new_maxx = -1e30,new_minx = 1e30;
-				twice = 2;
 				for (p = 0; p < 4; p++) {
 					if (xp[p] < icam / 2) {
 						xp[p] += (float) icam;

@@ -36,21 +36,21 @@
 
 #ifdef BuildHDF5
 #include <hdf5.h>
+
+#ifdef BuildHDFEOS5
+#include <HE5_HdfEosDef.h>
+#endif
 #endif
 
 /*
 #ifdef BuildHDF4
 #include <mfhdf.h>
-#endif
 
 #ifdef BuildHDFEOS
 #include <HdfEosDef.h>
 #endif
-*/
-
-#ifdef BuildHDFEOS5
-#include <HE5_HdfEosDef.h>
 #endif
+*/
 
 #include "defs.h"
 #include "NclMultiDValData.h"
@@ -69,10 +69,11 @@
 #include "ApiRecords.h"
 #include "NclAtt.h"
 #include "NclAdvancedFileStructure.h"
+#include "NclOptions.h"
 
 #include <sys/stat.h>
 
-NclQuark *GetGrpVarNames(void *therec, int *num_vars);
+extern NclQuark *GetGrpVarNames(void *therec, int *num_vars);
 NclQuark *GetGrpDimNames(void *therec, int *num_dims);
 NclQuark *GetGrpAttNames(void* therec, int *num_atts);
 NclQuark *GetVarAttNamesFromGrp(void *therec, NclQuark thevar, int *num_atts);
@@ -103,5 +104,8 @@ void _Ncl_add_udt(NclFileUDTRecord **rootudtrec,
 
 void *GetCachedValue(NclFileVarNode *varnode,
                      long start, long finish, long stride, void *storage);
+void _NclCopyGroupOptions(NclFileGrpNode *grpnode, NclFileGrpNode *rootgrpnode);
+void _NclCopyOption(NCLOptions *option, NclQuark name,
+                    NclBasicDataTypes data_type, int n_items, void *values);
 #endif
 

@@ -138,7 +138,7 @@ char* ytxt;
 #define MAX_INCLUDE_DEPTH 20
 YY_BUFFER_STATE include_stack[MAX_INCLUDE_DEPTH];
 int line_numbers[MAX_INCLUDE_DEPTH];
-char *file_names[MAX_INCLUDE_DEPTH];
+char *file_names[1+MAX_INCLUDE_DEPTH];
 
 void _NclResetScanner
 #if NhlNeedProto
@@ -193,7 +193,12 @@ void _NclResetScanner
                 load_stmt = 0;
             }
         }
-    }
+        }
+	if(NULL != file_names[loading+1])
+	{
+		NclFree(file_names[loading+1]);
+		file_names[loading+1] = NULL;
+	}
 	cur_load_file = file_names[loading];
 	if(yyin != NULL) {
 		if(loading) {
@@ -241,6 +246,7 @@ int status;
 	line_numbers[loading] = cur_line_number;
 	SetLine(0);
 	file_names[loading] = cur_load_file;
+	file_names[loading+1] = NULL;
 	include_stack[loading++] = YY_CURRENT_BUFFER;
 	tmpfile = fopen( _NGResolvePath(tmp), "r" );
 	if(tmpfile != NULL) {
@@ -270,8 +276,11 @@ file_grp_var_compound_alnum   [_a-zA-Z0-9/.]
 white	[\t ]
 digit	[0-9]
 inttype [bBChHiIlLqQ]
+
 %x incl
+%x IN_COMMENT
 %%
+
 	if(inc_line) {
 		IncLine();
 		if(cmd_line) {
@@ -302,6 +311,7 @@ inttype [bBChHiIlLqQ]
         }
 	BEGIN 0;
 }
+
 <incl>["][^"\n]*["] {
 	char *tmp;
 	FILE *tmpfile = NULL;
@@ -361,6 +371,18 @@ inttype [bBChHiIlLqQ]
 
     BEGIN 0;
 }
+
+<INITIAL>{
+     "/;"      BEGIN(IN_COMMENT); 
+}
+
+<IN_COMMENT>{
+     ";/"      BEGIN(INITIAL);
+     [^;\n]+   /* eat comment in chunks */
+     ";"       /* eat the lone semicolon */
+     \n        { IncLine(); if(cmd_line) _NclCallPromptFunc(cur_line_number); }
+}
+
 <<EOF>> {
 	inc_line = 1;
 	yyterminate();
@@ -492,6 +514,7 @@ inttype [bBChHiIlLqQ]
 	CopyIt(&cur_line_text_pos,&cur_line_length,yyleng,yytext);
 	
 }
+
 {digit}+\.|{digit}*\.{digit}+ {
 		sscanf(yytext,"%lf",&(yylval.real));
 		printtoken(REAL,yytext);
@@ -912,4 +935,3 @@ inttype [bBChHiIlLqQ]
 	CopyIt(&cur_line_text_pos,&cur_line_length,yyleng,yytext);
 	return REASSIGN;
 }
-

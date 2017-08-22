@@ -26,8 +26,10 @@ extern NhlErrorTypes g2gshv_W(void);
 extern NhlErrorTypes f2gshv_W(void);
 extern NhlErrorTypes g2fshv_W(void);
 extern NhlErrorTypes f2fshv_W(void);
-extern NhlErrorTypes eof_W(void);
-extern NhlErrorTypes eof_ts_W(void);
+extern NhlErrorTypes eofunc_W(void);
+extern NhlErrorTypes eofunc_n_W(void);
+extern NhlErrorTypes eofunc_ts_W(void);
+extern NhlErrorTypes eofunc_ts_n_W(void);
 extern NhlErrorTypes eofcov_W(void);
 extern NhlErrorTypes eofcor_W(void);
 extern NhlErrorTypes eofcov_tr_W(void);
@@ -39,6 +41,7 @@ extern NhlErrorTypes eofcor_ts_W(void);
 extern NhlErrorTypes eofcov_ts_pcmsg_W(void);
 extern NhlErrorTypes eofcor_ts_pcmsg_W(void);
 extern NhlErrorTypes eof2data_W(void);
+extern NhlErrorTypes eof2data_n_W(void);
 extern NhlErrorTypes eof_varimax_W(void);
 extern NhlErrorTypes eofunc_varimax_W(void);
 extern NhlErrorTypes eofunc_varimax_jl_W(void);
@@ -54,7 +57,19 @@ extern NhlErrorTypes dgeevx_lapack_W(void);
 extern NhlErrorTypes svd_lapack_W(void);
 extern NhlErrorTypes svdpar_W(void);
 extern NhlErrorTypes sindex_yrmo_W(void);
+extern NhlErrorTypes bw_bandpass_filter_W(void);
+extern NhlErrorTypes weibull_W(void);
+extern NhlErrorTypes trend_manken_W(void);
+extern NhlErrorTypes thornthwaite_W(void);
+extern NhlErrorTypes thornthwaite_r_W(void);
+extern NhlErrorTypes speidx_W(void);
+extern NhlErrorTypes kmeans_as136_W(void);
 extern NhlErrorTypes snindex_yrmo_W(void);
+#ifdef BuildEEMD
+extern NhlErrorTypes ceemdan_W(void);
+extern NhlErrorTypes eemd_W(void);
+extern NhlErrorTypes emd_num_imfs_W(void);
+#endif
 extern NhlErrorTypes x_skewt_W(void);
 extern NhlErrorTypes y_skewt_W(void);
 extern NhlErrorTypes tmr_skewt_W(void);
@@ -92,7 +107,13 @@ extern NhlErrorTypes wrf_wps_read_nml_W(void);
 extern NhlErrorTypes wrf_wps_open_int_W(void);
 extern NhlErrorTypes wrf_wps_rdhead_int_W(void);
 extern NhlErrorTypes wrf_wps_rddata_int_W(void);
+extern NhlErrorTypes wrf_wps_close_int_W(void);
 extern NhlErrorTypes wrf_wps_read_int_W(void);
+extern NhlErrorTypes wrf_wps_write_int_W(void);
+extern NhlErrorTypes wrf_vintrp_W(void);
+extern NhlErrorTypes wrf_ctt_W(void);
+extern NhlErrorTypes wrf_cloud_frac_W(void);
+extern NhlErrorTypes wrf_monotonic_W(void);
 
 extern NhlErrorTypes cape_thermo_W(void);
 extern NhlErrorTypes gaus_lobat_W(void);
@@ -106,6 +127,8 @@ extern NhlErrorTypes bin_sum_W(void);
 extern NhlErrorTypes bin_avg_W(void);
 extern NhlErrorTypes trop_wmo_W(void);
 extern NhlErrorTypes moc_globe_atl_W(void);
+extern NhlErrorTypes wetbulb_W(void);
+extern NhlErrorTypes extval_mlegev_W(void);
 
 extern NhlErrorTypes rgbhsv_W(void);
 extern NhlErrorTypes hsvrgb_W(void);
@@ -125,7 +148,6 @@ extern NhlErrorTypes gc_inout_mask_func_W(void);
 extern NhlErrorTypes gc_inout_mask_proc_W(void);
 extern NhlErrorTypes gc_onarc_W(void);
 extern NhlErrorTypes area_poly_sphere_W(void);
-
 extern NhlErrorTypes dv2uvf_W(void);
 extern NhlErrorTypes dv2uvg_W(void);
 extern NhlErrorTypes dv2uvF_W(void);
@@ -218,6 +240,7 @@ extern NhlErrorTypes spcorr_n_W(void);
 extern NhlErrorTypes pdfxy_bin_W(void);
 extern NhlErrorTypes pdfx_bin_W(void);
 extern NhlErrorTypes kolsm2_n_W(void);
+extern NhlErrorTypes determinant_W(void);
 
 extern NhlErrorTypes nggcog_W(void);
 extern NhlErrorTypes ngritd_W(void);
@@ -412,6 +435,8 @@ extern NhlErrorTypes escovc_W(void);
 extern NhlErrorTypes escorc_n_W(void);
 extern NhlErrorTypes ezfftf_W(void);
 extern NhlErrorTypes ezfftb_W(void);
+extern NhlErrorTypes ezfftf_n_W(void);
+extern NhlErrorTypes ezfftb_n_W(void);
 extern NhlErrorTypes cfftf_W(void);
 extern NhlErrorTypes cfftb_W(void);
 extern NhlErrorTypes cfftf_frq_reorder_W(void);
@@ -453,6 +478,7 @@ extern NhlErrorTypes rgrid2rcm_W(void);
 extern NhlErrorTypes rcm2points_W(void);
 extern NhlErrorTypes pres_hybrid_W(void);
 extern NhlErrorTypes pres_hybrid_ccm_W(void);
+extern NhlErrorTypes pres_hybrid_jra55_W(void);
 extern NhlErrorTypes dpres_hybrid_W(void);
 extern NhlErrorTypes dpres_hybrid_ccm_W(void);
 extern NhlErrorTypes dpres_plevel_W(void);
@@ -484,6 +510,8 @@ extern NhlErrorTypes cd_inv_calendar_W(void);
 #ifdef BuildUdunits
 extern NhlErrorTypes ut_calendar_W(void);
 extern NhlErrorTypes ut_inv_calendar_W(void);
+extern NhlErrorTypes ut_calendar_fix_W(void);
+extern NhlErrorTypes ut_inv_calendar_fix_W(void);
 #endif
 
 /*
@@ -499,6 +527,8 @@ extern NhlErrorTypes    v5d_missing_W(void);
 
 extern NhlErrorTypes angmom_atm_W(void);
 extern NhlErrorTypes relhum_W(void);
+extern NhlErrorTypes relhum_water_W(void);
+extern NhlErrorTypes relhum_ice_W(void);
 extern NhlErrorTypes runave_W(void);
 extern NhlErrorTypes runave_n_W(void);
 extern NhlErrorTypes wgt_runave_W(void);
@@ -550,6 +580,7 @@ extern NhlErrorTypes conform_W(void);
 extern NhlErrorTypes conform_dims_W(void);
 extern NhlErrorTypes reshape_W(void);
 extern NhlErrorTypes reshape_ind_W(void);
+extern NhlErrorTypes fftshift_W(void);
 extern NhlErrorTypes paleo_outline_W(void);
 extern NhlErrorTypes inverse_matrix_W(void);
 extern NhlErrorTypes solve_linsys_W(void);
@@ -597,6 +628,7 @@ extern NhlErrorTypes ctwrap_W(void);
 extern NhlErrorTypes kron_product_W(void);
 
 extern NhlErrorTypes sparse_matrix_mult_W(void);
+extern NhlErrorTypes sparse_matrix_mult_trimesh_W(void);
 
 extern NhlErrorTypes dim_gamfit_n_W(void);
 extern NhlErrorTypes dim_spi_n_W(void);
@@ -914,7 +946,22 @@ void NclAddUserFuncs(void)
     SetArgTemplate(args,nargs,"integer",1,dimsizes);nargs++;
     SetArgTemplate(args,nargs,"logical",1,dimsizes);nargs++;
 
-    NclRegisterFunc(eof_W,args,"eofunc",nargs);
+    NclRegisterFunc(eofunc_W,args,"eofunc",nargs);
+
+/*
+ * Register "eofunc_n".
+ *
+ * Create private argument array.
+ */
+    nargs = 0;
+    args = NewArgs(4);
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    dimsizes[0] = 1;
+    SetArgTemplate(args,nargs,"integer",1,dimsizes);nargs++;
+    SetArgTemplate(args,nargs,"logical",1,dimsizes);nargs++;
+    SetArgTemplate(args,nargs,"integer",1,dimsizes);nargs++;
+
+    NclRegisterFunc(eofunc_n_W,args,"eofunc_n",nargs);
 
 /*
  * Register "eofunc_ts".
@@ -928,7 +975,22 @@ void NclAddUserFuncs(void)
     dimsizes[0] = 1;
     SetArgTemplate(args,nargs,"logical",1,dimsizes);nargs++;
 
-    NclRegisterFunc(eof_ts_W,args,"eofunc_ts",nargs);
+    NclRegisterFunc(eofunc_ts_W,args,"eofunc_ts",nargs);
+
+/*
+ * Register "eofunc_ts".
+ *
+ * Create private argument array.
+ */
+    nargs = 0;
+    args = NewArgs(4);
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    dimsizes[0] = 1;
+    SetArgTemplate(args,nargs,"logical",1,dimsizes);nargs++;
+    SetArgTemplate(args,nargs,"integer",1,dimsizes);nargs++;
+
+    NclRegisterFunc(eofunc_ts_n_W,args,"eofunc_ts_n",nargs);
 /*
  * Register "eofcov".
  *
@@ -1097,6 +1159,19 @@ void NclAddUserFuncs(void)
     SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
     SetArgTemplate(args,nargs,"numeric",2,NclANY);nargs++;
     NclRegisterFunc(eof2data_W,args,"eof2data",nargs);
+
+/*
+ * Register "eof2data_n".
+ *
+ * Create private argument array.
+ */
+    nargs = 0;
+    args = NewArgs(3);
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    SetArgTemplate(args,nargs,"numeric",2,NclANY);nargs++;
+    dimsizes[0] = 1;
+    SetArgTemplate(args,nargs,"integer",1,dimsizes);nargs++;
+    NclRegisterFunc(eof2data_n_W,args,"eof2data_n",nargs);
 /*
  * Register "center_finite_diff".
  *
@@ -1288,6 +1363,53 @@ void NclAddUserFuncs(void)
     SetArgTemplate(args,nargs,"numeric",2,NclANY);nargs++;
 
     NclRegisterFunc(snindex_yrmo_W,args,"snindex_yrmo",nargs);
+
+#ifdef BuildEEMD
+
+/*
+ * Register "ceemdan"
+ *
+ * Create private argument array.
+ */
+    nargs = 0;
+    args = NewArgs(6);
+    dimsizes[0] = 1;
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    SetArgTemplate(args,nargs,"numeric",1,dimsizes);nargs++;
+    SetArgTemplate(args,nargs,"numeric",1,dimsizes);nargs++;
+    SetArgTemplate(args,nargs,"numeric",1,dimsizes);nargs++;
+    SetArgTemplate(args,nargs,"logical",1,dimsizes);nargs++;
+    SetArgTemplate(args,nargs,"integer",1,NclANY);nargs++;
+    NclRegisterFunc(ceemdan_W,args,"ceemdan",nargs);
+
+/*
+ * Register "eemd"
+ *
+ * Create private argument array.
+ */
+    nargs = 0;
+    args = NewArgs(6);
+    dimsizes[0] = 1;
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    SetArgTemplate(args,nargs,"numeric",1,dimsizes);nargs++;
+    SetArgTemplate(args,nargs,"numeric",1,dimsizes);nargs++;
+    SetArgTemplate(args,nargs,"numeric",1,dimsizes);nargs++;
+    SetArgTemplate(args,nargs,"logical",1,dimsizes);nargs++;
+    SetArgTemplate(args,nargs,"integer",1,NclANY);nargs++;
+    NclRegisterFunc(eemd_W,args,"eemd",nargs);
+
+/*
+ * Register "emd_num_imfs".
+ *
+ * Create private argument array
+ */
+    nargs = 0;
+    args = NewArgs(1);
+    dimsizes[0] = 1;
+    SetArgTemplate(args,nargs,"numeric",1,dimsizes);nargs++;
+    NclRegisterFunc(emd_num_imfs_W,args,"emd_num_imfs",nargs);
+#endif
+
 /*
  * Register "x_skewt".
  *
@@ -1719,6 +1841,21 @@ void NclAddUserFuncs(void)
 
         NclRegisterFunc(wrf_wetbulb_W,args,"wrf_wetbulb",nargs);
 /*
+ * Register "extval_mlegev".
+ *
+ * Create private argument array
+ */
+        nargs = 0;
+        args = NewArgs(3);
+
+        SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+        SetArgTemplate(args,nargs,"integer",1,NclANY);nargs++;
+        dimsizes[0] = 1;
+        SetArgTemplate(args,nargs,"logical",1,dimsizes);nargs++;
+
+        NclRegisterFunc(extval_mlegev_W,args,"extval_mlegev",nargs);
+
+/*
  * Register "wrf_omega".
  *
  * Create private argument array
@@ -1822,6 +1959,18 @@ void NclAddUserFuncs(void)
         NclRegisterFunc(wrf_wps_rddata_int_W,args,"wrf_wps_rddata_int",nargs);
 
 /*
+ * Register "wrf_wps_close_int".
+ *
+ * Create private argument array
+ */
+        nargs = 0;
+        args = NewArgs(1);
+
+        dimsizes[0] = 1;
+        SetArgTemplate(args,nargs,"integer",1,dimsizes);nargs++;
+        NclRegisterProc(wrf_wps_close_int_W,args,"wrf_wps_close_int",nargs);
+
+/*
  * Register "wrf_wps_read_int".
  *
  * Create private argument array
@@ -1835,6 +1984,23 @@ void NclAddUserFuncs(void)
         NclRegisterFunc(wrf_wps_read_int_W,args,"wrf_wps_read_int",nargs);
 
 /*
+ * Register "wrf_wps_write_int".
+ *
+ * Create private argument array
+ */
+        nargs = 0;
+        args = NewArgs(6);
+
+        dimsizes[0] = 1;
+        SetArgTemplate(args,nargs,"string",1,dimsizes);nargs++;
+        SetArgTemplate(args,nargs,"string",1,dimsizes);nargs++;
+        SetArgTemplate(args,nargs,"string",1,dimsizes);nargs++;
+        SetArgTemplate(args,nargs,"string",1,dimsizes);nargs++;
+        SetArgTemplate(args,nargs,"numeric",2,NclANY);nargs++;
+        SetArgTemplate(args,nargs,"logical",1,dimsizes);nargs++;
+
+        NclRegisterProc(wrf_wps_write_int_W,args,"wrf_wps_write_int",nargs);
+/*
  * Register "wrf_wps_read_nml".
  *
  * Create private argument array
@@ -1846,6 +2012,81 @@ void NclAddUserFuncs(void)
         SetArgTemplate(args,nargs,"string",1,dimsizes);nargs++;
 
         NclRegisterFunc(wrf_wps_read_nml_W,args,"wrf_wps_read_nml",nargs);
+
+/*
+ * Register "wrf_ctt".
+ *
+ * Create private argument array
+ */
+        nargs = 0;
+        args = NewArgs(8);
+
+        SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+        SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+        SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+        SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+        SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+        SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+        SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+        dimsizes[0] = 1;
+        SetArgTemplate(args,nargs,"integer",1,dimsizes);nargs++;
+
+        NclRegisterFunc(wrf_ctt_W,args,"wrf_ctt",nargs);
+
+/*
+ * Register "wrf_cloud_fraction"
+ *
+ * Create private argument array
+ */
+        nargs = 0;
+        args = NewArgs(2);
+        SetArgTemplate(args,0,"numeric",0,NclANY);nargs++;
+        SetArgTemplate(args,1,"numeric",0,NclANY);nargs++;
+        NclRegisterFunc(wrf_cloud_frac_W,args,"wrf_cloud_fraction",nargs);
+
+/*
+ * Register "wrf_vintrp".
+ *
+ * Create private argument array
+ */
+        nargs = 0;
+        args = NewArgs(14);
+
+        SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+        SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+        SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+        SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+        SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+        SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+        SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+        SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+        SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+        SetArgTemplate(args,nargs,"numeric",1,NclANY);nargs++;
+        dimsizes[0] = 1;
+        SetArgTemplate(args,nargs,"integer",1,dimsizes);nargs++;
+        SetArgTemplate(args,nargs,"integer",1,dimsizes);nargs++;
+        SetArgTemplate(args,nargs,"integer",1,dimsizes);nargs++;
+        SetArgTemplate(args,nargs,"integer",1,dimsizes);nargs++;
+
+        NclRegisterFunc(wrf_vintrp_W,args,"wrf_vintrp",nargs);
+
+/*
+ * Register "wrf_monotonic".
+ *
+ * Create private argument array
+ */
+        nargs = 0;
+        args = NewArgs(6);
+
+        SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+        SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+        SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+        dimsizes[0] = 1;
+        SetArgTemplate(args,nargs,"integer",1,dimsizes);nargs++;
+        SetArgTemplate(args,nargs,"numeric",1,dimsizes);nargs++;
+        SetArgTemplate(args,nargs,"integer",1,dimsizes);nargs++;
+
+        NclRegisterFunc(wrf_monotonic_W,args,"wrf_monotonic",nargs);
 
 /*
  * Register "cape_thermo".
@@ -2020,6 +2261,20 @@ void NclAddUserFuncs(void)
     NclRegisterFunc(moc_globe_atl_W,args,"moc_globe_atl",nargs);
 
 /*
+ * Register "wetbulb".
+ *
+ * Create private argument array
+ */
+    nargs = 0;
+    args = NewArgs(3);
+
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+
+    NclRegisterFunc(wetbulb_W,args,"wetbulb",nargs);
+
+/*
  * Register "gc_onarc".
  *
  * Create private argument array
@@ -2045,6 +2300,120 @@ void NclAddUserFuncs(void)
     dimsizes[0] = 1;
     SetArgTemplate(args,nargs,"numeric",1,dimsizes);nargs++;
     NclRegisterFunc(area_poly_sphere_W,args,"area_poly_sphere",nargs);
+
+
+/*
+ * Register "bw_bandpass_filter".
+ *
+ * Create private argument array
+ */
+    nargs = 0;
+    args = NewArgs(5);
+
+    dimsizes[0] = 1;
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    SetArgTemplate(args,nargs,"numeric",1,dimsizes);nargs++;
+    SetArgTemplate(args,nargs,"numeric",1,dimsizes);nargs++;
+    SetArgTemplate(args,nargs,"logical",1,dimsizes);nargs++;
+    SetArgTemplate(args,nargs,"integer",1,NclANY);nargs++;
+
+    NclRegisterFunc(bw_bandpass_filter_W,args,"bw_bandpass_filter",nargs);
+
+/*
+ * Register "weibull".
+ *
+ * Create private argument array
+ */
+    nargs = 0;
+    args = NewArgs(3);
+
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    dimsizes[0] = 1;
+    SetArgTemplate(args,nargs,"logical",1,dimsizes);nargs++;
+    SetArgTemplate(args,nargs,"integer",1,NclANY);nargs++;
+
+    NclRegisterFunc(weibull_W,args,"weibull",nargs);
+/*
+ * Register "trend_manken".
+ *
+ * Create private argument array
+ */
+    nargs = 0;
+    args = NewArgs(3);
+
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    dimsizes[0] = 1;
+    SetArgTemplate(args,nargs,"logical",1,dimsizes);nargs++;
+    SetArgTemplate(args,nargs,"integer",1,NclANY);nargs++;
+
+    NclRegisterFunc(trend_manken_W,args,"trend_manken",nargs);
+/*
+ * Register "thornthwaite".
+ *
+ * Create private argument array
+ */
+    nargs = 0;
+    args = NewArgs(4);
+
+    dimsizes[0] = 1;
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    SetArgTemplate(args,nargs,"logical",1,dimsizes);nargs++;
+    SetArgTemplate(args,nargs,"integer",1,dimsizes);nargs++;
+
+    NclRegisterFunc(thornthwaite_W,args,"thornthwaite",nargs);
+
+/*
+ * Register "thornthwaite_r". This is a C routine provided via
+ * the "spei" code for 'R'. This routine is NOT being advertised.
+ * It is mainly to test against the Fortran thornthwaite we already
+ * have.
+ *
+ * Create private argument array
+ */
+    nargs = 0;
+    args = NewArgs(4);
+
+    dimsizes[0] = 1;
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    SetArgTemplate(args,nargs,"logical",1,dimsizes);nargs++;
+    SetArgTemplate(args,nargs,"integer",1,dimsizes);nargs++;
+
+    NclRegisterFunc(thornthwaite_W,args,"thornthwaite_r",nargs);
+
+/*
+ * Register "spei_deprecated"
+ *
+ * Create private argument array
+ */
+    nargs = 0;
+    args = NewArgs(6);
+
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    dimsizes[0] = 1;
+    SetArgTemplate(args,nargs,"integer",1,dimsizes);nargs++;
+    SetArgTemplate(args,nargs,"logical",1,dimsizes);nargs++;
+    SetArgTemplate(args,nargs,"integer",1,dimsizes);nargs++;
+
+    NclRegisterFunc(speidx_W,args,"spei_deprecated",nargs);
+
+/*
+ * Register "kmeans_as136".
+ *
+ * Create private argument array
+ */
+    nargs = 0;
+    args = NewArgs(3);
+
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    dimsizes[0] = 1;
+    SetArgTemplate(args,nargs,"integer",1,dimsizes);nargs++;
+    SetArgTemplate(args,nargs,"logical",1,dimsizes);nargs++;
+
+    NclRegisterFunc(kmeans_as136_W,args,"kmeans_as136",nargs);
 
 /*
  * Register "gc_pnt2gc".
@@ -3398,6 +3767,17 @@ void NclAddUserFuncs(void)
         SetArgTemplate(args,nargs,"integer",1,NclANY);nargs++;
 
         NclRegisterFunc(kolsm2_n_W,args,"kolsm2_n",nargs);
+
+/*
+ * Register "determinant".
+ *
+ * Create private argument array
+ */
+        nargs = 0;
+        args = NewArgs(1);
+
+        SetArgTemplate(args,nargs,"numeric",2,NclANY);nargs++;
+        NclRegisterFunc(determinant_W,args,"determinant",nargs);
 
 /*
  * Register "simpeq"
@@ -6053,6 +6433,32 @@ void NclAddUserFuncs(void)
     NclRegisterFunc(ezfftb_W,args,"ezfftb",nargs);
 
 /*
+ * Register "ezfftf_n".
+ *
+ * Create private argument array.
+ */
+    nargs = 0;
+    args = NewArgs(2);
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    dimsizes[0] = 1;
+    SetArgTemplate(args,nargs,"integer",1,dimsizes);nargs++;
+    NclRegisterFunc(ezfftf_n_W,args,"ezfftf_n",nargs);
+
+/*
+ * Register "ezfftb_n".
+ *
+ * Create private argument array.
+ */
+    nargs = 0;
+    args = NewArgs(3);
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    SetArgTemplate(args,nargs,"numeric",1,NclANY);nargs++;
+    dimsizes[0] = 1;
+    SetArgTemplate(args,nargs,"integer",1,dimsizes);nargs++;
+
+    NclRegisterFunc(ezfftb_n_W,args,"ezfftb_n",nargs);
+
+/*
  * Register "cfftf".
  *
  * Create private argument array.
@@ -6584,6 +6990,18 @@ void NclAddUserFuncs(void)
     NclRegisterFunc(pres_hybrid_ccm_W,args,"pres_hybrid_ccm",nargs);
 
 /*
+ * Register "pres_hybrid_jra55".
+ */
+    nargs = 0;
+    args = NewArgs(3);
+
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    SetArgTemplate(args,nargs,"numeric",1,NclANY);nargs++;
+    SetArgTemplate(args,nargs,"numeric",1,NclANY);nargs++;
+
+    NclRegisterFunc(pres_hybrid_jra55_W,args,"pres_hybrid_jra55",nargs);
+
+/*
  * Register "dpres_hybrid".
  */
     nargs = 0;
@@ -6845,15 +7263,15 @@ void NclAddUserFuncs(void)
     NclRegisterFunc(cd_calendar_W,args,"cd_calendar",nargs);
 
 /*
- * Register "ut_inv_calendar".
+ * Register "cd_inv_calendar".
  */
     nargs = 0;
     args = NewArgs(8);
-    SetArgTemplate(args,nargs,"integer",0,NclANY);nargs++;
-    SetArgTemplate(args,nargs,"integer",0,NclANY);nargs++;
-    SetArgTemplate(args,nargs,"integer",0,NclANY);nargs++;
-    SetArgTemplate(args,nargs,"integer",0,NclANY);nargs++;
-    SetArgTemplate(args,nargs,"integer",0,NclANY);nargs++;
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
     SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
     dimsizes[0] = 1;
     SetArgTemplate(args,nargs,"string",1,dimsizes);nargs++;
@@ -6862,7 +7280,7 @@ void NclAddUserFuncs(void)
 
 #ifdef BuildUdunits
 /*
- * Register "ut_calendar".
+ * Register "ut_calendar"
  */
     nargs = 0;
     args = NewArgs(2);
@@ -6872,20 +7290,46 @@ void NclAddUserFuncs(void)
     NclRegisterFunc(ut_calendar_W,args,"ut_calendar",nargs);
 
 /*
+ * Register "ut_calendar_fix"
+ */
+    nargs = 0;
+    args = NewArgs(2);
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    dimsizes[0] = 1;
+    SetArgTemplate(args,nargs,"integer",1,dimsizes);nargs++;
+    NclRegisterFunc(ut_calendar_fix_W,args,"ut_calendar_fix",nargs);
+
+/*
  * Register "ut_inv_calendar".
  */
     nargs = 0;
     args = NewArgs(8);
-    SetArgTemplate(args,nargs,"integer",0,NclANY);nargs++;
-    SetArgTemplate(args,nargs,"integer",0,NclANY);nargs++;
-    SetArgTemplate(args,nargs,"integer",0,NclANY);nargs++;
-    SetArgTemplate(args,nargs,"integer",0,NclANY);nargs++;
-    SetArgTemplate(args,nargs,"integer",0,NclANY);nargs++;
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
     SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
     dimsizes[0] = 1;
     SetArgTemplate(args,nargs,"string",1,dimsizes);nargs++;
     SetArgTemplate(args,nargs,"integer",1,dimsizes);nargs++;
     NclRegisterFunc(ut_inv_calendar_W,args,"ut_inv_calendar",nargs);
+
+/*
+ * Register "ut_inv_calendar_fix".
+ */
+    nargs = 0;
+    args = NewArgs(8);
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    dimsizes[0] = 1;
+    SetArgTemplate(args,nargs,"string",1,dimsizes);nargs++;
+    SetArgTemplate(args,nargs,"integer",1,dimsizes);nargs++;
+    NclRegisterFunc(ut_inv_calendar_fix_W,args,"ut_inv_calendar_fix",nargs);
 #endif
 
 /*
@@ -6925,6 +7369,30 @@ void NclAddUserFuncs(void)
     SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
     SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
     NclRegisterFunc(relhum_W,args,"relhum",nargs);
+
+/*
+ * Register "relhum_water".
+ */
+    nargs = 0;
+    args = NewArgs(3);
+
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    
+    NclRegisterFunc(relhum_water_W,args,"relhum_water",nargs);
+
+/*
+ * Register "relhum_ice".
+ */
+    nargs = 0;
+    args = NewArgs(3);
+
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+    
+    NclRegisterFunc(relhum_ice_W,args,"relhum_ice",nargs);
 
 /*
  * Register "runave".
@@ -7479,6 +7947,17 @@ void NclAddUserFuncs(void)
     NclRegisterFunc(reshape_W, args, "reshape", nargs);
 
 /*
+ *  Register fftshift
+ */
+    nargs = 0;
+    args = NewArgs(2);
+
+    SetArgTemplate(args, nargs, "numeric", 0, NclANY);  nargs++;
+    dimsizes[0] = 1;
+    SetArgTemplate(args, nargs, "integer", 1, dimsizes);  nargs++;
+    NclRegisterFunc(fftshift_W, args, "fftshift", nargs);
+
+/*
  *  Register reshape_ind
  */
     nargs = 0;
@@ -7985,6 +8464,22 @@ void NclAddUserFuncs(void)
         SetArgTemplate(args,3,"numeric",0,NclANY);nargs++;
         SetArgTemplate(args, nargs, "numeric", 1, NclANY);  nargs++;
         NclRegisterFunc(sparse_matrix_mult_W,args,"sparse_matrix_mult",nargs);
+
+/*
+ * Register "sparse_matrix_mult_trimesh".
+ *
+ * Create private argument array.
+ */
+ 
+        nargs = 0;
+        args = NewArgs(6);
+        SetArgTemplate(args,nargs,"numeric",1,NclANY);nargs++;
+        SetArgTemplate(args,nargs,"numeric",1,NclANY);nargs++;
+        SetArgTemplate(args,nargs,"numeric",1,NclANY);nargs++;
+        SetArgTemplate(args,nargs,"numeric",0,NclANY);nargs++;
+        SetArgTemplate(args,nargs,"integer",2,NclANY);nargs++;
+        SetArgTemplate(args, nargs, "numeric", 1, NclANY);  nargs++;
+        NclRegisterFunc(sparse_matrix_mult_trimesh_W,args,"sparse_matrix_mult_trimesh",nargs);
 
 /*
  *  Register ctwrap.
@@ -8669,6 +9164,206 @@ NclScalar         *missing_rx)
 }
 
 /*
+ * Coerce a missing value to long. If no missing value, then set a
+ * default missing value for the long type.
+ */
+void coerce_missing_long(
+NclBasicDataTypes type_x,
+long              has_missing_x,
+NclScalar         *missing_x,
+NclScalar         *missing_lx)
+{
+/*
+ * Check for missing value and coerce if neccesary.
+ */
+  if(has_missing_x) {
+/*
+ * Coerce missing value to long.
+ */
+    _Nclcoerce((NclTypeClass)nclTypelongClass,
+               (void*)missing_lx,
+               (void*)missing_x,
+               1,
+               NULL,
+               NULL,
+               _NclTypeEnumToTypeClass(_NclBasicDataTypeToObjType(type_x)));
+  }
+  else {
+    if(missing_lx != NULL) {
+/*
+ * Get the default missing value, just in case.
+ */ 
+      missing_lx->longval = ((NclTypeClass)nclTypelongClass)->type_class.default_mis.longval;
+    }
+  }
+}
+
+/*
+ * Coerce a missing value to int. If no missing value, then set a
+ * default missing value for the int type.
+ */
+void coerce_missing_int(
+NclBasicDataTypes type_x,
+int               has_missing_x,
+NclScalar         *missing_x,
+NclScalar         *missing_ix)
+{
+/*
+ * Check for missing value and coerce if neccesary.
+ */
+  if(has_missing_x) {
+/*
+ * Coerce missing value to int.
+ */
+    _Nclcoerce((NclTypeClass)nclTypeintClass,
+               (void*)missing_ix,
+               (void*)missing_x,
+               1,
+               NULL,
+               NULL,
+               _NclTypeEnumToTypeClass(_NclBasicDataTypeToObjType(type_x)));
+  }
+  else {
+    if(missing_ix != NULL) {
+/*
+ * Get the default missing value, just in case.
+ */ 
+      missing_ix->intval = ((NclTypeClass)nclTypeintClass)->type_class.default_mis.intval;
+    }
+  }
+}
+
+/*
+ * Coerce a missing value to short. If no missing value, then set a
+ * default missing value for the short type.
+ */
+void coerce_missing_short(
+NclBasicDataTypes type_x,
+short             has_missing_x,
+NclScalar         *missing_x,
+NclScalar         *missing_sx)
+{
+/*
+ * Check for missing value and coerce if neccesary.
+ */
+  if(has_missing_x) {
+/*
+ * Coerce missing value to short.
+ */
+    _Nclcoerce((NclTypeClass)nclTypeshortClass,
+               (void*)missing_sx,
+               (void*)missing_x,
+               1,
+               NULL,
+               NULL,
+               _NclTypeEnumToTypeClass(_NclBasicDataTypeToObjType(type_x)));
+  }
+  else {
+    if(missing_sx != NULL) {
+/*
+ * Get the default missing value, just in case.
+ */ 
+      missing_sx->shortval = ((NclTypeClass)nclTypeshortClass)->type_class.default_mis.shortval;
+    }
+  }
+}
+
+/*
+ * Coerce a missing value to double.  Also, set a default missing
+ * value and set an int/long/float missing value for the return.
+ */
+void coerce_missing_more_types(
+NclBasicDataTypes type_x,
+int               has_missing_x,
+NclScalar         *missing_x,
+NclScalar         *missing_dx,
+NclScalar         *missing_rx)
+{
+/*
+ * Check for missing value and coerce if neccesary.
+ */
+  if(has_missing_x) {
+/*
+ * Coerce missing value to double.
+ */
+    _Nclcoerce((NclTypeClass)nclTypedoubleClass,
+               (void*)missing_dx,
+               (void*)missing_x,
+               1,
+               NULL,
+               NULL,
+               _NclTypeEnumToTypeClass(_NclBasicDataTypeToObjType(type_x)));
+
+    if(missing_rx != NULL) {
+      if(type_x == NCL_double) { 
+        _Nclcoerce((NclTypeClass)nclTypedoubleClass,
+                   (void*)missing_rx,
+                   (void*)missing_x,
+                   1,
+                   NULL,
+                   NULL,
+                   _NclTypeEnumToTypeClass(_NclBasicDataTypeToObjType(type_x)));
+      }
+      else if(type_x == NCL_float) { 
+        _Nclcoerce((NclTypeClass)nclTypefloatClass,
+                   (void*)missing_rx,
+                   (void*)missing_x,
+                   1,
+                   NULL,
+                   NULL,
+                   _NclTypeEnumToTypeClass(_NclBasicDataTypeToObjType(type_x)));
+      }
+      else if(type_x == NCL_long) { 
+        _Nclcoerce((NclTypeClass)nclTypelongClass,
+                   (void*)missing_rx,
+                   (void*)missing_x,
+                   1,
+                   NULL,
+                   NULL,
+                   _NclTypeEnumToTypeClass(_NclBasicDataTypeToObjType(type_x)));
+      }
+      else {
+        _Nclcoerce((NclTypeClass)nclTypeintClass,
+                   (void*)missing_rx,
+                   (void*)missing_x,
+                   1,
+                   NULL,
+                   NULL,
+                   _NclTypeEnumToTypeClass(_NclBasicDataTypeToObjType(type_x)));
+      }
+    }
+  }
+  else {
+    if(missing_dx != NULL) {
+/*
+ * Get the default missing value, just in case.
+ */ 
+      if(type_x == NCL_double) {
+        missing_dx->doubleval = ((NclTypeClass)nclTypedoubleClass)->type_class.default_mis.doubleval;
+      }
+      else if(type_x == NCL_float) {
+        missing_dx->doubleval = (double)((NclTypeClass)nclTypefloatClass)->type_class.default_mis.floatval;
+        if(missing_rx != NULL) {
+          missing_rx->floatval = ((NclTypeClass)nclTypefloatClass)->type_class.default_mis.floatval;
+        }
+      }
+      else if(type_x == NCL_long) {
+        missing_dx->doubleval = (double)((NclTypeClass)nclTypelongClass)->type_class.default_mis.longval;
+        if(missing_rx != NULL) {
+          missing_rx->longval = ((NclTypeClass)nclTypelongClass)->type_class.default_mis.longval;
+        }
+      }
+      else {
+        missing_dx->doubleval = (double)((NclTypeClass)nclTypeintClass)->type_class.default_mis.intval;
+        if(missing_rx != NULL) {
+          missing_rx->intval = ((NclTypeClass)nclTypeintClass)->type_class.default_mis.intval;
+        }
+      }
+    }
+  }
+}
+
+/*
  * Coerce data to double, or just return a pointer to it if
  * it is already double.
  */
@@ -8825,19 +9520,31 @@ NclScalar         *missing_dx
  * Checks if a variable is a scalar or not.
  * Returns 1 if it is, and a 0 if it isn't.
  */
-int is_scalar(
+logical is_scalar(
 int        ndims_x,
 ng_size_t *dsizes_x
 )
 {
-  int is_scalar;
-  if(ndims_x == 1 && dsizes_x[0] == 1) {
-    is_scalar = 1;
+  if(ndims_x == 1 && dsizes_x[0] == 1) return(True);
+  return(False);
+}
+
+
+/*
+ * Checks if a variable is a scalar or an array 
+ * of all degenerate dimensions, i.e. 1 x 1 x 2.
+ * Returns 1 if it is, and a 0 if it isn't.
+ */
+logical is_scalar_array(
+int        ndims_x,
+ng_size_t *dsizes_x
+)
+{
+  int i = 0;
+  while(i < ndims_x) {
+    if(dsizes_x[i++] != 1) return(False);
   }
-  else {
-    is_scalar = 0;
-  }
-  return(is_scalar);
+  return(True);
 }
 
 
@@ -8910,6 +9617,20 @@ int    has_allocated
 }
 
 /*
+ * Copy double data back to a long array, using a void array. 
+ */
+void coerce_output_long_only(
+void   *x,
+double *dx,
+ng_size_t size_x,
+ng_size_t index_x
+)
+{
+  ng_size_t i;
+  for( i = 0; i < size_x; i++ ) ((long*)x)[index_x+i]  = (long)dx[i];
+}
+
+/*
  * Copy double data back to a int array, using a void array. 
  */
 void coerce_output_int_only(
@@ -8968,7 +9689,8 @@ int    has_missing_x,
 double missing
 )
 {
-  int l, found_missing = 0;
+  ng_size_t l;
+  int found_missing = 0;
 /*
  * Check for missing values.
  */
@@ -8992,7 +9714,8 @@ int    has_missing_x,
 float missing
 )
 {
-  int l, found_missing = 0;
+  int found_missing = 0;
+  ng_size_t l;
 /*
  * Check for missing values.
  */
@@ -9226,6 +9949,41 @@ ng_size_t step_x
 }
 
 
+/*
+ * Copy double data back to double, float, long, or int non-contiguous
+ * array, using a void array.  Really, there's no need for both
+ * coerce_output_step and coerce_output_float_or_double_step to
+ * both exist. coerce_output_float_or_double_step has been around
+ * awhile, and we never need a routine that returned something other
+ * than floats or doubles until NCL V6.4.0 (dim_acumrun_n)
+ *
+ */
+void coerce_output_step(
+void   *x,
+double *dx,
+NclBasicDataTypes type_x,
+ng_size_t size_x,
+ng_size_t index_x,
+ng_size_t step_x
+)
+{
+  ng_size_t i;
+
+  if(type_x == NCL_double) {
+    for( i = 0; i < size_x; i++ ) ((double*)x)[index_x+(step_x*i)] = dx[i];
+  }
+  else if(type_x == NCL_float) {
+    for( i = 0; i < size_x; i++ ) ((float*)x)[index_x+(step_x*i)]  = (float)dx[i];
+  }
+  else if(type_x == NCL_long) {
+    for( i = 0; i < size_x; i++ ) ((long*)x)[index_x+(step_x*i)]  = (long)dx[i];
+  }
+  else {
+    for( i = 0; i < size_x; i++ ) ((int*)x)[index_x+(step_x*i)]  = (int)dx[i];
+  }
+}
+
+
 
 /*
  * Coerce data to float, or just return a pointer to it if
@@ -9272,6 +10030,146 @@ NclScalar         *missing_fx)
     fx = (float*)x;
   }
   return(fx);
+}
+
+/*
+ * Coerce data to int, or just return a pointer to it if
+ * it is already int.
+ */
+int *coerce_input_int(
+void              *x,
+NclBasicDataTypes type_x,
+ng_size_t         size_x,
+int               has_missing_x,
+NclScalar         *missing_x,
+NclScalar         *missing_ix)
+{
+  int *ix;
+/*
+ * Coerce x to integer if necessary.
+ */
+  if(type_x != NCL_int) {
+    ix = (int*)calloc(size_x,sizeof(int));
+    if( ix == NULL ) return(NULL);
+    if(has_missing_x) {
+      _Nclcoerce((NclTypeClass)nclTypeintClass,
+                 (void*)ix,
+                 x,
+                 size_x,
+                 missing_x,
+                 missing_ix,
+                 _NclTypeEnumToTypeClass(_NclBasicDataTypeToObjType(type_x)));
+    }
+    else {
+      _Nclcoerce((NclTypeClass)nclTypeintClass,
+                 (void*)ix,
+                 x,
+                 size_x,
+                 NULL,
+                 NULL,
+                 _NclTypeEnumToTypeClass(_NclBasicDataTypeToObjType(type_x)));
+    }
+  }
+  else {
+/*
+ * x is already int.
+ */
+    ix = (int*)x;
+  }
+  return(ix);
+}
+
+/*
+ * Coerce data to unsigned int, or just return a pointer to it if
+ * it is already uint.
+ */
+unsigned int *coerce_input_uint(
+void              *x,
+NclBasicDataTypes type_x,
+ng_size_t         size_x,
+int               has_missing_x,
+NclScalar         *missing_x,
+NclScalar         *missing_uix)
+{
+  uint *uix;
+/*
+ * Coerce x to unsigned int if necessary.
+ */
+  if(type_x != NCL_uint) {
+    uix = (unsigned int*)calloc(size_x,sizeof(unsigned int));
+    if( uix == NULL ) return(NULL);
+    if(has_missing_x) {
+      _Nclcoerce((NclTypeClass)nclTypeuintClass,
+                 (void*)uix,
+                 x,
+                 size_x,
+                 missing_x,
+                 missing_uix,
+                 _NclTypeEnumToTypeClass(_NclBasicDataTypeToObjType(type_x)));
+    }
+    else {
+      _Nclcoerce((NclTypeClass)nclTypeuintClass,
+                 (void*)uix,
+                 x,
+                 size_x,
+                 NULL,
+                 NULL,
+                 _NclTypeEnumToTypeClass(_NclBasicDataTypeToObjType(type_x)));
+    }
+  }
+  else {
+/*
+ * x is already uint.
+ */
+    uix = (unsigned int*)x;
+  }
+  return(uix);
+}
+
+/*
+ * Coerce data to unsigned long or just return a pointer to it if it is already ulong. 
+ */
+unsigned long *coerce_input_ulong(
+void              *x,
+NclBasicDataTypes type_x,
+ng_size_t         size_x,
+int               has_missing_x,
+NclScalar         *missing_x,
+NclScalar         *missing_ulx)
+{
+  unsigned long *ulx;
+/*
+ * Coerce x to unsigned long if necessary.
+ */
+  if(type_x != NCL_ulong) {
+    ulx = (unsigned long *)calloc(size_x,sizeof(unsigned long));
+    if( ulx == NULL ) return(NULL);
+    if(has_missing_x) {
+      _Nclcoerce((NclTypeClass)nclTypeulongClass,
+                 (void*)ulx,
+                 x,
+                 size_x,
+                 missing_x,
+                 missing_ulx,
+                 _NclTypeEnumToTypeClass(_NclBasicDataTypeToObjType(type_x)));
+    }
+    else {
+      _Nclcoerce((NclTypeClass)nclTypeulongClass,
+                 (void*)ulx,
+                 x,
+                 size_x,
+                 NULL,
+                 NULL,
+                 _NclTypeEnumToTypeClass(_NclBasicDataTypeToObjType(type_x)));
+    }
+  }
+  else {
+/*
+ * x is already ulong.
+ */
+    ulx = (unsigned long*)x;
+  }
+  return(ulx);
 }
 
 /*
@@ -9324,6 +10222,63 @@ NclScalar         *missing_fx
 }
 
 /*
+ * Force incoming numeric values to be integer.
+ */
+void force_subset_input_int(
+void              *x,
+int               *tmp_x,
+ng_size_t         index_x,
+NclBasicDataTypes type_x,
+ng_size_t         size_x
+)
+{
+  ng_size_t i;
+  NclTypeClass typeclass_x, typeclass_xi;
+  typeclass_x  = (NclTypeClass)_NclNameToTypeClass(NrmStringToQuark(_NclBasicDataTypeToName(type_x)));
+  typeclass_xi = (NclTypeClass)_NclNameToTypeClass(NrmStringToQuark(_NclBasicDataTypeToName(NCL_int)));
+  for( i = 0; i < size_x; i++ ) _NclScalarForcedCoerce((char*)x + (index_x+i)*typeclass_x->type_class.size,type_x,
+                                                       (char*)tmp_x + i*typeclass_xi->type_class.size,NCL_int);
+}
+
+/*
+ * Force incoming numeric values to be long.
+ */
+void force_subset_input_long(
+void              *x,
+long              *tmp_x,
+ng_size_t         index_x,
+NclBasicDataTypes type_x,
+ng_size_t         size_x
+)
+{
+  ng_size_t i;
+  NclTypeClass typeclass_x, typeclass_xl;
+  typeclass_x  = (NclTypeClass)_NclNameToTypeClass(NrmStringToQuark(_NclBasicDataTypeToName(type_x)));
+  typeclass_xl = (NclTypeClass)_NclNameToTypeClass(NrmStringToQuark(_NclBasicDataTypeToName(NCL_long)));
+  for( i = 0; i < size_x; i++ ) _NclScalarForcedCoerce((char*)x + (index_x+i)*typeclass_x->type_class.size,type_x,
+                                                       (char*)tmp_x + i*typeclass_xl->type_class.size,NCL_long);
+}
+
+/*
+ * Force incoming numeric values to be long.
+ */
+void force_subset_input_short(
+void              *x,
+short             *tmp_x,
+ng_size_t         index_x,
+NclBasicDataTypes type_x,
+ng_size_t         size_x
+)
+{
+  ng_size_t i;
+  NclTypeClass typeclass_x, typeclass_xs;
+  typeclass_x  = (NclTypeClass)_NclNameToTypeClass(NrmStringToQuark(_NclBasicDataTypeToName(type_x)));
+  typeclass_xs = (NclTypeClass)_NclNameToTypeClass(NrmStringToQuark(_NclBasicDataTypeToName(NCL_short)));
+  for( i = 0; i < size_x; i++ ) _NclScalarForcedCoerce((char*)x + (index_x+i)*typeclass_x->type_class.size,type_x,
+                                                       (char*)tmp_x + i*typeclass_xs->type_class.size,NCL_short);
+}
+
+/*
  * Retrieve the dimension name info of a particular
  * input argument to an NCL function or procedure.
  */
@@ -9350,6 +10305,11 @@ int arg_num, num_args;
   }
 }
 
+/*
+ * This function takes a void* variable that holds dimension sizes
+ * as bytes, shorts, integers, or longs, and returns the dimensions 
+ * as an ng_size_t array.
+ */
 ng_size_t *get_dimensions(void *tmp_dimensions,int n_dimensions,
                           NclBasicDataTypes type_dimensions, const char *name)
 {
@@ -9413,7 +10373,7 @@ int *get_dims_for_n_funcs(int arg_num,  int num_args, NclStackEntry tmpdata,
   }
 
   dims_ptr = (void *)NclGetArgValue(arg_num,num_args,NULL,num_dims,NULL,
-                                    NULL,&type_dims,0);
+                                    NULL,&type_dims,DONT_CARE);
   if(type_dims != NCL_int && type_dims != NCL_string) {
     NhlPError(NhlFATAL,NhlEUNKNOWN,"%s: The input dimensions must be integers representing dimension numbers, or strings representing dimension names",name);
     return(NULL);
@@ -9431,7 +10391,7 @@ int *get_dims_for_n_funcs(int arg_num,  int num_args, NclStackEntry tmpdata,
   }
   else {
     if(tmpvar != NULL) {
-      dim_names = (NrmQuark *)NclGetArgValue(1,2,NULL,NULL,NULL,NULL,NULL,0);
+      dim_names = (NrmQuark *)NclGetArgValue(1,2,NULL,NULL,NULL,NULL,NULL,DONT_CARE);
     }
     else {
       NhlPError(NhlFATAL,NhlEUNKNOWN,"%s: Can't determine dimension names from input array",name);
@@ -9447,3 +10407,12 @@ int *get_dims_for_n_funcs(int arg_num,  int num_args, NclStackEntry tmpdata,
   *ndims = num_dims[0];
   return(dims);
 }
+
+/* For the qsort procedure */
+int cmpdouble (const void * a, const void * b)
+{
+  if (*(double*)a > *(double*)b) return 1;
+  else if (*(double*)a < *(double*)b) return -1;
+  else return 0;  
+}
+

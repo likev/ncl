@@ -24,6 +24,15 @@ typedef enum
     NCL_UDT_string
 } NclUDTType;
 
+typedef struct _NclFileUserDefinedTypeField
+{
+    int               n_dims;
+    ng_size_t         *dim_sizes;
+    size_t            offset;
+    NclQuark          field_name;
+    NclBasicDataTypes field_type;
+} NclFileUDTField;
+
 typedef struct _NclFileUserDefinedTypeNode
 {
     ng_size_t         id;
@@ -33,8 +42,7 @@ typedef struct _NclFileUserDefinedTypeNode
     int               n_fields;
     NclQuark          name;
     ng_size_t         type;
-    NclQuark          *mem_name;
-    NclBasicDataTypes *mem_type;
+    NclFileUDTField   *fields;
 } NclFileUDTNode;
 
 typedef struct _NclFileUserDefinedTypeRecord
@@ -72,7 +80,7 @@ typedef struct _NclFileAttNode
     ng_size_t         id;
     int               n_elem;
     void             *value;
-    nc_type           base_type;
+    NclBasicDataTypes base_type;
     nc_type           the_nc_type;
     int               is_virtual;
     int               is_compound;
@@ -99,18 +107,18 @@ typedef struct _NclFileCompoundNode
     NclQuark             name;
     NclBasicDataTypes    type;
     nc_type              the_nc_type;
+    int                  index;
     size_t               offset;
     int                  rank;
-    int                  nvals;
-    int                 *sides;
-
+    ng_size_t            nvals;
+    ng_size_t           *dimsizes;
     void                *value;
 } NclFileCompoundNode;
 
 typedef struct _NclFileCompoundRecord
 {
     size_t            max_comps;
-    size_t            n_comps;   /* aka nfields */
+    size_t            n_comps;   /* aka nfields -- this is used by HDF5 whereas nfields is used by NetCDF4 -- dont know why  */
     size_t            type;
     size_t            size;
     size_t            nfields;
@@ -173,6 +181,15 @@ typedef struct _NclFileVlenRecord
     void    *values;
 } NclFileVlenRecord;
 
+typedef struct _NclFileReferenceNode
+{
+    NclQuark obj_name;
+    int      obj_id;     /* cast to type hid_t */
+    int      obj_type;   /* cast to type H5O_type_t */
+    int      ref_type;   /* cast to type H5R_type_t  */
+    int      ref;
+} NclFileReferenceNode;
+
 typedef struct _NclFileVarNode
 {
     ng_size_t         id;
@@ -193,8 +210,10 @@ typedef struct _NclFileVarNode
 
     NclFileDimRecord *chunk_dim_rec;
     NclUDTType             udt_type;
+    NclFileUDTNode         *udt_type_node;   /* this is read-only -- does not need to be freed */
     int                    is_compound;
     NclFileCompoundRecord *comprec;
+    void                  *type_specific_rec;  /* for reference and other types */
 
     NclFileAttRecord *att_rec;
 
@@ -235,6 +254,7 @@ struct _NclFileGrpNode
     ng_size_t            pid;
     
     NclQuark             name;
+    NclQuark             name_an;   /* alphanumeric only version of name */
     NclQuark             pname;
     NclQuark             real_name;
 
@@ -325,6 +345,8 @@ NhlErrorTypes _addNclAttNode(NclFileAttRecord **attrec,
 NhlErrorTypes _addNclDimNode(NclFileDimRecord **dimrec,
                  NclQuark name, int dimid, ng_size_t size,
                  int is_unlimited);
+NhlErrorTypes _addNclChunkDimNode(NclFileDimRecord **thedimrec, NclQuark name, int dimid,
+                                  ng_size_t size, int is_unlimited);
 NhlErrorTypes _addNclVarNodeToGrpNode(NclFileGrpNode *grpnode,
                  NclQuark name, int varid, NclBasicDataTypes type,
                  int n_dims, NclQuark *dimnames, ng_size_t *dimsizes);
@@ -342,9 +364,9 @@ NclFileCompoundRecord *get_nc4_compoundrec(int ncid, nc_type xtype, NrmQuark **c
 
 NclMultiDValData get_nc4_vlenlist(int ncid, int varid, nc_type xtype, NclBasicDataTypes* vlentype);
 
+void _printNclTypeValAligned(FILE *fp, NclBasicDataTypes type, void *val, int newline);
 void _printNclTypeVal(FILE *fp, NclBasicDataTypes type, void *val, int newline);
-void _justPrintTypeVal(FILE *fp, NclBasicDataTypes type, void *val, int newline);
-void _justPrintTypeValAtPoint(FILE *fp, NclBasicDataTypes type, void *val,
+void _printNclTypeValIndexed(FILE *fp, NclBasicDataTypes type, void *val,
                               size_t np, int newline);
 
 NclFileEnumRecord *_NclFileEnumAlloc(int n_enums);

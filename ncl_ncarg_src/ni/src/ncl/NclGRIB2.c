@@ -27,7 +27,6 @@
 #include "NclGRIB.h"
 #include "NclFile.h"
 
-# include <grib2.h>
 # include "NclGRIB2.h"
 
 static void Grib2FreeCodeTableRec(
@@ -1651,38 +1650,6 @@ void g2GDSArakawaRLLGrid
     return;
 }
 
-static void InitMapTrans
-#if NhlNeedProto
-(
-	char *proj,
-	double plat,
-	double plon,
-	double prot
-)
-#else
-(proj,plat,plon,prot)
-	char *proj;
-	double plat;
-	double plon;
-	double prot;
-
-#endif
-{
-	double rl[2] = {0,0};
-	double fl = 0.1,fr = 0.99 ,fb = 0.1 ,ft = 0.99;
-	int len;
-	NGstring str;
-
-	NGCALLF(mdppos,MDPPOS)(&fl,&fr,&fb,&ft);
-	len = NGSTRLEN(proj);
-	str = NGCstrToFstr(proj,len);
-	NGCALLF(mdproj,MDPROJ)(str,&plat,&plon,&prot);
-	len = NGSTRLEN("MA");
-	str = NGCstrToFstr("MA",len);
-	NGCALLF(mdpset,MDPSET)(str,&rl,&rl,&rl,&rl);
-	NGCALLF(mdpint,MDPINT)();
-}
-
 void g2GDSMEGrid
 # if NhlNeedProto
 (
@@ -1817,7 +1784,7 @@ void g2GDSMEGrid
     *lat = (float *) NclMalloc((unsigned)sizeof(float) * nlat);
     *lon = (float *) NclMalloc((unsigned)sizeof(float) * nlon);
 
-    InitMapTrans("ME",0,idir * (lo2 - lo1)/2.0,0.0);
+    _NclInitMapTrans("ME",0,idir * (lo2 - lo1)/2.0,0.0);
 
     if (lo1 == lo2) { /* global grid probably specified according to GRIB2 spec (lo1 and lo2 both must be positive - but this is too inconvenient for us)  */
 	    if (idir == 1) {
@@ -2309,10 +2276,10 @@ int* nrotatts;
 		earth_radius = Earth_Radius[lc->ep.shapeOfEarth];	
 
 	do_rot = 1;
+	_NclInitMapTrans("LC",latin1,lov,latin2);
 /*
 * Southern case
 */
-	InitMapTrans("LC",latin1,lov,latin2);
 	if((latin1 < 0)&&(latin2 < 0)) {
 		
 		if (latin1 == latin2) {
@@ -3434,10 +3401,8 @@ int time_unit;
 unsigned char *offset;
 #endif
 {
-	int cix,tix;
-
+	int cix = 0,tix = 0;
 	double c_factor = 1.0;
-
 	if (common_time_unit != time_unit) {
 		for (cix = 0; cix < NhlNumber(Unit_Code_Order); cix++) {
 			if (common_time_unit == Unit_Code_Order[cix])
@@ -3622,6 +3587,7 @@ int stat_type_only
 #endif
 {
 	char buffer[128];
+        int time_period;
 
 	strcpy(buffer,NrmQuarkToString(param->var_info.var_name_quark));
 
@@ -3667,45 +3633,47 @@ int stat_type_only
 		return;
 	}
 
+	time_period = abs(param->time_period);
+
 	switch (param->time_period_units) {
 	case 0:
-		sprintf(&(buffer[strlen(buffer)]),"%dmin",param->time_period);
+		sprintf(&(buffer[strlen(buffer)]),"%dmin",time_period);
 		break;
 	case 1:
-		sprintf(&(buffer[strlen(buffer)]),"%dh",param->time_period);
+		sprintf(&(buffer[strlen(buffer)]),"%dh",time_period);
 		break;
 	case 2:
-		sprintf(&(buffer[strlen(buffer)]),"%dd",param->time_period);
+		sprintf(&(buffer[strlen(buffer)]),"%dd",time_period);
 		break;
 	case 3:
-		sprintf(&(buffer[strlen(buffer)]),"%dm",param->time_period);
+		sprintf(&(buffer[strlen(buffer)]),"%dm",time_period);
 		break;
 	case 4:
-		sprintf(&(buffer[strlen(buffer)]),"%dy",param->time_period);
+		sprintf(&(buffer[strlen(buffer)]),"%dy",time_period);
 		break;
 	case 5:
-		sprintf(&(buffer[strlen(buffer)]),"%dy",param->time_period * 10);
+		sprintf(&(buffer[strlen(buffer)]),"%dy",time_period * 10);
 		break;
 	case 6:
-		sprintf(&(buffer[strlen(buffer)]),"%dy",param->time_period * 30);
+		sprintf(&(buffer[strlen(buffer)]),"%dy",time_period * 30);
 		break;
 	case 7:
-		sprintf(&(buffer[strlen(buffer)]),"%dy",param->time_period * 100);
+		sprintf(&(buffer[strlen(buffer)]),"%dy",time_period * 100);
 		break;
 	case 10:
-		sprintf(&(buffer[strlen(buffer)]),"%dh",param->time_period * 3);
+		sprintf(&(buffer[strlen(buffer)]),"%dh",time_period * 3);
 		break;
 	case 11:
-		sprintf(&(buffer[strlen(buffer)]),"%dh",param->time_period * 6);
+		sprintf(&(buffer[strlen(buffer)]),"%dh",time_period * 6);
 		break;
 	case 12:
-		sprintf(&(buffer[strlen(buffer)]),"%dh",param->time_period * 12);
+		sprintf(&(buffer[strlen(buffer)]),"%dh",time_period * 12);
 		break;
 	case 13:
-		sprintf(&(buffer[strlen(buffer)]),"%dsec",param->time_period);
+		sprintf(&(buffer[strlen(buffer)]),"%dsec",time_period);
 		break;
 	default:
-		sprintf(&(buffer[strlen(buffer)]),"%d",param->time_period);
+		sprintf(&(buffer[strlen(buffer)]),"%d",time_period);
 		break;
 	}
 	param->var_info.var_name_quark = NrmStringToQuark(buffer);
@@ -3722,45 +3690,47 @@ int period;
 int indicator;
 #endif
 {
+	int lperiod = abs(period);
+
 	switch (indicator) {
 	case 0:
-		sprintf(buf,"%d minutes",period);
+		sprintf(buf,"%d minutes",lperiod);
 		return;
 	case  1:
-		sprintf(buf,"%d hours",period);
+		sprintf(buf,"%d hours",lperiod);
 		return;
 	case  2:
-		sprintf(buf,"%d days",period);
+		sprintf(buf,"%d days",lperiod);
 		return;
 	case  3:
-		sprintf(buf,"%d months",period);
+		sprintf(buf,"%d months",lperiod);
 		return;
 	case  4:
-		sprintf(buf,"%d years",period);
+		sprintf(buf,"%d years",lperiod);
 		return;
 	case  5:
-		sprintf(buf,"%d decades",period);
+		sprintf(buf,"%d decades",lperiod);
 		return;
 	case  6:
-		sprintf(buf,"%d decades",period * 3);
+		sprintf(buf,"%d decades",lperiod * 3);
 		return;
 	case  7:
-		sprintf(buf,"%d centuries",period);
+		sprintf(buf,"%d centuries",lperiod);
 		return;
 	case  10:
-		sprintf(buf,"%d hours",period * 3);
+		sprintf(buf,"%d hours",lperiod * 3);
 		return;
 	case  11:
-		sprintf(buf,"%d hours",period * 6);
+		sprintf(buf,"%d hours",lperiod * 6);
 		return;
 	case  12:
-		sprintf(buf,"%d hours",period * 12);
+		sprintf(buf,"%d hours",lperiod * 12);
 		return;
 	case  13:
-		sprintf(buf,"%d seconds",period);
+		sprintf(buf,"%d seconds",lperiod);
 		return;
 	default:
-		sprintf(buf,"%d (unknown units)",period);
+		sprintf(buf,"%d (unknown units)",lperiod);
 		return;
 	}
 
@@ -3847,6 +3817,30 @@ Grib2FileRecord *therec;
 			continue;
 
 		/* Handle coordinate attributes,  level, initial_time, forecast_time */
+		if (step->traits.aerosol_type != 65535) {
+			att_list_ptr = (Grib2AttInqRecList*)NclMalloc((unsigned)sizeof(Grib2AttInqRecList));
+			att_list_ptr->next = step->theatts;
+			att_list_ptr->att_inq = (Grib2AttInqRec*)NclMalloc((unsigned)sizeof(Grib2AttInqRec));
+			att_list_ptr->att_inq->name = NrmStringToQuark("aerosol_type");
+			tmp_string = (NclQuark*)NclMalloc(sizeof(NclQuark));
+			if (Grib2ReadCodeTable(step->ref_rec->table_source, 4, 
+					       "4.233.table",step->traits.aerosol_type,-1,ct) < NhlWARNING) {
+				return;
+			}
+			if (ct->descrip) {
+				*tmp_string = NrmStringToQuark(ct->descrip);
+			}
+			else {
+				sprintf(buf,"%d",step->traits.aerosol_type);
+				*tmp_string = NrmStringToQuark(buf);
+			}
+			att_list_ptr->att_inq->thevalue = (NclMultiDValData)
+				_NclCreateVal(NULL, NULL,
+					      Ncl_MultiDValData, 0, (void *) tmp_string, NULL, 1, &tmp_dimsizes, 
+					      PERMANENT, NULL, nclTypestringClass);
+			step->theatts = att_list_ptr;
+			step->n_atts++;
+		}
 		if (step->yymmddhh_isatt) {
 			att_list_ptr = (Grib2AttInqRecList *) NclMalloc((unsigned)sizeof(Grib2AttInqRecList));
 			att_list_ptr->next = step->theatts;
@@ -3859,7 +3853,6 @@ Grib2FileRecord *therec;
 			step->theatts = att_list_ptr;
 			step->n_atts++;
 		}
-
 		/* 
 		 * don't create this att for observational data -- pds_templates 20 and 30 (as far as I can tell)
 		 */
@@ -3901,6 +3894,7 @@ Grib2FileRecord *therec;
 						       "4.15.table",grib_rec->spatial_proc,-1,ct) < NhlWARNING) {
 					return;
 				}
+				tmp_string = (NclQuark*)NclMalloc(sizeof(NclQuark));
 				if (ct->descrip) {
 					*tmp_string = NrmStringToQuark(ct->descrip);
 				}
@@ -4737,9 +4731,19 @@ static void _g2AddGenProcAtt(Grib2ParamList *step)
 	att_list_ptr->att_inq = (Grib2AttInqRec*)NclMalloc((unsigned)sizeof(Grib2AttInqRec));
 	att_list_ptr->att_inq->name = NrmStringToQuark("generating_process_type");
 
-	if (Grib2ReadCodeTable(step->ref_rec->table_source, 4, "4.3.table", step->traits.gen_process_type,-1,ct) < NhlWARNING) {
-		return;
+	{
+		int error_id;
+		NhlErrorTypes err_level;
+		error_id = NhlGetErrorObjectId();
+		NhlVAGetValues(error_id, NhlNerrLevel,&err_level,NULL);
+		NhlVASetValues(error_id, NhlNerrLevel,NhlFATAL,NULL);
+		if (Grib2ReadCodeTable(step->ref_rec->table_source, 4, "4.3.table", 
+				       step->traits.gen_process_type,-1,ct) < NhlWARNING) {
+			return;
+		}
+		NhlVASetValues(error_id, NhlNerrLevel,err_level,NULL);
 	}
+		
 	tmp_string = (NclQuark*)NclMalloc(sizeof(NclQuark));
 	if (ct->descrip) {
 		*tmp_string = NrmStringToQuark(ct->descrip);
@@ -4993,6 +4997,21 @@ Grib2ParamList *vstep;
 		if (vstep->gds != NULL) {
 			Grib2FreeGDS(vstep->gds);
 		}			
+ 		if (vstep->ensemble != NULL) {
+			_NclDestroyObj((NclObj)vstep->ensemble);
+		}
+ 		if (vstep->ens_indexes != NULL) {
+			_NclDestroyObj((NclObj)vstep->ens_indexes);
+		}
+ 		if (vstep->probability != NULL) {
+			_NclDestroyObj((NclObj)vstep->probability);
+		}
+ 		if (vstep->lower_probs != NULL) {
+			_NclDestroyObj((NclObj)vstep->lower_probs);
+		}
+ 		if (vstep->upper_probs != NULL) {
+			_NclDestroyObj((NclObj)vstep->upper_probs);
+		}
 
 		if (vstep->forecast_time != NULL) {
 			_NclDestroyObj((NclObj)vstep->forecast_time);
@@ -5268,11 +5287,12 @@ Grib2RecordInqRec *grec;
 					     grec->time_period);
 		grec->time_offset = grec->time_offset + period;
 	}
+	/* the following does not seem to work for ARPEGE data at least -- not sure what the end of the overall time interval represents */
 	if (grec->overall_interval_seconds > 0) {
 		int end_time = _g2GetConvertedTime(g2plist->forecast_time_units,
 						   13, /* the time indicator for seconds */
 						   grec->overall_interval_seconds);
-		grec->time_offset = MIN(grec->time_offset, end_time);
+		/*grec->time_offset = MIN(grec->time_offset, end_time);*/
 		/*grec->time_offset = MAX(grec->time_offset,grec->forecast_time);*/
 	}
 }
@@ -5383,19 +5403,21 @@ Grib2FileRecord *g2frec;
 {
     int n_lvs = 1;
     int i;
-    Grib2RecordInqRecList   *strt,
-                            *tmp;
+    Grib2RecordInqRecList   *strt, *tmp;
+    int warn = 0;
 
     *lv_vals1 = NULL;
     strt = lstep;
     while(strt->next != NULL) {
         if (!g2LVNotEqual(strt, strt->next)) {
-		if ((int)(g2frec->options[GRIB_PRINT_RECORD_INFO_OPT].values) != 0) {
-			NhlPError(NhlWARNING,NhlEUNKNOWN,"NclGRIB2: %s contains possibly duplicated records %d and %d. Record %d will be ignored.",
-				  NrmQuarkToString(thevar->var_info.var_name_quark),strt->rec_inq->rec_num, 
-				  strt->next->rec_inq->rec_num,
-				  strt->next->rec_inq->rec_num);
-		}
+		/*if ((int)(g2frec->options[GRIB_PRINT_RECORD_INFO_OPT].values) != 0) {*/
+			if (! warn)
+				NhlPError(NhlWARNING,NhlEUNKNOWN,"NclGRIB2: %s contains records that NCL cannot currently differentiate. One or more records will be ignored.",
+					  NrmQuarkToString(thevar->var_info.var_name_quark),strt->rec_inq->rec_num, 
+					  strt->next->rec_inq->rec_num,
+					  strt->rec_inq->rec_num);
+			warn = 1;
+		/*}*/
 		tmp = strt->next;
 		strt->next = strt->next->next;
 		thevar->n_entries--;
@@ -6526,7 +6548,7 @@ static void _g2SetFileDimsAndCoordVars
     Grib2ParamList  *step,
                     *last,
                     *tmpstep;
-    char buffer[80];
+    char buffer[1024];
 
     NclQuark    ygrid_q,
                 lat_q;
@@ -6567,7 +6589,7 @@ static void _g2SetFileDimsAndCoordVars
     NhlErrorTypes is_err = NhlNOERROR;
 
     int tmp_file_dim_numbers[2];
-    char name_buffer[80];
+    char name_buffer[1024];
 
     Grib2AttInqRecList  *att_list_ptr = NULL;
     Grib2AttInqRecList  *tmp_att_list_ptr = NULL;
@@ -6635,7 +6657,14 @@ static void _g2SetFileDimsAndCoordVars
 			dstep = therec->probability_dims;
 			if (step->probability) { /* either a lower or an upper limit (but not both) */
 				for(i = 0; i < therec->n_probability_dims; i++) {
-					if(dstep->dim_inq->size == step->probability->multidval.dim_sizes[0]) {
+					char *cp;
+					strcpy(buffer,NrmQuarkToString(dstep->dim_inq->dim_name));
+					cp = strchr(buffer,'_');
+					if (cp) *cp = '\0';
+					if (NrmStringToQuark(buffer) != step->var_info.param_q) {
+						dstep = dstep->next;
+					}
+					else if(dstep->dim_inq->size == step->probability->multidval.dim_sizes[0]) {
 						tmp_md = _Grib2GetInternalVar(therec,dstep->dim_inq->dim_name,&test);
 						if(tmp_md != NULL) {
 							lhs_f = (float*)tmp_md->multidval.val;
@@ -7440,6 +7469,12 @@ static void _g2SetFileDimsAndCoordVars
 			
 			if (n_dims_lat == 0) {
 				is_err = NhlFATAL;
+			}
+			else if (step->grid_number == 204) {
+				/* this is the curvilinear orthogonal grid -- in NCL-speak this requires 2D coordinates, but there is no specific projection 
+				   that allows coordinates to be calculated. A user either needs to get the coordinates from some external source or they must
+				   be present in the file as variables in their own right. So there is no error here. */
+				break;
 			}
 			else {
 				NhlPError(NhlWARNING,NhlEUNKNOWN,
@@ -8475,6 +8510,7 @@ static NhlErrorTypes Grib2ReadCodeTable
         ct->descrip = NULL;
         ct->shname = NULL;
         ct->units = NULL;
+	(void) fclose(fp);
         NclFree(ctf);
         return err = NhlWARNING;
     }
@@ -8543,7 +8579,7 @@ static void *Grib2InitializeFileRec
 (NclFileFormat *format)
 #else
 (format)
-NclFileFormatType *format;
+NclFileFormat *format;
 #endif
 {
     Grib2FileRecord *g2rec = NULL;
@@ -8810,9 +8846,9 @@ Grib2ParamList  *g2plist;
 	max_count = 10;
 	time_periods = NclMalloc(max_count * sizeof(int));
 	for (i = 0; i < max_count; i++) {
-		time_periods[i] = -999;
+		time_periods[i] = -9999999;
 	}
-	max_period = -999;
+	max_period = -9999999;
 
 	/* 
 	 * get the shortest time period units
@@ -9221,7 +9257,9 @@ void _g2_seekgb(FILE *lugb,size_t iseek,size_t mseek,size_t *lskip,g2int *lgrib)
 	size_t ipos;
 	int    end;
 	unsigned char *cbuf;
+	g2int  max_bytes;
 
+	max_bytes = *lgrib;
 	*lgrib=0;
 	cbuf=(unsigned char *)malloc(mseek);
 	nread=mseek;
@@ -9253,9 +9291,12 @@ void _g2_seekgb(FILE *lugb,size_t iseek,size_t mseek,size_t *lskip,g2int *lgrib)
 			}
 		}
 		ipos=ipos+lim;
+		if (ipos > max_bytes)
+			return;
 	}
 
 	free(cbuf);
+	return;
 }
 
 
@@ -9269,7 +9310,6 @@ static void *Grib2OpenFile
     int wr_status;
 # endif /* NhlNeedProto */
 {
-# define GBUFSZ_T   1024
     FILE    *fd;
     int err,
         i,
@@ -9396,6 +9436,12 @@ static void *Grib2OpenFile
      */
     t_nrecs = nrecs;
     for (;;) {
+	/* lgrib is now in and out; setting it to 0 causes _g2_seekgb to
+	   look all the way through a file to find GRIB records. Setting it
+           to a positive value makes _g2_seekgb to return failure if more
+	   than that many bytes are read without finding a valid GRIB record. */
+
+	lgrib = 0;
 	_g2_seekgb(fd, seek, (size_t)32 * GBUFSZ_T, &lskip, &lgrib);
         /* EOF or other problem? */
         if (lgrib == 0)
@@ -10182,8 +10228,12 @@ static void *Grib2OpenFile
                     NhlFree(g2rec);
                     return NULL;
             }
+	    g2rec[nrecs]->sec4[i]->prod_params->aerosol_type = 65535;
+	    g2rec[nrecs]->sec4[i]->prod_params->size_interval_type = 255;
+	    g2rec[nrecs]->sec4[i]->prod_params->wavelength_interval_type = 255;
 
             switch (g2rec[nrecs]->sec4[i]->pds_num) {
+		    int offset;
 	    case 20:
 	    case 30:
 	    case 31:
@@ -10198,21 +10248,33 @@ static void *Grib2OpenFile
 		    NhlPError(NhlWARNING, NhlEUNKNOWN, "NclGRIB2: Unsupported Product Definition Template.");
 		    break;
 	    default:
-		    if (g2fld->ipdtmpl != NULL) {
-			    g2rec[nrecs]->sec4[i]->prod_params->hrs_after_reftime_cutoff = g2fld->ipdtmpl[5];
-			    g2rec[nrecs]->sec4[i]->prod_params->min_after_reftime_cutoff = g2fld->ipdtmpl[6];
-		    } else {
-			    NhlPError(NhlFATAL, NhlEUNKNOWN,
-				      "NclGRIB2: Invalid Product Definition Template.");
-			    NhlFree(g2rec);
-			    return NULL;
+		    switch (g2rec[nrecs]->sec4[i]->pds_num) {
+		    case 40:
+		    case 41:
+		    case 42:
+		    case 43:
+			    offset = 6;
+			    break;
+		    case 44:
+		    case 45:
+		    case 46:
+		    case 47:
+			    offset = 11;
+			    break;
+		    case 48:
+			    offset = 16;
+			    break;
+		    default:
+			    offset = 5;
 		    }
-
-
-		    /* table 4.4: Indicator of Unit of Time Range */
-		    if (g2fld->ipdtmpl != NULL)
-			    g2rec[nrecs]->sec4[i]->prod_params->time_range_unit_id = g2fld->ipdtmpl[7];
-		    else {
+			    
+		    if (g2fld->ipdtmpl != NULL) {
+			    g2rec[nrecs]->sec4[i]->prod_params->hrs_after_reftime_cutoff = g2fld->ipdtmpl[offset];
+			    g2rec[nrecs]->sec4[i]->prod_params->min_after_reftime_cutoff = g2fld->ipdtmpl[offset+1];
+			    /* table 4.4: Indicator of Unit of Time Range */
+			    g2rec[nrecs]->sec4[i]->prod_params->time_range_unit_id = g2fld->ipdtmpl[offset+2];
+			    g2rec[nrecs]->sec4[i]->prod_params->forecast_time = g2fld->ipdtmpl[offset+3];
+		    } else {
 			    NhlPError(NhlFATAL, NhlEUNKNOWN,
 				      "NclGRIB2: Invalid Product Definition Template.");
 			    NhlFree(g2rec);
@@ -10220,14 +10282,6 @@ static void *Grib2OpenFile
 		    }
 		    g2rec[nrecs]->sec4[i]->prod_params->time_range_unit = NULL;
 
-		    if (g2fld->ipdtmpl != NULL)
-			    g2rec[nrecs]->sec4[i]->prod_params->forecast_time = g2fld->ipdtmpl[8];
-		    else {
-			    NhlPError(NhlFATAL, NhlEUNKNOWN,
-				      "NclGRIB2: Invalid Product Definition Template.");
-			    NhlFree(g2rec);
-			    return NULL;
-		    }
 	    }
 	    
             switch (g2rec[nrecs]->sec4[i]->pds_num) {
@@ -10605,20 +10659,6 @@ static void *Grib2OpenFile
                     /* table 4.6: Type of Ensemble Forecast */
                     g2rec[nrecs]->sec4[i]->prod_params->typeof_ensemble_fx = g2fld->ipdtmpl[15];
                     g2rec[nrecs]->sec4[i]->prod_params->ensemble_fx_type = NULL;
-#if 0
-                    table = "4.6.table";
-                    cterr = Grib2ReadCodeTable(center, secid, table,
-					       g2rec[nrecs]->sec4[i]->prod_params->typeof_ensemble_fx,-1,ct);
-                    if (cterr < NhlWARNING) {
-                        NhlFree(g2rec);
-                        return NULL;
-                    }
-
-                    g2rec[nrecs]->sec4[i]->prod_params->ensemble_fx_type
-                            = NclMalloc(strlen(ct->descrip) + 1);
-                    (void) strcpy(g2rec[nrecs]->sec4[i]->prod_params->ensemble_fx_type,
-                            ct->descrip);
-#endif
                     
                     g2rec[nrecs]->sec4[i]->prod_params->perturb_num = g2fld->ipdtmpl[16];
                     g2rec[nrecs]->sec4[i]->prod_params->num_fx_ensemble = g2fld->ipdtmpl[17];
@@ -10650,78 +10690,22 @@ static void *Grib2OpenFile
                     g2rec[nrecs]->sec4[i]->prod_params->typeof_stat_proc
                             = g2fld->ipdtmpl[26];
                     g2rec[nrecs]->sec4[i]->prod_params->stat_proc = NULL;
-#if 0
-                    table = "4.10.table";
-                    cterr = Grib2ReadCodeTable(center, secid, table,
-					       g2rec[nrecs]->sec4[i]->prod_params->typeof_stat_proc,-1,ct);
-                    if (cterr < NhlWARNING) {
-                        NhlFree(g2rec);
-                        return NULL;
-                    }
-
-                    g2rec[nrecs]->sec4[i]->prod_params->stat_proc
-                            = NclMalloc(strlen(ct->descrip) + 1);
-                    (void) strcpy(g2rec[nrecs]->sec4[i]->prod_params->stat_proc,
-                            ct->descrip);
-#endif
     
                     /* table 4.11: Type of Time Intervals */
                     g2rec[nrecs]->sec4[i]->prod_params->typeof_incr_betw_fields
                             = g2fld->ipdtmpl[27];
                     g2rec[nrecs]->sec4[i]->prod_params->incr_betw_fields = NULL;
-#if 0
-                    table = "4.11.table";
-                    cterr = Grib2ReadCodeTable(center, secid, table,
-					       g2rec[nrecs]->sec4[i]->prod_params->typeof_incr_betw_fields,-1,ct);
-                    if (cterr < NhlWARNING) {
-                        NhlFree(g2rec);
-                        return NULL;
-                    }
-
-                    g2rec[nrecs]->sec4[i]->prod_params->incr_betw_fields
-                            = NclMalloc(strlen(ct->descrip) + 1);
-                    (void) strcpy(g2rec[nrecs]->sec4[i]->prod_params->incr_betw_fields,
-                            ct->descrip);
-#endif
     
                     /* table 4.4: Indicator of Unit of Time Range */
                     g2rec[nrecs]->sec4[i]->prod_params->ind_time_range_unit_stat_proc_done
                             = g2fld->ipdtmpl[28];
                     g2rec[nrecs]->sec4[i]->prod_params->itr_unit = NULL;
-#if 0
-                    table = "4.4.table";
-                    cterr = Grib2ReadCodeTable(center, secid, table,
-					       g2rec[nrecs]->sec4[i]->prod_params->ind_time_range_unit_stat_proc_done,-1,ct);
-                    if (cterr < NhlWARNING) {
-                        NhlFree(g2rec);
-                        return NULL;
-                    }
-
-                    g2rec[nrecs]->sec4[i]->prod_params->itr_unit
-                            = NclMalloc(strlen(ct->descrip) + 1);
-                    (void) strcpy(g2rec[nrecs]->sec4[i]->prod_params->itr_unit,
-                            ct->descrip);
-#endif
                     g2rec[nrecs]->sec4[i]->prod_params->len_time_range_unit_stat_proc_done
                             = g2fld->ipdtmpl[29];
 
                     g2rec[nrecs]->sec4[i]->prod_params->ind_time_unit_incr_succ_fields
                             = g2fld->ipdtmpl[30];
                     g2rec[nrecs]->sec4[i]->prod_params->itr_succ_unit = NULL;
-#if 0
-                    table = "4.4.table";
-                    cterr = Grib2ReadCodeTable(center, secid, table,
-					       g2rec[nrecs]->sec4[i]->prod_params->ind_time_unit_incr_succ_fields,-1,ct);
-                    if (cterr < NhlWARNING) {
-                        NhlFree(g2rec);
-                        return NULL;
-                    }
-
-                    g2rec[nrecs]->sec4[i]->prod_params->itr_succ_unit
-                            = NclMalloc(strlen(ct->descrip) + 1);
-                    (void) strcpy(g2rec[nrecs]->sec4[i]->prod_params->itr_succ_unit,
-                            ct->descrip);
-#endif
                     g2rec[nrecs]->sec4[i]->prod_params->time_incr_betw_fields
                             = g2fld->ipdtmpl[31];
                     break;
@@ -10732,6 +10716,47 @@ static void *Grib2OpenFile
                      * horizontal level or in a horizontal layer, in a continuous
                      * or non-continuous time interval.
                      */
+		    valid_end_time_set = 1;
+                    g2rec[nrecs]->sec4[i]->prod_params->end_overall_time_interval.year
+                            = g2fld->ipdtmpl[17];
+                    g2rec[nrecs]->sec4[i]->prod_params->end_overall_time_interval.mon
+                            = g2fld->ipdtmpl[18];
+                    g2rec[nrecs]->sec4[i]->prod_params->end_overall_time_interval.day
+                            = g2fld->ipdtmpl[19];
+                    g2rec[nrecs]->sec4[i]->prod_params->end_overall_time_interval.hour
+                            = g2fld->ipdtmpl[20];
+                    g2rec[nrecs]->sec4[i]->prod_params->end_overall_time_interval.min
+                            = g2fld->ipdtmpl[21];
+                    g2rec[nrecs]->sec4[i]->prod_params->end_overall_time_interval.sec
+                            = g2fld->ipdtmpl[22];
+                    g2rec[nrecs]->sec4[i]->prod_params->num_timerange_spec_time_interval_calc
+                            = g2fld->ipdtmpl[23];
+
+                    g2rec[nrecs]->sec4[i]->prod_params->total_num_missing_data_vals
+                            = g2fld->ipdtmpl[24];
+
+                    /* table 4.10: Type of Statistical Processing */
+                    g2rec[nrecs]->sec4[i]->prod_params->typeof_stat_proc
+                            = g2fld->ipdtmpl[25];
+                    g2rec[nrecs]->sec4[i]->prod_params->stat_proc = NULL;
+    
+                    /* table 4.11: Type of Time Intervals */
+                    g2rec[nrecs]->sec4[i]->prod_params->typeof_incr_betw_fields
+                            = g2fld->ipdtmpl[26];
+                    g2rec[nrecs]->sec4[i]->prod_params->incr_betw_fields = NULL;
+    
+                    /* table 4.4: Indicator of Unit of Time Range */
+                    g2rec[nrecs]->sec4[i]->prod_params->ind_time_range_unit_stat_proc_done
+                            = g2fld->ipdtmpl[27];
+                    g2rec[nrecs]->sec4[i]->prod_params->itr_unit = NULL;
+                    g2rec[nrecs]->sec4[i]->prod_params->len_time_range_unit_stat_proc_done
+                            = g2fld->ipdtmpl[28];
+
+                    g2rec[nrecs]->sec4[i]->prod_params->ind_time_unit_incr_succ_fields
+                            = g2fld->ipdtmpl[29];
+                    g2rec[nrecs]->sec4[i]->prod_params->itr_succ_unit = NULL;
+                    g2rec[nrecs]->sec4[i]->prod_params->time_incr_betw_fields
+                            = g2fld->ipdtmpl[30];
                     break;
 
                 case 13:
@@ -10905,6 +10930,23 @@ static void *Grib2OpenFile
 		    }
                     break;
 
+                case 48:
+			/* aerosols -- leave the interval_type params set to missing (255)
+			   until we can implement size and wavelength dimensions */
+
+			g2rec[nrecs]->sec4[i]->prod_params->aerosol_type = g2fld->ipdtmpl[2];
+			/*g2rec[nrecs]->sec4[i]->prod_params->size_interval_type = g2fld->ipdtmpl[3];*/
+			g2rec[nrecs]->sec4[i]->prod_params->size_first_scale_factor = g2fld->ipdtmpl[4];
+			g2rec[nrecs]->sec4[i]->prod_params->size_first_scale_value = g2fld->ipdtmpl[5];
+			g2rec[nrecs]->sec4[i]->prod_params->size_second_scale_factor = g2fld->ipdtmpl[6];
+			g2rec[nrecs]->sec4[i]->prod_params->size_second_scale_value = g2fld->ipdtmpl[7];
+			/*g2rec[nrecs]->sec4[i]->prod_params->wavelength_interval_type = g2fld->ipdtmpl[8];*/
+			g2rec[nrecs]->sec4[i]->prod_params->wavelength_first_scale_factor = g2fld->ipdtmpl[9];
+			g2rec[nrecs]->sec4[i]->prod_params->wavelength_first_scale_value = g2fld->ipdtmpl[10];
+			g2rec[nrecs]->sec4[i]->prod_params->wavelength_second_scale_factor = g2fld->ipdtmpl[11];
+			g2rec[nrecs]->sec4[i]->prod_params->wavelength_second_scale_value = g2fld->ipdtmpl[12];
+
+		    break;
                 case 254:
                     /*
                      * CCITT IA5 character string.
@@ -11254,6 +11296,9 @@ static void *Grib2OpenFile
 	    g2inqrec->traits.stat_proc_type = g2rec[i]->sec4[j]->prod_params->typeof_stat_proc;
 	    g2inqrec->traits.first_level_type = g2rec[i]->sec4[j]->prod_params->typeof_first_fixed_sfc;
 	    g2inqrec->traits.second_level_type =  g2rec[i]->sec4[j]->prod_params->typeof_second_fixed_sfc;
+	    g2inqrec->traits.aerosol_type =  g2rec[i]->sec4[j]->prod_params->aerosol_type;
+	    g2inqrec->traits.aerosol_size_interval_type = g2rec[i]->sec4[j]->prod_params->size_interval_type;
+            g2inqrec->traits.aerosol_wavelength_interval_type = g2rec[i]->sec4[j]->prod_params->wavelength_interval_type;
 
 	    g2inqrec->qcenter_name = NrmStringToQuark(g2rec[i]->sec1.center_name);
 

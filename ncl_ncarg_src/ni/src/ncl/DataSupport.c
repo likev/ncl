@@ -1,5 +1,5 @@
 /*
- *      $Id: DataSupport.c 15249 2014-04-21 16:03:44Z huangwei $
+ *      $Id$
  */
 /************************************************************************
 *									*
@@ -688,7 +688,6 @@ NclObjTypes _NclBasicDataTypeToObjType
         case NCL_ulong:
                 return(Ncl_Typeulong);
         case NCL_uint64:
-        case NCL_reference:
                 return(Ncl_Typeuint64);
         case NCL_ubyte:
                 return(Ncl_Typeubyte);
@@ -710,6 +709,8 @@ NclObjTypes _NclBasicDataTypeToObjType
 		return(Ncl_Typegroup);
 	case NCL_compound:
 		return(Ncl_Typecompound);
+        case NCL_reference:
+		return(Ncl_Typereference);
 	case NCL_list:
 	case NCL_vlen:
 		return(Ncl_Typelist);
@@ -1293,6 +1294,55 @@ NclBasicDataTypes totype;
                         return(1);
 		case NCL_string:
 			buffer[0] = *(byte*)from;
+			buffer[1] = '\0';
+			*(NclQuark*)to = NrmStringToQuark(buffer);
+			return(1);
+		default:
+			return(0);
+		}
+	case NCL_ubyte:
+		switch(totype) {
+		case NCL_byte:
+			*(byte*) to = *(ubyte*)from;
+			return(1);
+		case NCL_char:
+			*(char*) to = *(ubyte*)from;
+			return(1);
+		case NCL_float:
+			*(float*) to = *(ubyte*)from;
+			return(1);
+		case NCL_double:
+			*(double*) to = *(ubyte*)from;
+			return(1);
+		case NCL_long:
+			*(long*) to = *(ubyte*)from;
+			return(1);
+		case NCL_int64:
+			*(long long*) to = *(ubyte*)from;
+			return(1);
+                case NCL_ulong:
+                        *(unsigned long*) to = *(ubyte*)from;
+                        return(1);
+                case NCL_uint64:
+                        *(unsigned long long*) to = *(ubyte*)from;
+                        return(1);
+		case NCL_logical:
+			*(logical*)to = (logical)(*(ubyte*)from?1:0);
+			return(1);
+		case NCL_short:
+			*(short*) to = *(ubyte*)from;
+			return(1);
+		case NCL_int:
+			*(int*) to = *(ubyte*)from;
+			return(1);
+                case NCL_ushort:
+                        *(unsigned short*) to = *(ubyte*)from;
+                        return(1);
+                case NCL_uint:
+                        *(unsigned int*) to = *(ubyte*)from;
+                        return(1);
+		case NCL_string:
+			buffer[0] = *(ubyte*)from;
 			buffer[1] = '\0';
 			*(NclQuark*)to = NrmStringToQuark(buffer);
 			return(1);
@@ -1918,12 +1968,71 @@ NclBasicDataTypes totype;
 			return(0);
 		}
 	case NCL_string:
+		{
+		char *val = NrmQuarkToString(*(NrmQuark*)from);
+		char *end;
+
 		switch(totype) {
+		case NCL_byte:
+			*(byte*)to = (byte) _Nclstrtol(val, &end);
+			return(1);
+		case NCL_char:
+			*(char*)to = (char) _Nclstrtoul(val, &end);
+			return(1);
+		case NCL_short:
+			*(short*)to = (short) _Nclstrtol(val, &end);
+			return(1);
+                case NCL_int:
+			*(int*)to = (int) _Nclstrtol(val, &end);
+			return(1);
+		case NCL_long:
+			*(long*)to = _Nclstrtol(val, &end);
+			return(1);
+		case NCL_int64:
+			*(long long*)to = _Nclstrtoll(val, &end);
+			return(1);
+                case NCL_ubyte:
+                        *(unsigned char*)to = (unsigned char) _Nclstrtoul(val, &end);
+                        return(1);
+                case NCL_ushort:
+			*(unsigned short*)to = (unsigned short) _Nclstrtoul(val, &end);
+                        return(1);
+                case NCL_uint:
+			*(unsigned int*)to = (unsigned int) _Nclstrtoul(val, &end);
+                        return(1);
+                case NCL_ulong:
+			*(unsigned long*)to = (unsigned long) _Nclstrtoul(val, &end);
+                        return(1);
+                case NCL_uint64:
+			*(unsigned long long*)to = (unsigned long long) _Nclstrtoull(val, &end);
+                        return(1);
+                case NCL_float:
+			{
+			double dval = strtod(val,&end);
+                	if (end == val || errno == ERANGE) {
+                        	*(float*)to = ((NclTypeClass)nclTypefloatClass)->type_class.default_mis.floatval;
+                	} else
+                        	*(float*)to = (float)dval;
+			return(1);
+			}
+                case NCL_double:
+			{
+			double dval = strtod(val,&end);
+                	if (end == val || errno == ERANGE) {
+                        	*(double*)to = ((NclTypeClass)nclTypedoubleClass)->type_class.default_mis.doubleval;
+                	} else
+                        	*(double*)to = dval;
+			return(1);
+			}
+                case NCL_logical:
+			*(logical*)to = (logical)_Nclstrtol(val, &end);
+			return(1);
 		case NCL_string:
 			*(NclQuark*)to = *(NclQuark*)from;
 			return(1);
 		default:
 			return(0);
+		}
 		}
 	case NCL_logical:
 	default:
@@ -2966,4 +3075,80 @@ int  type_size;
 		}
 	}
 		
+}
+
+long _Nclstrtol(const char *str, char **endptr)
+{
+
+	long tval;
+	int i = 0;
+
+	while (isspace(str[i]))
+			i++;
+	if (strlen(&(str[i])) >= 2 && str[i] == '0' && (str[i+1] == 'x' || str[i+1] == 'X'))
+		tval = strtol(str,endptr,16);
+	else
+		tval = strtol(str,endptr,10);
+	return tval;
+}
+
+unsigned long _Nclstrtoul(const char *str, char **endptr)
+{
+        unsigned long tval;
+        int i = 0;
+
+        while (isspace(str[i]))
+                        i++;
+        if (strlen(&(str[i])) >= 2 && str[i] == '0' && (str[i+1] == 'x' || str[i+1] == 'X'))
+        {
+                tval = strtoul(str,endptr,16);
+        }
+        else
+        {
+                tval = strtoul(str,endptr,10);
+        }
+
+        return tval;
+}
+
+long long _Nclstrtoll(const char *str, char **endptr)
+{
+        long long tval;
+        int i = 0;
+
+        errno = ERANGE;
+
+        while (isspace(str[i]))
+                        i++;
+        if (strlen(&(str[i])) >= 2 && str[i] == '0' && (str[i+1] == 'x' || str[i+1] == 'X'))
+        {
+                errno = 0;
+                tval = local_strtoll(str,endptr,16);
+        }
+        else
+        {
+                errno = 0;
+                tval = local_strtoll(str,endptr,10);
+        }
+
+        return tval;
+}
+
+unsigned long long _Nclstrtoull(const char *str, char **endptr)
+{
+        unsigned long long tval;
+        int i = 0;
+
+        while (isspace(str[i]))
+                        i++;
+        if (strlen(&(str[i])) >= 2 && str[i] == '0' && (str[i+1] == 'x' || str[i+1] == 'X'))
+        {
+                tval = strtoull(str,endptr,16);
+        }
+        else
+        {
+                tval = strtoull(str,endptr,10);
+        }
+
+        return tval;
 }

@@ -1,81 +1,5 @@
-;
+; 
 ;      $Id: contributed.ncl,v 1.273 2010-05-07 17:38:12 haley Exp $
-;
-;
-; -------------- added Feb 14 2002
-; copy_VarMeta
-; cssgrid_Wrap
-; epzZero
-; flt2dble
-; getVarDimNames
-; numAsciiRow
-; numAsciiCol
-; month_to_season 
-; month_to_seasonN
-; month_to_season12
-; wave_number_spc
-; uv2dvG_Wrap
-; uv2vrG_Wrap
-; uv2dvF_Wrap
-; uv2vrF_Wrap
-; dv2uvG_Wrap
-; vr2uvG_Wrap
-; dv2uvF_Wrap
-; vr2uvF_Wrap
-; ilapsG_Wrap
-; ilapsF_Wrap
-; dim_standardize_Wrap
-; msrcp_mss2local
-
-; -------------- changed 13 May 2002
-; eofMeta:  changed a dimension name from "eval" to "evn"
-; -------------- added   13 May 2002
-; eofcor_pcmsg_Wrap
-; eofcov_pcmsg_Wrap
-
-; -------------- changed June 2002
-; short2flt:   added extra names
-;
-; -------------- replaced June 2002
-; NewCosWeight
-; SqrtCosWeight
-;
-; -------------- added July  3 2002
-; GetFillColorIndex
-; yyyymmdd2yyyyFrac
-;
-; -------------- bug fix 30 Aug 2002
-; closest_val:   mult "closest" values Murphy
-;
-; -------------- added 13 Sept 2002
-; grib_stime2itime:  convert initial_time (string) to time (integer)
-; wgt_areaave_Wrap
-;
-; -------------- 19 Sept 2002
-; NormCosWgtGlobe: make lat wgts sum to 2.0 like gaussian whts 
-; namDimCheck    : makes sure all dimensions are named
-; calcMonStandardizeAnomTLL : calculated standardized anomalies for each month
-;
-; --------------    Oct  2002
-; cat2var: Concatenate 2 (or more) variables to create one variable
-; byte2float
-; svdHomHet2LatLon: convert SVD output arrays to lat/lon for plotting
-; svdAkBk2time    : convert SVD output attributes to timefor plotting
-; trimBlankRight  ; trim trailing (rightmost) blanks from strings
-;
-; --------------    Nov  2002
-; All routines had local variables explicitly declared.
-; All 'undef' statements were activated.
-; Numerous regridding routines had changes made to them. [lat/lon stuff]
-;
-; -------------     Feb-Mar 2003
-; added clmMonTLLL, stdMonTLLL
-; namelist
-; merge_VarAtts
-; timeCoads2YYYYMM
-; -------------   
-; Now using CVS .... no longer will I manually maintain the change log
-; -------------
 ;
 ; Contributed.ncl
 ;
@@ -83,9 +7,41 @@
 ; designed to be completely self contained so that if a user desires, the
 ; code can be extracted without loss of functionality.
 ;
-
 ;************************************************************
-; D. Shea
+undef("get_pi")
+function get_pi( p )
+local pi, ptype
+begin
+  ptype = typeof(p)
+
+  if (ptype.eq."double" .or.  \
+     (ptype.eq."string" .and. (p.eq."double" .or. p.eq."d"))) then
+      pi = 4d*atan(1d0)
+  else
+      pi = 4.0*atan(1.0)       ; default is to return float
+  end if
+  pi@long_name = "ratio of a circle's circumference to its diameter"
+  return( pi )
+end
+;************************************************************
+undef("get_d2r")                ; degrees to radians
+function get_d2r( x )
+local d2r
+begin
+  d2r = get_pi(x)/180
+  d2r@long_name = "convert degrees to radians"
+  return( d2r )
+end
+;************************************************************
+undef("get_r2d")                ; radians to degrees
+function get_r2d( x )
+local r2d
+begin
+  r2d = 180/get_pi(x)
+  r2d@long_name = "convert radians to degrees"
+  return( r2d )
+end
+;************************************************************
 ; return number of elements of an array [scalar==> size=1]
 ;************************************************************
 undef("size_array")
@@ -93,8 +49,10 @@ function size_array(x)
 begin
   return( product(dimsizes(x)) )
 end
+;************************************************************
 ; D. Shea
 ; return True if "x" has one of several synonyms for "long_name"
+;************************************************************
 
 undef ("isatt_LongName")
 function isatt_LongName(x)
@@ -388,7 +346,7 @@ end
 ;    decided to combine them into one function called 
 ;    "copy_VarCoords_not_n".
 ;
-; This function *used* to make the  assumption that the
+; This function *used* to make the assumption that the
 ;    "dims_to_skip" dimensions were consecutive and 
 ;    increasing. This is no longer necessary.  The 
 ;    "dims_to_copy" must represent valid dimensions in 
@@ -834,6 +792,8 @@ end
 ;*************************************************************************
 ; D. Shea
 ; print Min and Max of a numeric variable using long_name [if present]
+; Haley
+; Added units [if present] in 6.4.0
 ;
 undef("printMinMax")
 procedure printMinMax (x:numeric,optSpace:logical)  
@@ -841,20 +801,35 @@ procedure printMinMax (x:numeric,optSpace:logical)
 begin                                             
           ; attribute names to check             
    vLongName = (/"long_name", "description", "standard_name" /)
+   vUnits    = get_valid_units()
    long_name = ""        
+   units     = ""
    do n=0,dimsizes(vLongName)-1            
       if (isatt(x,vLongName(n))) then     
           long_name = x@$vLongName(n)$   
           break
       end if
    end do
+; Don't bother with units if long_name doesn't exist
+   if(long_name.ne."") then
+     do n=0,dimsizes(vUnits)-1            
+        if (isatt(x,vUnits(n))) then     
+            units = x@$vUnits(n)$   
+            break
+        end if
+     end do
+   end if
         
    if (optSpace) then
        print (" ")  
    end if          
                   
-   if (long_name.ne."") then 
-       print (long_name+ ": min="+min(x)+"   max="+max(x)) 
+   if (long_name.ne."") then
+      if(units.ne."") then 
+        print (long_name+ " ("+units+")" + " : min="+min(x)+"   max="+max(x)) 
+      else
+        print (long_name+ " : min="+min(x)+"   max="+max(x)) 
+      end if
    else 
        print ("min="+min(x)+"   max="+max(x))
    end if 
@@ -1190,45 +1165,145 @@ begin
   
   return (x)
 end
+
+;********************************************************************
+; D. Shea
+; set a _FillValue "automatically" 
+; If a variable has a "_FillValue" use it, if not "missing_value" etc.
+; if none on file, then return "No_FillValue"  
+; This function should be used within the "new" statement.
+; example of inline use: var = new(dimsizes(x),typeof(x),getFillValue(x))
+
+undef("getFillValue")
+function getFillValue (x)
+local FillValue
+begin
+  if (isatt(x,"_FillValue")) then
+      FillValue = x@_FillValue
+  else
+      if (isatt(x,"missing_value")) then
+           FillValue = x@missing_value
+      else
+           FillValue = "No_FillValue"
+      end if
+  end if
+
+   return (FillValue)
+end
+;********************************************************************
+; D. Shea
+; set a numeric _FillValue "automatically" 
+; If a variable has a "_FillValue" use it, if not "missing_value" etc.
+; if none on file, then set default by variable type 
+; example of inline use: var = new(dimsizes(x),typeof(x),getFillValue(x))
+
+undef("getVarFillValue")
+function getVarFillValue (x)
+local FillValue
+begin
+  if (isatt(x,"_FillValue")) then
+      return( x@_FillValue )
+  else
+      if (isatt(x,"missing_value")) then
+           return( x@missing_value )
+      else
+           return( default_fillvalue(typeof(x)) )
+      end if
+  end if
+end
+
+; *****************************************************************
+; Calculate wind speed
+; *****************************************************************
+undef ("wind_speed")
+function wind_speed(u:numeric, v:numeric)
+local wspd
+begin
+ if (.not.all(dimsizes(u).eq.dimsizes(v))) then
+     print("wind_speed: dimension size mismatch")
+     print("         u: "+dimsizes(u))
+     print("         v: "+dimsizes(v))
+     exit
+ end if
+  
+  wspd = sqrt(u^2 + v^2)
+  wspd@long_name = "wind speed"
+  if (isatt(u,"units")) then
+      wspd@units = u@units
+  end if
+  copy_VarCoords(u, wspd)
+  return(wspd)
+end
 ; *****************************************************************
 ; Calculate meteorological wind direction
 ; *****************************************************************
 undef ("wind_direction")
 function wind_direction(u:numeric, v:numeric, opt:integer)
 ; meteorological wind direction. 
-; This is over-kill. Only need: wdir=atan2(u,v)*radi + 180
-local wdir, radi, con, wcrit, wmsg, zero, dimu
+
+; This is *** over-kill ***. 
+; Only need: wdir=atan2(u,v)*radi + 180  [or 270-atan2(v,u)*radii) ]
+
+local dimu, dimv, ranku, rankv, wdir, radi, con, wcrit, wmsg, zero, dimu, utype, uvtype
 begin
-  if (.not.(typeof(u).eq."double" .or. \
-            typeof(u).eq."float"  .or. \
-            typeof(u).eq."integer" )) then
-      print("wind_direction: illegal numeric type: "+typeof(u))
+
+  dimu  = dimsizes(u)
+  ranku = dimsizes(dimu)
+  dimv  = dimsizes(v)
+  rankv = dimsizes(dimv)
+
+  if (ranku.ne.ranku) then
+      print("wind_direction: FATAL: rank mismatch: ranku="+ranku+" rankv="+rankv)
       exit
   end if
 
-  dimu = dimsizes(u)
-
-  if (typeof(u).eq."double") then
-      zero = 0.0d
-      wmsg = 1d20
-      con  = 180.0d
-      wcrit= 360d0-0.00002d0
-      radi = 1.0d0/0.0174532925199433d0
-      wdir = new (dimu, typeof(u), wmsg) 
-  else
-      zero = 0.0
-      wmsg = 1e20
-      con  = 180.0
-      wcrit= 360-0.00002
-      radi = 1.0/0.01745329
-      wdir = new (dimu, "float", wmsg) 
+  if (.not.all(dimu.eq.dimv))
+      print("wind_direction: FATAL: array size mismatch")
+      print("          dimu="+dimu)
+      print("          dimv="+dimv)
+      exit
   end if
 
-  wdir = (/ atan2(u,v)*radi + con  /)
+  utype = typeof(u)
+  if (.not.(utype.eq."double" .or. utype.eq."float" .or. \
+            utype.eq."integer" )) then
+      print("wind_direction: illegal numeric type: "+utype)
+      exit
+  end if
+
+  if (utype.eq."double") then
+      uvtype = "double"
+      zero   = 0.0d
+    ;;con    = 270.0d
+      con    = 180.0d
+      wcrit  = 360d0
+  else
+      uvtype = "float"
+      zero   = 0.0
+    ;;con    = 270.0
+      con    = 180.0
+      wcrit  = 360.0
+  end if
+
+  if (isatt(u,"_FillValue")) then
+      uvmsg = getFillValue(u)
+  else 
+      if (isatt(v,"_FillValue")) then
+          uvmsg = getFillValue(v)
+      else
+          uvmsg = "No_FillValue"
+      end if
+  end if
+
+  radi  = get_r2d(uvtype)                 ; radians to degrees
+  wdir  = new (dimu, uvtype, uvmsg) 
+
+;;wdir = (/ mod((con - atan2(v,u)*radi),360)  /)
+  wdir = (/ con + atan2(u,v)*radi /)
   wdir = where(wdir.ge.wcrit, zero, wdir)  ; force 360 "north winds" to 0
                           
   if (typeof(opt).eq."integer" .and. opt.eq.0) then 
-      cdir = zero                          ; calm 0.0->_FillValue
+      cdir = zero                          ; calm 0.0
       wdir = where (u.eq.zero .and. v.eq.zero, cdir, wdir)
   end if
                           
@@ -1246,6 +1321,9 @@ begin
   if (isatt(wdir,"units")) then
       delete(wdir@units)
   end if
+
+  copy_VarCoords(u, wdir)
+
   return(wdir)
 end
 ; *****************************************************************
@@ -1253,52 +1331,101 @@ end
 ; *****************************************************************
 undef ("wind_component")
 function wind_component(wspd:numeric, wdir:numeric, opt:integer)
-local wdir, rad , ivmsg, uveps, uvzero, dimw, rankw, dimuv, uv
+local rad, uvmsg, uveps, uvzero, dimw, rankw, dimd, rankd, dimuv, uv, uvtype
 begin
-  if (typeof(wspd).eq."double" .or. typeof(wspd).eq."double") then
-      rad   = 0.0174532925199433d0
-      uvmsg = 1d20
-      uveps = 1.0d-5
-      uvzero= 0.0d0
-  else
-      rad   = 0.01745329
-      uvmsg = 1e20
-      uveps = 1.0e-5
-      uvzero= 0.0
-  end if
 
   dimw = dimsizes(wspd)
   rankw= dimsizes(dimw)
+  dimd = dimsizes(wdir)
+  rankd= dimsizes(dimd)
+
+  if (rankw.ne.rankd) then
+      print("wind_component: FATAL: rank mismatch: rankw="+rankw+" rankd="+rankd)
+      exit
+  end if
+
+  if (.not.all(dimw.eq.dimd))
+      print("wind_component: FATAL: array size mismatch")
+      print("          dimw="+dimw)                        
+      print("          dimd="+dimd)                        
+      exit
+  end if
+
+  if (typeof(wspd).eq."double" .or. typeof(wdir).eq."double" ) then  
+      uvtype= "double"
+      uveps = 1.0d-5
+      uvzero= 0.0d0
+  else
+      uvtype= "float"
+      uveps = 1.0e-5
+      uvzero= 0.0
+  end if
+  rad   = get_d2r(uvtype)
+
+  if (isatt(wspd,"_FillValue")) then
+      uvmsg = getFillValue(wspd)
+  else 
+      if (isatt(wdir,"_FillValue")) then
+          uvmsg = getFillValue(wdir)
+      else
+          uvmsg = "No_FillValue"
+      end if
+  end if
 
   dimuv= new ( rankw+1, "integer", "No_FillValue")
   dimuv(0)  = 2
   dimuv(1:) = dimw
-  uv        = new (dimuv, typeof(wspd), uvmsg) 
+  uv        = new (dimuv, uvtype, uvmsg) 
 
   if (rankw.eq.1 .and. dimw(0).eq.1) then
-      uv(0) = -wspd*sin(wdir*rad)
-      uv(1) = -wspd*cos(wdir*rad)
+      uv(0,0) = -wspd*sin(wdir*rad)
+      uv(1,0) = -wspd*cos(wdir*rad)
+      uv      = where(abs(uv).le.uveps, uvzero, uv) ; make near zero => 0
       copy_VarMeta(wspd, uv)
+      if (opt.ne.0) then
+          return([/uv(0,0), uv(1,0)/])
+      end if
   else if (rankw.eq.1) then
       uv(0,:) = -wspd*sin(wdir*rad)
       uv(1,:) = -wspd*cos(wdir*rad)
+      uv      = where(abs(uv).le.uveps, uvzero, uv) ; make near zero => 0
       copy_VarMeta(wspd, uv(0,:))
+      if (opt.ne.0) then
+          return([/uv(0,:), uv(1,:)/])
+      end if
   else if (rankw.eq.2) then
       uv(0,:,:) = -wspd*sin(wdir*rad)
       uv(1,:,:) = -wspd*cos(wdir*rad)
+      uv        = where(abs(uv).le.uveps, uvzero, uv) ; make near zero => 0
       copy_VarMeta(wspd, uv(0,:,:))
+      if (opt.ne.0) then
+          return([/uv(0,:,:), uv(1,:,:)/])
+      end if
   else if (rankw.eq.3) then
       uv(0,:,:,:) = -wspd*sin(wdir*rad)
       uv(1,:,:,:) = -wspd*cos(wdir*rad)
+      uv          = where(abs(uv).le.uveps, uvzero, uv) ; make near zero => 0
       copy_VarMeta(wspd, uv(0,:,:,:))
+      if (opt.ne.0) then
+          return([/uv(0,:,:,:), uv(1,:,:,:)/])
+      end if
   else if (rankw.eq.4) then
       uv(0,:,:,:,:) = -wspd*sin(wdir*rad)
       uv(1,:,:,:,:) = -wspd*cos(wdir*rad)
+      uv            = where(abs(uv).le.uveps, uvzero, uv) ; make near zero => 0
       copy_VarMeta(wspd, uv(0,:,:,:,:))
+      if (opt.ne.0) then
+          return([/uv(0,:,:,:,:), uv(1,:,:,:,:)/])
+      end if
   else if (rankw.eq.5) then
       uv(0,:,:,:,:,:) = -wspd*sin(wdir*rad)
       uv(1,:,:,:,:,:) = -wspd*cos(wdir*rad)
+      uv              = where(abs(uv).le.uveps, uvzero, uv) ; make near zero => 0
       copy_VarMeta(wspd, uv(0,:,:,:,:,:))
+      if (opt.ne.0) then
+          return([/uv(0,:,:,:,:,:), uv(1,:,:,:,:,:)/])
+      end if
+
   end if           ; 5
   end if           ; 4
   end if           ; 3
@@ -1306,14 +1433,103 @@ begin
   end if           ; 1
   end if           ; scalar
 
-  uv   = where(abs(uv).le.uveps, uvzero, uv) ; make near zero => 0
-
   uv!0 = "uv"
-  uv@long_name = "zonal and meridional wind components"
-
+  uv@long_name = "zonal [0] and meridional [1] wind components"
   return(uv)
 end
+; *****************************************************************
+; Basic wind related quantities and statistics
+; *****************************************************************
+undef("wind_stats")
+function wind_stats(wspd:numeric, wdir:numeric, nDim[*]:integer, opt[1])
+;
+; Single pass *estimation* of the standard deviation of wind direction:
+; ... Wind speed is a scalar
+; ... Wind direction is circular quantity: [0..360); including 0 but excluding 360 and above
+;     Think discontinuity at 360.
+; ... Function 'wind_stats' uses Yamartino'a single-pass method. Yamartino's algorithm is 
+;     an approximation within 2% of the theoretical distribution.
+; ----
+; The standard deviation of wind direction is a measure of lateral turbulence, 
+; and can be used to estimate the Pasquill stability. 
+; ----
+; References:
+; Yamartino (1984): Journal of Climate and Applied Meteorology , 23, 1362-1366 
+; http://dx.doi.org/10.1175/1520-0450(1984)023<1362:ACOSPE>2.0.CO;2
+;
+; Turner, D.B. (1986): Comparison of Three Methods ...
+; http://journals.ametsoc.org/doi/pdf/10.1175/1520-0450%281986%29025%3C0703%3ACOTMFC%3E2.0.CO%3B2
 
+; Weber, R. (1997): Estimators for the Standard Deviation of Horizontal Wind Direction
+; http://journals.ametsoc.org/doi/pdf/10.1175/1520-0450%281997%29036%3C1403%3AEFTSDO%3E2.0.CO%3B2
+;
+; Wikipedia;
+; https://en.wikipedia.org/wiki/Yamartino_method
+;
+local wspd_avg, wspd_std, wdir_avg, wdir_std \
+    ,  d2r, wrad, wsin, wcos, e, wsrd, uv
+begin
+
+; wind speed average and standard deviation + meta data
+
+  wspd_avg = dim_avg_n_Wrap   (wspd, nDim) 
+  wspd_std = dim_stddev_n_Wrap(wspd, nDim) 
+
+  if (isatt(wspd,"long_name")) then                       ; add meta
+      wspd_avg@long_name = "average: "+wspd@long_name
+      wspd_avg@info_wspd = "average of wind speeds"
+      wspd_std@long_name = "std dev: "+wspd@long_name
+      wspd_std@info_wdir = "average of wind speeds"
+  else
+      wspd_avg@long_name = "average wind speed"
+      wspd_std@long_name = "standard deviation of wind speed"
+  end if
+
+; wind direction: intermediate quantities (see Ymartino)
+
+  d2r  = get_d2r(wdir)
+  wrad = wdir*d2r
+  wsin = dim_avg_n(sin(wrad), nDim)                ; avg sin(wdir) 
+  wcos = dim_avg_n(cos(wrad), nDim)                ;     cos
+  delete(wrad)                                     ; no longer needed
+
+;;mean wind direction: Turner method p707 based on Yamartino
+
+;;wdir_avg = atan2(wsin,wcos)*get_r2d(wspd)        ; average; Yamartino
+;;if (wdir_avg.lt.0) then
+;;    wdir_avg = wdir_avg + 360
+;;end if
+;;wdir_avg@long_name = "wind direction: mean"
+;;wdir_avg@info      = "Yamartino single-pass method"
+
+; mean wind via:  http://www.ndbc.noaa.gov/wndav.shtml
+; (a) compute mean U (avgU) and mean V (avgV)
+; (b) compute mean wind speed via mean components (a)
+; (c) compute mean wind direction via mean components (a)
+
+  uv   = wind_component(wspd, wdir, 1)             ; return list
+                                                   ; explicitly extract: clarity
+  u    = uv[0]                                     ; extract u
+  v    = uv[1]                                     ;         v
+  delete(uv)                                       ; no longer needed
+
+  avgU = dim_avg_n(u, 0)                           ; average u
+  avgV = dim_avg_n(v, 0)                           ;         v
+  avgW = sqrt(avgU^2 + avgV^2)                     ; NOAA
+  dirW = wind_direction(avgU, avgV, 0)             ; 'exact'
+
+; std dev of wind direction (~ within 2% ) ... Yamartino (1984)
+  
+  e    = sqrt(1-(wsin*wsin+wcos*wcos))
+  wdir_std = get_r2d(e)*asin(e)*(1+0.1547*e^3)
+  delete(e)                                        ; no longer needed
+
+  wdir_std@long_name = "wind direction: standard deviation"
+  wdir_std@info      = "Yamartino single-pass method"
+  copy_VarCoords(wspd_avg, wdir_std)
+
+  return ([/wspd_avg, wspd_std,     dirW, wdir_std, avgU, avgV/])  
+end
 ; **************************************************************
 ; D. Shea
 ; Loops thru a 1D variable [eg, time] and finds
@@ -1391,59 +1607,13 @@ begin
     x = x(y_ind)
   end if
 end
-
-;********************************************************************
-; D. Shea
-; set a _FillValue "automatically" 
-; If a variable has a "_FillValue" use it, if not "missing_value" etc.
-; if none on file, then return "No_FillValue"  
-; This function should be used within the "new" statement.
-; example of inline use: var = new(dimsizes(x),typeof(x),getFillValue(x))
-
-undef("getFillValue")
-function getFillValue (x)
-local FillValue
-begin
-  if (isatt(x,"_FillValue")) then
-      FillValue = x@_FillValue
-  else
-      if (isatt(x,"missing_value")) then
-           FillValue = x@missing_value
-      else
-           FillValue = "No_FillValue"
-      end if
-  end if
-
-   return (FillValue)
-end
-;********************************************************************
-; D. Shea
-; set a numeric _FillValue "automatically" 
-; If a variable has a "_FillValue" use it, if not "missing_value" etc.
-; if none on file, then set default by variable type 
-; example of inline use: var = new(dimsizes(x),typeof(x),getFillValue(x))
-
-undef("getVarFillValue")
-function getVarFillValue (x)
-local FillValue
-begin
-  if (isatt(x,"_FillValue")) then
-      return( x@_FillValue )
-  else
-      if (isatt(x,"missing_value")) then
-           return( x@missing_value )
-      else
-           return( default_fillvalue(typeof(x)) )
-      end if
-  end if
-end
 ; **************************************************************
 ; D. Shea
 ; Loops thru a 1D variable [eg, time] and finds
 ; the indices which do *not* match up with the values of the cvExclude
 
 undef("get1Dindex_Exclude")
-function get1Dindex_Exclude (cv[*]:numeric,cvExclude[*]:numeric)
+function get1Dindex_Exclude (cv[*],cvExclude[*])
 local nCv, nExclude, cvLocal,n, indTemp
 begin
 
@@ -1470,10 +1640,24 @@ end
 ; invoke get1Dindex_Exclude
 
 undef("get1Dindex_Collapse")
-function get1Dindex_Collapse (cv[*]:numeric,cvWant[*]:numeric)
+function get1Dindex_Collapse (cv[*],cvWant[*])
 begin
   return( get1Dindex_Exclude(cv, cvWant) )
 end
+
+;*************************************************************
+; From: Dave Allured 
+; Date: Thu, 15 Mar 2007 14:00:43 -0600
+; "The following is much simpler and more robust" ... than 'closest_val' 
+; DA's original name was 'closest_val_AnyOrder'
+undef("closest_val")
+function closest_val(xVal[1]:snumeric, x:snumeric)
+local xAbsDif, xMinVal, iClose
+begin
+   xAbsDif = abs(xVal-x)
+   iClose = minind(xAbsDif)
+   return(iClose) ; original doc says "first occurence"
+end 
 
 ;****************************************************************
 ; S. Murphy
@@ -1482,8 +1666,8 @@ end
 ; values in array2ck = 17.0 17.5 18.0 18.5
 ; this function would return 3.
 
-undef("closest_val")
-function closest_val(var2ck:numeric,array2ck[*])
+undef("closest_val_original")
+function closest_val_original(var2ck:numeric,array2ck[*])
 local size, narray,loc, test1,test2
 begin
   size = dimsizes(array2ck)            ; get size of original array
@@ -1688,7 +1872,7 @@ begin
    xF = new (dimx, float, doubletofloat(xD@_FillValue ) )
  else
    if (isatt(xD,"missing_value")) then
-      xF = new (dimx(xD), float, doubletofloat(xD@missing_value) )
+      xF = new (dimx, float, doubletofloat(xD@missing_value) )
    end if
  end if
 
@@ -1812,8 +1996,9 @@ begin
           ; names to check
  oNames = (/"add_offset", "offset", "OFFSET", "Offset", "_offset" \
            ,"Intercept", "intercept", "add_off", "ADD_OFF"/)
- sNames = (/"scale", "SCALE", "Scale", "_scale", "scale_factor", "factor" \
-           ,"Scale_factor", "Slope" , "slope", "ScaleFactor", "Scale_Factor" /)
+ sNames = (/"scale", "SCALE", "Scale", "_scale", "scale_factor", "factor"    \
+           ,"Scale_factor", "Slope" , "slope", "ScaleFactor", "Scale_Factor" \
+           ,"SCALING_FACTOR" /)
 
  offset = 0.0   ; establish as type float
  scale  = 1.0
@@ -1899,8 +2084,9 @@ begin
           ; names to check
  oNames = (/"add_offset", "offset", "OFFSET", "Offset", "_offset" \
            ,"Intercept", "intercept", "add_off", "ADD_OFF"/)
- sNames = (/"scale", "SCALE", "Scale", "_scale", "scale_factor" , "factor" \
-           ,"Scale_factor", "Slope" , "slope", "ScaleFactor", "Scale_Factor" /)
+ sNames = (/"scale", "SCALE", "Scale", "_scale", "scale_factor" , "factor"   \
+           ,"Scale_factor", "Slope" , "slope", "ScaleFactor", "Scale_Factor" \
+           ,"SCALING_FACTOR" /)
 
 
  offset = 0.0   ; establish as type float
@@ -1966,11 +2152,13 @@ end
 ; D. Shea
 ; converts shorts to floats using the "scale" and "offset" attributes (if present) 
 
-; Note: Conventional HDF usage require that 
+; Note: Sometimes HDF usage require that 
 ; if both scale_factor and add_offset attributes are present, 
 ; the following implementation should be used:
 ;      result = scale_factor*(stored_integer-add_offset)
 ; This is different than the COARDS and CF Conventions.
+; There is no automatic way to determine which form is to be used.
+; Trial and error? 
 ;
 ; Usage: 
 ;      x = short2flt_hdf(xS)  where xS is a short
@@ -1995,10 +2183,12 @@ begin
 
           ; names to check
  oNames = (/"add_offset", "offset", "OFFSET", "Offset", "_offset" \
-           ,"Intercept", "intercept", "scalingIntercept" /)
- sNames = (/"scale", "SCALE", "Scale", "_scale", "scale_factor" \
+           ,"Intercept", "intercept", "scalingIntercept", "INTERCEPT" \
+           ,"add_off"                                             /)
+ sNames = (/"scale", "SCALE", "Scale", "_scale", "scale_factor"   \
            ,"Scale_factor", "Slope" , "slope", "ScaleFactor"      \
-           ,"Scale_Factor", "scalingSlope" /)
+           ,"Scale_Factor", "scalingSlope", "SCALING_FACTOR"      \
+           ,"SCALE_FACTOR", "SLOPE"                             /)
 
 
  offset = 0.0   ; establish as type float
@@ -2088,7 +2278,8 @@ begin
  oNames = (/"add_offset", "offset", "OFFSET", "Offset", "_offset" \
            ,"Intercept", "intercept"/)
  sNames = (/"scale", "SCALE", "Scale", "_scale", "scale_factor" \
-           ,"Scale_factor", "Slope" , "slope", "ScaleFactor", "Scale_Factor" /)
+           ,"Scale_factor", "Slope" , "slope", "ScaleFactor"    \
+           ,"Scale_Factor", "SCALING_FACTOR" /)
 
 
  offset = 0.0   ; establish as type float
@@ -2199,6 +2390,8 @@ begin
   end if
 end
 ; ********************************************************************
+; From contributed.ncl
+; ********************************************************************
 ; D. Shea
 ; Truncate or Round "x" to the number of decimal places [nDec]
 ; This will [I hope] operate on any arbitrary array of float/double 
@@ -2210,23 +2403,26 @@ end
 ; ==> compatibility reasons.
 ;
 ; It was upgraded by D Shea in Dec 2009 to use "round" and to
-; return metadata.
+; return metadata. It ronds to the higher absolute number.
 ;
 ; x     - float or double only
 ; nDec  - number of decimal places to the right of decimal point
 ; Round - round or truncate
 ;   
 ; usage: 
-;   x is a scalar
-;   xRound = decimalPlaces(x, 2, True)  ; x=12.345678 => 12.35
-;   xRound = decimalPlaces(x, 2, False) ; x=12.345678 => 12.34
+;   x = 12.345678: 
+;   xRound = decimalPlaces( x, 2, True)   ;  12.35
+;   xRound = decimalPlaces( x, 2, False)  ;  12.34
+;   xRound = decimalPlaces(-x, 2, True)   ; -12.35
+;   xRound = decimalPlaces(-x, 2, False)  ; -12.34
 ;   title  = "EOF: PerCent Variance="+decimalPlaces(pcvar(0), 2, True)
 
 undef("decimalPlaces")
 function decimalPlaces(x:numeric, nDec:integer, Round:logical)
-local xType, shift, xTmp, _FillValue
+local xType, xSign, shift, xTmp, _FillValue
 begin
   xType = typeof(x)
+  xSign = where(x.lt.0, -1, 1)
 
   if (xType.eq."float"  .or.  xType.eq."double") then
       if (xType.eq."double") then
@@ -2235,22 +2431,14 @@ begin
           shift = 10.0^nDec
       end if
 
-      xTmp = x                            
-      if (isatt(xTmp,"_FillValue")) then
-          FillValue = xTmp@_FillValue
-          delete(xTmp@_FillValue)
-          xTmp@_FillValue = FillValue*shift       ; shifted _FillValue
+      xTmp = x                                        ; meta data
+      if (Round) then
+          xTmp = (/ toint(round(abs(xTmp*shift),0))/shift /)  ; round
+      else
+          xTmp = toint(abs(xTmp*shift))/shift                 ; truncate 
       end if
 
-      xTmp = xTmp*shift               
-      xTmp = round(xTmp, 0)
-      xTmp = xTmp/shift
-     ;xTmp = (/ round(x*shift)/shift /)
-
-      if (isvar("FillValue")) then
-          xTmp@_FillValue = FillValue              ; original _FillValue
-      end if
-
+      xTmp = xSign*xTmp
       return(xTmp)
   else
       print ("decimalPlaces: input is of type "+xType )
@@ -2258,7 +2446,6 @@ begin
       return (x)           
   end if
 end
-
 ; *******************************************************************
 ; M. Haley
 ; Constructs a string with dim names to return with the _Wrap fcns
@@ -3132,20 +3319,22 @@ begin
        exit 
  end if
 end
+
 ; ******************************************************************
 ; D. Shea
 ; error check: called internally by a number of functions
 ; sample:   rankCheck ("routine_name", x, 3)   ; rank check
 
 undef("rankCheck")
-procedure rankCheck (name:string, x, n:integer)
+procedure rankCheck (name[1]:string, x, n[1]:integer)
+local rank
 begin
   rank = dimsizes(dimsizes(x))
   if (rank.ne.n) then
-      print("contributed.ncl: "+name+":: rank +n+ required: rank="+rank)
+      print("contributed.ncl: rankCheck: "+name+": rank "+n+" required: rank="+rank)
       exit
   end if
-end  
+end
 
 ; ******************************************************************
 ; D. Shea
@@ -3387,7 +3576,7 @@ begin
 
    copy_VarAtts (x,aveMonth)
    aveMonth@time_op_ncl = "Climatology: "+ (ntim/nmos) +" years"
-   aveMonth@info    = "function clmMonLLT: contributed.ncl"
+   aveMonth@info    = "function clmMonTLL: contributed.ncl"
 
 ; copy spatial (eg, lat/lon) coordinate variables
 
@@ -3788,7 +3977,7 @@ begin
 
    copy_VarAtts (x,aveMonth)
    aveMonth@time_op_ncl = "Climatology: "+ (ntim/nmos) +" years"
-   aveMonth@info    = "function clmMonLLLT: contributed.ncl"
+   aveMonth@info    = "function clmMonTLLL: contributed.ncl"
 
 ; copy spatial (eg, lat/lon) coordinate variables
 
@@ -4095,13 +4284,67 @@ begin
    clmDay&year_day    =  year_day
    
    copy_VarCoords(x(0,:,:), clmDay(0,:,:))   ; trick
-   delete(clmDay@year_day)                   ; clean up
+   if (isatt(clmDay,"year_day")) then
+       delete(clmDay@year_day)               ; clean up
+   end if
 
    if (isatt(yyyyddd,"calendar")) then
        clmDay@calendar = yyyyddd@calendar 
    end if
  
    return (clmDay)
+end
+; =====================================
+undef("clmDayT")
+; Too lazy to write an explicit function
+function clmDayT (x[*]:numeric, yyyyddd:integer)   
+local ntim, x3d, x3dClm, xClm
+begin
+    ntim   = dimsizes(x)
+    x3d    = conform_dims( (/ntim,1,1/), x, 0)
+    x3dClm = clmDayTLL(x3d, yyyyddd)
+    xClm   = x3dClm(:,0,0)
+    return(xClm)
+end
+; =====================================
+undef("calcDayAnomT")
+; Too lazy to write an explicit function
+function calcDayAnomT (x[*]:numeric, yyyyddd[*]:integer, clmDay[*]:numeric)   
+local ntim, days, xAnom
+begin
+   if (isatt(yyyyddd,"calendar") .and. isatt(clmDay,"calendar")) then
+       if (yyyyddd@calendar .ne. clmDay@calendar) then
+           print("calcDayAnomT: calendar mismatch")
+           print("              yyyyddd@calendar = "+yyyyddd@calendar)
+           print("               clmday@calendar = "+ clmDay@calendar)
+           exit
+       end if
+   end if
+
+   ntim  = dimsizes (x)
+   ddd   = yyyyddd - (yyyyddd/1000)*1000      ; strip year info [yyyy]
+
+; loop on every day and compute difference. 
+
+   xAnom = (/ x  /)                           ; create xAnom
+   do nt=0,ntim-1
+      xAnom(nt) = x(nt) - clmDay(ddd(nt)-1)   ; -1 for 0-based subscript
+   end do
+
+   if (isatt(x,"long_name")) then
+        xAnom@long_name = "Anomalies: "+x@long_name
+    else
+        xAnom@long_name = "Anomalies from Daily Climatology"
+    end if
+    if (isatt(x,"units")) then
+        xAnom@units = x@units
+    end if
+    if (isatt(yyyyddd,"calendar")) then
+        xAnom@calendar = yyyyddd@calendar
+    end if
+
+    copy_VarCoords(x, xAnom)
+    return(xAnom)
 end
 
 ; =====================================
@@ -4222,12 +4465,11 @@ begin
  
    return (clmDay)
 end
-
 ; =====================================
-undef("smthClmDayTLL")
-function smthClmDayTLL (clmDay[*][*][*]:numeric, nHarm:integer)
+undef("smthClmDayT")
+function smthClmDayT (clmDay[*]:numeric, nHarm:integer)
 ;
-local nFill, dn, z, cf, clmDaySmth 
+local cf, clmDaySmth 
 begin
   
 ; The following was commented out (post 6.2.0) when people started using 
@@ -4242,71 +4484,98 @@ begin
  ;    end if
  ;end if
 
-  dn = getvardims(clmDay)                   ; get dimension names
-  if (dn(0).ne."year_day") then
-      print("smthClmDayTLL: Warning: Usually expect year_day to be the dimension name")
-  end if
+  cf = ezfftf_n( clmDay, 0)                 ; [2] x [nday/2]
+                                            ; remember NCL is 0-based 
+                                            ; cf(:,0:nHarm-1) are retained unaltered
+  cf(:,nHarm   ) = 0.5*cf(:,nHarm)          ; mini-taper
+  cf(:,nHarm+1:) = 0.0                      ; set all higher coef to 0.0
 
-  z  = clmDay($dn(1)$|:,$dn(2)$|:,$dn(0)$|:); reorder make time fastest varying dimension
-  cf = ezfftf( z )                          ; [2] x [nlat] x [mlon] x [nday/2+1]
+  clmDaySmth  = ezfftb_n( cf, cf@xbar, 1)   ; reconstructed series
+
+  copy_VarMeta(clmDay, clmDaySmth)
+  clmDaySmth@information = "smthClmDayT: Smoothed daily climatological averages"
+  clmDaySmth@smoothing   = "FFT: "+nHarm+" harmonics were retained."
+  return(clmDaySmth)
+end
+; =====================================
+undef("smthClmDayTLL")
+function smthClmDayTLL (clmDay[*][*][*]:numeric, nHarm:integer)
+;
+local nFill, dn, cf, clmDaySmth 
+begin
+  
+; The following was commented out (post 6.2.0) when people started using 
+; this on daily SSTs which, of course, have _FillValue over land.
+ 
+ ;if (isatt(clmDay, "_FillValue")) then
+ ;    nFill = num(ismissing(clmDay))
+ ;    if (nFill.gt.0) then
+ ;        print("smthClmDayTLL: No missing values allowed: ezfftf does not allow")
+ ;        print("smthClmDayTLL: nFill="+nFill)
+ ;        exit  
+ ;    end if
+ ;end if
+
+; Historical stuff: Not needed
+ ;dn = getvardims(clmDay)                   ; get dimension names
+ ;if (dn(0).ne."year_day") then
+ ;    print("smthClmDayTLL: Warning: Usually expect year_day to be the dimension name")
+ ;end if
+
+  cf = ezfftf_n( clmDay, 0)                 ; [2] x [nday/2] x [nlat] x [mlon]
 
                                             ; remember NCL is 0-based 
                                             ; cf(:,0:nHarm-1) are retained unaltered
-  cf(:,:,:,nHarm   ) = 0.5*cf(:,:,:,nHarm)  ; mini-taper
-  cf(:,:,:,nHarm+1:) = 0.0                  ; set all higher coef to 0.0
+  cf(:,nHarm,:,:   ) = 0.5*cf(:,nHarm,:,:)  ; mini-taper
+  cf(:,nHarm+1:,:,:) = 0.0                  ; set all higher coef to 0.0
 
-  z  = ezfftb( cf, cf@xbar)                 ; reconstructed series
+  clmDaySmth  = ezfftb_n( cf, cf@xbar, 1)   ; reconstructed series
 
-  clmDaySmth = z($dn(0)$|:,$dn(1)$|:,$dn(2)$|:)
+  copy_VarMeta(clmDay, clmDaySmth)
   clmDaySmth@information = "Smoothed daily climatological averages"
   clmDaySmth@smoothing   = "FFT: "+nHarm+" harmonics were retained."
 
   return(clmDaySmth)
 end
-
 ; =====================================
 undef("smthClmDayTLLL")
 function smthClmDayTLLL (clmDay[*][*][*][*]:numeric, nHarm:integer)
-;  lxf: Li 2011-05-15
 local nFill, dn, z, cf, clmDaySmth
 begin
   
 ; The following was commented out (post 6.2.0) when people started using 
 ; this on daily ocean which, of course, have _FillValue over land.
 
-  if (isatt(clmDay, "_FillValue")) then
-      nFill = num(ismissing(clmDay))
-      if (nFill.gt.0) then
-          print("smthClmDayTLLL: No missing values allowed: ezfftf does not allow")
-          print("smthClmDayTLLL: nFill="+nFill)
-          exit
-      end if
-  end if
+ ;if (isatt(clmDay, "_FillValue")) then
+ ;    nFill = num(ismissing(clmDay))
+ ;    if (nFill.gt.0) then
+ ;        print("smthClmDayTLLL: No missing values allowed: ezfftf does not allow")
+ ;        print("smthClmDayTLLL: nFill="+nFill)
+ ;        exit
+ ;    end if
+ ;end if
 
-  dn = getvardims(clmDay)                   ; get dimension names
-  if (dn(0).ne."year_day") then
-      print("smthClmDayTLLL: Warning: Usually expect year_day to be the dimension name")
-  end if
+; Historical stuff: Not needed
+ ;dn = getvardims(clmDay)                   ; get dimension names
+ ;if (dn(0).ne."year_day") then
+ ;    print("smthClmDayTLLL: Warning: Usually expect year_day to be the dimension name")
+ ;end if
 
-  z  = clmDay($dn(1)$|:,$dn(2)$|:,$dn(3)$|:,$dn(0)$|:); reorder make time fastest varying dimension
-  cf = ezfftf( z )                          ; [2] x [klev] x [nlat] x [mlon] x [183]
-
+  cf = ezfftf_n( clmDay, 0 )                ; [2] x [nday/2] x [klev] x [nlat] x [mlon]
                                             ; remember NCL is 0-based
                                             ; cf(:,0:nHarm-1) are retained unaltered
-  cf(:,:,:,:,nHarm   ) = 0.5*cf(:,:,:,:,nHarm)  ; mini-taper
-  cf(:,:,:,:,nHarm+1:) = 0.0                  ; set all higher coef to 0.0
+  cf(:,nHarm,:,:,:   ) = 0.5*cf(:,nHarm,:,:,:); mini-taper
+  cf(:,nHarm+1:,:,:,:) = 0.0                ; set all higher coef to 0.0
 
-  z  = ezfftb( cf, cf@xbar)                 ; reconstructed series
+  clmDaySmth  = ezfftb_n( cf, cf@xbar, 1)                 ; reconstructed series
 
-  clmDaySmth = z($dn(0)$|:,$dn(1)$|:,$dn(2)$|:,$dn(3)$|:)
+  copy_VarMeta(clmDay, clmDaySmth)
   clmDaySmth@information = "Smoothed daily climatological averages"
   clmDaySmth@smoothing   = "FFT: "+nHarm+" harmonics were retained."
 
   return(clmDaySmth)
 end
-
 ; =====================================
-undef("clmDayHr")
 ;
 ; Calculate daily  temporal means.
 ; This is a more general form of clmDayTLL
@@ -4316,6 +4585,7 @@ undef("clmDayHr")
 ; It has not been extensively tested and it is not documented.
 ; Consider this unsupported at this time.
 ;
+undef("clmDayHr")
 function clmDayHr(z:numeric, yyyymmddhh[*]:integer)
 begin
   yyyy = yyyymmddhh/1000000
@@ -4644,8 +4914,17 @@ begin
  
 undef("yyyymmdd_to_yyyyddd")
 function yyyymmdd_to_yyyyddd (yyyymmdd[*]:integer)
-local yyyy, mmdd, mm, dd, yyyyddd
+local ntim, yyyy, mmdd, mm, dd, yyyyddd
 begin
+  ntim = dimsizes(yyyymmdd)
+
+;;if (isatt(yyyymmdd,"calendar") .and. yyyymmdd@calendar.eq."proleptic_gregorian") then  
+;;    print("yyyymmdd_to_yyyyddd:  proleptic_gregorian calendar not supported")
+;;    yyyyddd = new(ntim, "integer", -9999)
+;;    yyyyddd@long_name = "yyyymmdd_to_yyyyddd:  proleptic_gregorian calendar not supported"
+;;    return(yyyyddd)
+;;end if
+
   yyyy = yyyymmdd/10000
   mmdd = yyyymmdd - (yyyy*10000)
   mm   = mmdd/100
@@ -4675,6 +4954,14 @@ local nTime, yyyy, ddd, days, yyyymmdd, nt, iyr \
     , ndyr, skip, nmo, ndy, ndymo, foo
 begin
   nTime    = dimsizes( yyyyddd )
+
+;;if (isatt(yyyyddd,"calendar") .and. yyyyddd@calendar.eq."proleptic_gregorian") then  
+;;    print("yyyyddd_to_yyyymmdd:  proleptic_gregorian calendar not supported")
+;;    yyyymmdd = new(nTime, "integer", -9999)
+;;    yyyymmdd@long_name = "yyyyddd_to_yyyymmdd:  proleptic_gregorian calendar not supported"
+;;    return(yyyymmdd)
+;;end if
+
   yyyy     = yyyyddd/1000
   ddd      = yyyyddd - yyyy*1000
            ; non leap and leap [greorian, standard, or no 'calendar' attribute
@@ -4739,6 +5026,42 @@ begin
    end if
 
    return(yyyymmdd) 
+end
+;==============================
+undef("yyyyddd_to_yyyyfrac")
+function yyyyddd_to_yyyyfrac( yyyyddd[*]:numeric, ddOffset[1]:numeric)
+begin
+   yyyy = yyyyddd/1000
+   ddd  = yyyyddd - yyyy*1000 
+
+   if (isatt(yyyyddd,"calendar")) then
+       if (yyyyddd@calendar.eq."360_day" .or. yyyyddd@calendar.eq."360") then
+           yyyyfrac = yyyy + ((ddd-1)/360d) 
+       end if
+       if (yyyyddd@calendar.eq."365_day" .or. yyyyddd@calendar.eq."365"      .or. \
+           yyyyddd@calendar.eq."noleap"  .or. yyyyddd@calendar.eq."no_leap") then
+           yyyyfrac = yyyy + ((ddd-1)/365d) 
+       end if
+       if (yyyyddd@calendar.eq."366_day" .or. yyyyddd@calendar.eq."366"      .or. \
+           yyyyddd@calendar.eq."allleap" .or. yyyyddd@calendar.eq."all_leap") then
+           yyyyfrac = yyyy + ((ddd-1)/366d) 
+       end if
+       if (yyyyddd@calendar.eq."standard" .or. yyyyddd@calendar.eq."gregorian" ) then
+           yyyyfrac = yyyy + where(isleapyear(yyyy), ((ddd-1)/366d), ((ddd-1)/365d))
+       end if
+       yyyyfrac@calendar = yyyyddd@calendar
+   else
+       yyyyfrac = yyyy + where(isleapyear(yyyy), ((ddd-1)/366d), ((ddd-1)/365d))
+       yyyyfrac@calendar = "standard"
+   end if
+
+   copy_VarCoords(yyyyddd, yyyyfrac)
+
+   yyyyfrac@long_name = "current date"
+   yyyyfrac@units     = "YYYY.fraction_of_current_year" 
+   yyyyfrac@info      = "converted from YYYYDDD" 
+
+   return(yyyyfrac)
 end
 
 ; **********************************************************************
@@ -5614,7 +5937,7 @@ begin
   nDim    = dimsizes(dim_uNew)                 ; number of dimensions [rank]
   nlat    = dim_uNew(nDim-2)                   ; number of latitudes  [fo grid]
   mlon    = dim_uNew(nDim-1)                   ; number of longitudes [fo grid]
-  nlat1= nlat-1                                ; fo has one less lat
+  nlat1= nlat
 
   if (typeof(u).eq."double") then
       nlat@double = True
@@ -5658,7 +5981,7 @@ begin
   nDim    = dimsizes(dim_uNew)                 ; number of dimensions [rank]
   nlat    = dim_uNew(nDim-2)                   ; number of latitudes  [fo grid]
   mlon    = dim_uNew(nDim-1)                   ; number of longitudes [fo grid]
-  nlat1   = nlat+1                             ; f has one more lat
+  nlat1   = nlat
 
   if (typeof(u).eq."double") then
       nlat@double = True
@@ -6105,12 +6428,15 @@ begin
   return (x)
 end
 ;************************************************************************
-; D. Shea
-; called internally by eofcov_Wrap, eofcor_Wrap, eof_pcmsg_Wrap, eof_pcmsg_Wrap 
-; wrapper for NCL function "eofcov"  that copies coordiante variables
-
-undef ("eofMeta")
-procedure eofMeta (data:numeric, neval:integer, eof:numeric)
+; M. Haley
+; This procedure was copied from eofMeta in NCL V6.4.0 to handle 
+; metadata for the new eofunc_n function, with an added "dim"
+; argument to indicate the time dimension. 
+;
+; eofMeta (below) has been modified to call this routine with "dim"
+; set to the rightost argument.
+undef ("eofMeta_n")
+procedure eofMeta_n (data:numeric, neval:integer, eof:numeric,dim[1])
 local evn, dimd, dime, nDimd, nDime, i
 begin
   if (isatt(data,"long_name") .or. isatt(data,"description") .or. \
@@ -6135,7 +6461,9 @@ begin
   nDimd= dimsizes(dimsizes(data))               ; rank
   nDime= dimsizes(dimsizes(eof))                
 
-  do i=0,nDimd-2           ; do not use last dimension
+; Copy dimension names and coord arrays in two sections,
+; skipping over 'dim' dimension.
+  do i=0,dim-1           ; do not use 'dim' dimension, and skip the 0th dimension of eof
      if (.not.ismissing(data!i)) then
          eof!(i+1) = data!i
          if (iscoord(data,data!i) ) then
@@ -6143,6 +6471,33 @@ begin
          end if
      end if
   end  do
+
+  do i=dim+1,nDimd-1
+     if (.not.ismissing(data!i)) then
+         eof!i = data!i
+         if (iscoord(data,data!i) ) then
+	     eof&$eof!i$ = data&$data!i$
+         end if
+     end if
+  end  do
+end
+
+;************************************************************************
+; D. Shea
+; called internally by eofcov_Wrap, eofcor_Wrap, eof_pcmsg_Wrap, 
+; eof_pcmsg_Wrap, eofunc_Wrap. 
+; Wrapper for NCL "eofxxxx" functions that copies coordinate variables
+;
+; M. Haley copied eofMeta to eofMeta_n (above) and added a "dim" argument
+; in NCL V6.4.0. This procedure now just calls eofMeta_n with the 
+; appropriate "dim" argument.
+; 
+undef ("eofMeta")
+procedure eofMeta (data:numeric, neval:integer, eof:numeric)
+local dims, rank
+begin
+  rank = dimsizes(dimsizes(data))
+  eofMeta_n(data,neval,eof,rank-1)   ; pass the rgtmost dimension index
 end
 
 ; **********************************************************************
@@ -6199,13 +6554,16 @@ begin
 end
 
 ; **********************************************************************
-; D. Shea
-; called internally by eofcov_ts_Wrap and eofcor_ts_Wrap 
-; wrapper for NCL functions "eofcov_ts" "eofcor_ts"  
-; that copies coordiante variables
-  
-undef ("eofTsMeta")
-procedure eofTsMeta (data:numeric, eof:numeric, eofTs:numeric)
+; M. Haley
+; This procedure was copied from eofMeta in NCL V6.4.0 to handle 
+; metadata for the new eofunc_n function, with an added "dim"
+; argument to indicate the time dimension. 
+;
+; eofTsMeta (below) now calls this procedure with the last argument
+; set to the rightmost dimension index.
+
+undef ("eofTsMeta_n")
+procedure eofTsMeta_n (data:numeric, eof:numeric, eofTs:numeric, dim[1])
 local dimd, dime, nDimd, nDime, i, j
 begin
   dimd = dimsizes(data)
@@ -6225,7 +6583,7 @@ begin
       end if
   end if
 
-  i   = nDimd-1            ; rightmost dimension of data
+  i   = dim                ; 'dim'th dimension of data
   j   = nDime-1            ; rightmost dimension of eofTs
   if (.not.ismissing(data!i)) then
       eofTs!j = data!i
@@ -6234,6 +6592,25 @@ begin
       end if
   end if
   
+end
+
+; **********************************************************************
+; D. Shea
+; Called internally by eofcov_ts_Wrap, eofcor_ts_Wrap, eofunc_ts_Wrap.
+;
+; Wrappers for NCL functions "eofcov_ts" "eofcor_ts", "eofunc_ts" that
+; copies coordinate variables.
+;
+; M. Haley copied eofTsMeta to eofTsMeta_n (above) and added a "dim"
+; argument in NCL V6.4.0. This procedure now just calls eofTsMeta_n
+; with the appropriate "dim" argument.
+
+undef ("eofTsMeta")
+procedure eofTsMeta (data:numeric, eof:numeric, eofTs:numeric)
+local rank
+begin
+  rank = dimsizes(dimsizes(data))
+  eofTsMeta_n(data,eof,eofTs,rank-1)  
 end
 
 ; **********************************************************************
@@ -6350,12 +6727,33 @@ begin
   return  (eofx)                        ; return
 end
 
+undef ("eofunc_n_Wrap")
+function eofunc_n_Wrap (data:numeric, neval:integer, optEOF:logical, dim[1]) 
+; wrapper for NCL function "eofunc_n"  that copies attributes and coordinate vars
+local eofx
+begin
+  eofx = eofunc_n(data, neval, optEOF,dim)  ; invoke built-in function
+  eofMeta_n (data, neval, eofx, dim)        ; add meta information
+  return  (eofx)                            ; return
+end
+
 undef ("eofunc_ts_Wrap")
 function eofunc_ts_Wrap (data:numeric, eof:numeric, optETS:logical)
+; wrapper for NCL function "eofunc_ts"  that copies attributes and coordinate vars
 local eofTS 
 begin
   eofTs = eofunc_ts(data, eof, optETS) ; invoke built-in function
-  eofTsMeta (data, eof, eofTs)      ; add meta information
+  eofTsMeta(data, eof, eofTs)      ; add meta information
+  return  (eofTs)                   ; return
+end
+
+undef ("eofunc_ts_n_Wrap")
+function eofunc_ts_n_Wrap (data:numeric, eof:numeric, optETS:logical, dim[1])
+; wrapper for NCL function "eofunc_ts_n"  that copies attributes and coordinate vars
+local eofTS 
+begin
+  eofTs = eofunc_ts_n(data, eof, optETS,dim) ; invoke built-in function
+  eofTsMeta_n(data, eof, eofTs,dim)      ; add meta information
   return  (eofTs)                   ; return
 end
 
@@ -7792,7 +8190,7 @@ end
 ; 
 undef("yyyymm2yyyyFrac")
 function yyyymm2yyyyFrac (yyyymm:integer)
-local year, mon
+local year, mon, yrFrac
 begin
   year = yyyymm/100 
   mon  = yyyymm-year*100  
@@ -7816,7 +8214,7 @@ end
 ;                                                                  
 undef("yyyymm_to_yyyyfrac")
 function yyyymm_to_yyyyfrac (yyyymm[*]:numeric, mmOffset[1]:numeric)
-local YYYYMM, year, mm, xmos, one      
+local YYYYMM, year, mm, xmos, one, yrFrac      
 begin                                                                                               
   if (typeof(yyyymm).eq."double" .or. typeof(mmOffset).eq."double") then 
       xmos = 12.d0                         
@@ -7855,8 +8253,17 @@ end
 ;
 undef ("yyyymmdd2yyyyFrac") 
 function yyyymmdd2yyyyFrac (yyyymmdd:numeric, ddOffset[1]:numeric)
-local year, mmdd, mon, day, dayYear, nDay, yrFrac, n, con, varType, YYYYMMDD
+local ntim, year, mmdd, mon, day, dayYear, nDay, yrFrac, n, con, varType, YYYYMMDD
 begin
+     ntim = dimsizes(yyyymmdd)
+
+     if (isatt(yyyymmdd,"calendar") .and. yyyymmdd@calendar.eq."proleptic_gregorian") then  
+         print("yyyymmdd_to_yyyyfrac: yyyymmdd2yyyyFrac:  proleptic_gregorian calendar not supported")
+         yrFrac = new( ntim, typeof(yyyymmdd))
+         yrFrac@long_name = "yyyymmdd_to_yyyyfrac: yyyymmdd2yyyyFrac:  proleptic_gregorian calendar not supported"
+         return(yrFrac)
+     end if
+
      varType = typeof(yyyymmdd)
 
      if (varType.eq."integer") then
@@ -9059,7 +9466,15 @@ begin
         tmpdir = "./"
       end if
 
-      tmpfile = systemfunc("echo tmp$$")
+    ;;tmpfile = systemfunc("echo tmp$$")   ; See JIRA: NCL-2174
+      tmpnum = systemfunc("date +%N")      ; introduced 6.3.0
+      if(tmpnum.eq."N")then
+        delete(tmpnum)
+        srand(toint(systemfunc("date +%s")))
+        tmpnum = rand()
+      end if
+      tmpfile = "tmp"+tmpnum
+
       if (ismissing(tmpfile)) then
           tmpfile = "BoGuS_file"
       end if
@@ -9266,6 +9681,105 @@ begin
 end
 ;
 ;**************************************************************
+;
+undef("albedo_ccm")
+function albedo_ccm(FLUX1:numeric, FLUX2:numeric, formula[1]:integer)
+;
+; Calculate albedo from CLM/CAM-CESM model variables
+; This is a ratio (ie, non-linear). The correct way is to compute each 
+; time step and average. However, commonly the monthly means are used directly. 
+;
+; examples
+; formula=0  albedo_broad_band  = albedo_ccm(FSDS, FSNS, 0)
+;            albedo_broad_band <= (FLUX1-FLUX2/FLUX1 = (FSDS-FSNS)/FSDS   
+;
+; formula=1; aldedo_nir_band    = albedo_ccm(FSRND, FSDSND, 1)
+;            aldedo_nir_band   <=  FLUX2/FLUX1       = FSRND/FSDSND 
+;
+; ptaylor (2/18/09; edited)
+; The (FSDS-FSNS)/FSDS formula will give the broadband flux albedo. 
+; However, in the radiation code of the CAM and CCSM4 different albedos are used: 
+;     (a) Visible direct beam; (b) Visible diffuse bean; 
+;     (c) Near-IR direct beam; (d) Near-IR diffuse beam. 
+; The CLM output data includes the necessary spectral fluxes at the 
+;    FSRND  (direct nir reflected solar radiation). 
+;    The Near-IR albedo would be
+;        ALBDIR= FLUX2/FLUX1= FSRND/FSDSND                ; formula 1
+;        ALBDIR@long_name="Near-IR Direct Beam Albedo"
+;
+;    The surface broad band albedo would be
+;        ALBSFC= (FLUX1-FLUX2/FLUX1= (FSDS-FSNS)/FSDS     ; formula 0
+;        ALBSFC@long_name="Surface Albedo: Broad Band"
+; 
+; Any appropriate pair of variables:
+; Surface: FLUX1: FSDS   - Downwelling solar flux at surface
+;          FLUX2: FSNS   - Net solar flux at surface
+;          ALBEDO_SFC    = albedo_ccm(FSDS, FSNS, 0)
+; TOA      FLUX1: ?????? - ??? solar flux at top of atmosphere
+;          FLUX2: FSNTOA - Net solar flux at top of atmosphere
+;          ALBEDO_TOA    = albedo_ccm(???, FSNTOA, 0)
+; TOM      FLUX1: ?????? - ??? solar flux at top of model
+;          FLUX2: FSNT   - Net solar flux at top of model
+;          ALBEDO_TOM    = albedo_ccm(???, FSNT  , 0)
+; nir      FLUX1: FSRND  - direct nir reflected solar radiation"
+;          FLUX2: FSDSND - direct nir incident solar radiation
+;          ALBEDO_NIR    = albedo_ccm(FSRND, FSDSND, 1)
+
+local albedo
+begin
+   if (formula.lt.0 .or. formula.gt.1) then
+       print("albedo_ccm: FATAL:  formula argument must be 0 or 1: formula="+formula)
+     ;;albedo = new (dimsizes(flux1), typeof(flux1))
+     ;;return(albedo)
+       exit
+   end if
+
+   if (any(FLUX2.gt.FLUX1)) then
+       print("albedo_ccm: WARNING:  FLUX2 > FLUX1 should not occur")
+   end if
+
+; Avoid division by 0.0  [ use _FillValue
+
+   if (formula.eq.0) then
+       if (any(FLUX1.eq.0)) then
+          if (isatt(FLUX1,"_FillValue")) then
+              albedo = (FLUX1-FLUX2)/where(FLUX1.eq.0, FLUX1@_FillValue, FLUX1) 
+          else
+              albedo = (/ FLUX1 /) 
+              albedo@_FillValue = 1e10
+              albedo = (FLUX1-FLUX2)/where(FLUX1.eq.0, albedo@_FillValue, FLUX1) 
+          end if
+       else
+           albedo = (FLUX1-FLUX2)/FLUX1              ; no FLUX1=0.0 
+       end if
+   end if
+
+   if (formula.eq.1) then
+       if (any(FLUX1.eq.0)) then
+          if (isatt(FLUX1,"_FillValue")) then
+              albedo = FLUX2/where(FLUX1.eq.0, FLUX1@_FillValue, FLUX1) 
+          else
+              albedo = (/ FLUX1 /) 
+              albedo@_FillValue = 1e10
+              albedo = FLUX2/where(FLUX1.eq.0, albedo@_FillValue, FLUX1) 
+          end if
+       else
+          albedo = FLUX2/FLUX1                       ; no FLUX1=0.0
+       end if
+   end if
+   
+   albedo@long_name = "albedo"
+   albedo@units     = "fraction"
+   if (formula.eq.0) then
+       albedo@formula   = "formula="+formula+": albedo = (flux1-flux2)/flux1"
+   else
+       albedo@formula   = "formula="+formula+": albedo =  flux2/flux1"
+   end if
+   copy_VarCoords(FLUX1, albedo)
+   return(albedo)
+end
+;
+;**************************************************************
 ; D. Shea
 ; Driver for NCL function "omega_ccm"  
 ; It calculates intermediate quantities needed for input.
@@ -9305,11 +9819,17 @@ begin
       print("omega_ccm_driver: got      ranku="+ranku+"  and rankps="+rankps)
       exit
   end if
-
-  ntim   = dimu(0)
-  klev   = dimu(1)
-  nlat   = dimu(2)
-  mlon   = dimu(3)
+                          ; only klev is used below: ntim, nlat, mlon  are FYI only
+  if (ranku.eq.3) then
+      klev   = dimu(0)
+      nlat   = dimu(1)
+      mlon   = dimu(2)
+  else
+      ntim   = dimu(0)
+      klev   = dimu(1)
+      nlat   = dimu(2)
+      mlon   = dimu(3)
+  end if
 
   omega = u                                 ; create space
   omega@long_name = "Vertical pressure velocity"
@@ -9654,41 +10174,34 @@ end
 ;
 ;   opt        - flag: opt=0 if annual total value [sum 12 values] is to be returned
 ;                      opt=1 if annual mean  value is to be returned [(annual total)/12]
-;                      opt>1 special: calculate annual mean with < 12 values
-;                                     # values used to calculate "annual" mean
-;                                       can be 1<=opt<=12
 ;                    
 ;   Usage:
 ;                 PRC_annual_total = month_to_annual( prc, 0) 
 ;                 TMP_annual_mean  = month_to_annual( tmp, 1) 
-;                 special
-;                 TMP_annual_mean  = month_to_annual( tmp, 10)   ; 10 or more values
 ;
+; NOTE: there is some extra (non-sensical code) embedded due
+; to a special request introduced in NCL 4.2.0.a033
 
 undef("month_to_annual")
 function month_to_annual(x:numeric, opt:integer)
 local dimx, rankx, ntim, nyr, nyrs, nt, nx, ny, kz, nn, nmo \
     , dName, xAnnual, xTemp, n, m, k, nMsg, nmos, NMOS, nGood
 begin
-  if (opt.lt.0 .or. opt.gt.12) then
+  if (opt.lt.0 .or. opt.gt.1) then
       print("month_to_annual: illegal value of opt: opt="+opt)
       exit
   end if
 
   NMOS  = 12                   ; fixed ... will not change
   nmos  = 12                   ; possible change in value
-  if (opt.gt.1) then
-      nmos = opt         
-  end if
+;;if (opt.gt.1) then           ; leftover from a 'special request'. No longer applicable.
+;;    nmos = opt         
+;;end if
   NMOS1 = NMOS-1               ; convenience
 
   dimx  = dimsizes(x)
   rankx = dimsizes(dimx)
   NTIM  = dimx(0)
-  if (dimx(0).ne.NTIM) then
-      print("month_to_annual: yyyymm and x time dimension must be same size")
-      exit
-  end if 
 
   if (rankx .gt. 4) then
       print("*** FATAL  ***")
@@ -9697,14 +10210,14 @@ begin
       exit
   end if
 
-  nyrs = NTIM/NMOS
-  ntim = nyrs*NMOS
   if (NTIM%NMOS .ne. 0) then
-      print("*** WARNING ***")
+      print("*** FATAL ***")
       print("month_to_annual: ntim="+NTIM+" not multiple of 12:  nyrs="+nyrs)
-      nyrs = nyrs + 1
+      exit
   end if
 
+  nyrs = NTIM/NMOS
+  ntim = nyrs*NMOS
 
   if (rankx.eq.1) then
       xAnnual = new ( nyrs, typeof(x), getFillValue(x)) ;  contributed.ncl
@@ -9725,9 +10238,9 @@ begin
          if (nMsg.eq.0 .and. opt.ge.1) then
              xAnnual(nyr)   = avg ( x(nt:nt+NMOS1) )  ; always opt=1
          end if
-         if (nMsg.gt.0 .and. opt.gt.1 .and. nGood.ge.nmos) then
-             xAnnual(nyr)   = avg ( x(nt:nt+NMOS1) )  ; always opt=1
-         end if
+;;       if (nMsg.gt.0 .and. opt.gt.1 .and. nGood.ge.nmos) then
+;;           xAnnual(nyr)   = avg ( x(nt:nt+NMOS1) )  ; always opt=1
+;;       end if
       end do
 
       copy_VarAtts (x, xAnnual)
@@ -9905,7 +10418,6 @@ begin
   end if
 
   if (isatt(yyyymm,"calendar")) then    ; retrofit to existing code
-      yrFrac@calendar = yyyymm@calendar
 
       if (yyyymm@calendar.eq."360_day" .or. yyyymm@calendar.eq."360") then
           con = (/ 360, 360 /)*one
@@ -10469,21 +10981,46 @@ end
 ; D Shea
 
 undef("isMonotonic")
-function isMonotonic(x[*]:numeric)          
-; check for monoticity                     
-local nx                                  
-begin                                    
-  nx   = dimsizes(x)                    
-                                       
-  if (all(x(1:nx-1).gt.x(0:nx-2))) then
-      return(1)                       
-  end if                             
-  if (all(x(1:nx-1).lt.x(0:nx-2))) then 
-      return(-1)                       
-  end if                              
-  return(0)                          
-end                                 
+function isMonotonic(x[*]:numeric)
+; check for monoticity; bit of overkill her but that is ok
+local nx, i, xx
+begin
+  if (.not.isatt(x,"_FillValue")) then
+      nx   = dimsizes(x)
+      if (nx.eq.1) then
+          return(0)
+      end if
 
+      if (all(x(1:nx-1).gt.x(0:nx-2))) then
+          return(1)
+      end if
+      if (all(x(1:nx-1).lt.x(0:nx-2))) then
+          return(-1)
+      end if
+      return(0)
+  end if
+                         ; _FillValue attribute is present
+  if (all(ismissing(x))) then
+      return(-999)
+  end if
+                         ; at least one value must be present
+  i  = ind(.not.ismissing(x))
+  xx = x(i)
+
+  nx = dimsizes(xx)
+  if (nx.eq.1) then
+      return(0)
+  end if
+
+  if (all(xx(1:nx-1).gt.xx(0:nx-2))) then
+      return(1)
+  end if
+  if (all(xx(1:nx-1).lt.xx(0:nx-2))) then
+      return(-1)
+  end if
+  return(0)
+
+end
 ;**************************************************************************
 ; Contributed by Christine Shields, March 2006.
 ; Slight mods were made to allow input to be numeric.
@@ -10645,7 +11182,7 @@ begin
 
   errFlag = 0                      ; ERROR CHECKING
                                    ; ranks must be equal
-  if (rank_x1.ne.rank_x1) then
+  if (rank_x1.ne.rank_x2) then
       print("array_append_record: ranks not equal: rank_x1="+rank_x1+ \
                                                 "  rank_x2="+rank_x2)
       errFlag = errFlag + 1
@@ -10782,9 +11319,6 @@ function table_attach_rows (t1[*][*], t2[*][*], iopt:integer)
 local dim_t1, dim_t2, ncol1, ncol2, nrow1, nrow2    \
     , dimNames_t1, dimNames_t2, dimNames, n
 begin
-
-  printVarSummary(t1)
-  printVarSummary(t2)
                                    ; get array shape/sizes
   dim_t1  = dimsizes(t1)
   dim_t2  = dimsizes(t2)
@@ -10821,7 +11355,6 @@ begin
                                  ; insert values
   tNew(0:nrow1-1,:)   = (/ t1 /)
   tNew(nrow1:   ,:)   = (/ t2 /)
-  write_matrix(tNew, "10f7.2" , False)
                                  ; meta data
   tNew!0 = "row"                 ; *default* dim names
   tNew!1 = "col" 
@@ -10859,7 +11392,6 @@ end
 ; appends table data: ie (row,column) arrays
 ; adds additional columns
 ;
-
 undef("table_attach_columns")
 function table_attach_columns (t1[*][*], t2[*][*], iopt:integer)
 local dim_t1, dim_t2, nrow1, nrow2, trows    \
@@ -11317,9 +11849,55 @@ begin
 
  utcDate = ut_calendar( tempDate, -5 )
 
- retVal = ut_inv_calendar( utcDate(:,0), utcDate(:,1), utcDate(:,2), \\
-                           utcDate(:,3), utcDate(:,4), utcDate(:,5), \\
-                           unitsTo, 0 )
+ opt = 0
+ if(isatt(dateFrom,"calendar")) then
+   opt@calendar = dateFrom@calendar
+ end if
+
+ retVal = ut_inv_calendar( toint(utcDate(:,0)), toint(utcDate(:,1)), toint(utcDate(:,2)), \
+                           toint(utcDate(:,3)), toint(utcDate(:,4)), utcDate(:,5), \
+                           unitsTo, opt )
+ return( retVal )
+end
+
+; **********************************************************************
+; This is identical to ut_convert, except it calls a fixed 
+; version of ut_calendar that is based on D. Pierce's Calcalcs routine.
+;
+; Converts a time variable from one units to another. The input
+; variable must contain a "units" attribute of the correct form.
+;
+; Input variables:
+;   dateFrom: the original date
+;   unitsTo:  the NEW date units
+; Return Value:
+;   retVal:   the date converted to its new units
+;***********************************************************************
+undef("ut_convert_fix")
+function ut_convert_fix( dateFrom:numeric, unitsTo:string )
+local retVal, tempDate, utcDate
+begin
+ if(.not.isatt(dateFrom,"units")) then
+   print("ut_convert_fix: 'dateFrom' contains no 'units' attribute.")
+   print("            Will return all missing values.")
+  
+   retVal = new(dimsizes(dateFrom),double)
+   return(retVal)
+ end if
+
+ tempDate       = dateFrom
+ tempDate@units = dateFrom@units
+
+ utcDate = ut_calendar_fix( tempDate, -5 )
+
+ opt = 0
+ if(isatt(dateFrom,"calendar")) then
+   opt@calendar = dateFrom@calendar
+ end if
+
+ retVal = ut_inv_calendar_fix( toint(utcDate(:,0)), toint(utcDate(:,1)), toint(utcDate(:,2)), \
+                               toint(utcDate(:,3)), toint(utcDate(:,4)), utcDate(:,5), \
+                               unitsTo, opt )
  return( retVal )
 end
 
@@ -11341,11 +11919,16 @@ begin
  tempDate       = dateFrom
  tempDate@units = dateFrom@units
 
- utcDate = cd_calendar( tempDate, -5 )
+ utcDate = cd_calendar( tempDate, 0 )
 
- retVal = cd_inv_calendar( utcDate(:,0), utcDate(:,1), utcDate(:,2), \\
-                           utcDate(:,3), utcDate(:,4), utcDate(:,5), \\
-                           unitsTo, 0 )
+ opt = 0
+ if(isatt(dateFrom,"calendar")) then
+   opt@calendar = dateFrom@calendar
+ end if
+
+ retVal = cd_inv_calendar( toint(utcDate(:,0)), toint(utcDate(:,1)), toint(utcDate(:,2)), \
+                           toint(utcDate(:,3)), toint(utcDate(:,4)), utcDate(:,5), \
+                           unitsTo, opt )
  return( retVal )
 end
 
@@ -11933,6 +12516,41 @@ begin
   return( nor )
 end
 ; ------------
+undef("exner_pressure")
+function exner_pressure(p:numeric, punit[1]:integer)
+; Exner pressure - non-dimensional pressure
+local p0, exner_pres
+begin
+  if (punit.eq.0) then
+      p0 = 100000      ; Pa    
+  else
+      p0 = 1000        ; hPa
+  end if
+
+  exner_pres = (p/p0)^(287.05/1005.0)
+  exner_pres@long_name = "Exner Pressure"
+ ;exner_pres@units     = ""        ; dimensionless
+  copy_VarCoords(p, exner_pres)
+  return(exner_pres) 
+end
+; ============
+undef("exner_pressure_theta")
+function exner_pressure_theta(p:numeric, theta:numeric, punit[1]:integer)
+; Exner pressure - non-dimensional pressure
+; theta - potential temperature (K)
+local p0, exner_pres
+begin
+  if (punit.eq.0) then
+      exner_pres = theta/p           ; Pa
+  else
+      exner_pres = theta/(p*100)     ; hPa
+  end if
+  exner_pres@long_name = "Exner Pressure"
+ ;exner_pres@units     = ""        ; dimensionless
+  copy_VarCoords(p, exner_pres)
+  return(exner_pres) 
+end
+; ------------
 undef("relhum_ttd")
 function relhum_ttd (t:numeric, td:numeric, opt:integer)
 ;
@@ -11968,6 +12586,88 @@ begin
   return (rh)
 end
 
+; ------------
+undef ("relhum_water_ice")
+function relhum_water_ice(tk:numeric,qw:numeric,p:numeric)
+; ---
+; computes rh (relative humidity) from p, t and qw (mixing ratio)
+; ---
+;  Calculate rel hum with respect to water (T>0C) or ice (T<=0)
+;  Same constants as mixhum_ptrh  reversible calculation
+; ---
+; "Improved Magnus' Form Approx. of Saturation Vapor pressure"
+;  Oleg A. Alduchov and Robert E. Eskridge
+;  http://www.osti.gov/scitech/servlets/purl/548871/
+;  One of Three best approx for +50 to -80 C max relative errors of (0.337/0.823) ?
+; ---
+; NCL version of f77 subroutines donated by: Alan Brammer, U. ALbany
+; ---
+; definition of mixing ratio
+;    es  - is the saturation mixing ratio
+;    ep  - is the ratio of the molecular weights of water vapor to dry air
+;    p   - is the atmospheric pressure
+;    rh  - is the relative humidity (given as a percent)
+
+;    rh =  100*  q / ( (ep*es)/(p-es) )
+
+; input-
+;    P      - pressure (Pa)  ... this will be converted in the code to hPa (mb)
+;             p      - pressure (hPa or mb)
+;    tk     - temperature (k)
+;    qw     - mixing ratio (kg/kg)
+
+; output-
+;    rh     - relative humidity as %
+
+local t0,ep,onemep,es0w,aw,bw,es0i,ai,bi,est,qst,pa2mb
+begin
+; local: constants for water and ice
+
+      t0     = 273.15d
+      ep     = 0.622d
+      onemep = 1-ep
+      pa2mb  = 0.01d
+          
+; local: constants for water (W)
+
+      es0w   = 6.11d
+      aw     = 17.269d
+      bw     = 35.86d
+      
+; local: constants for ice   (I)
+
+      es0i   = 6.1128d
+      ai     = 22.571d
+      bi     = 273.71d
+
+      est    = where(tk.gt.t0, es0w*exp((aw*(tk-t0)) / (tk-bw)) \
+                             , es0i*exp((ai*(tk-t0)) / ((tk-t0)+bi)) )
+
+      qst = (ep*est)/ ((p*pa2mb)-onemep*est)
+
+      if (all(qst.gt.0)) then
+          rh  =  100* (qw / qst)
+      else                                           ; ? numerical issues ?
+          if (isatt(tk,"_FillValue")) then
+              qst@_FillValue = tk@_FillValue 
+          else
+              qst@_FillValue = default_fillvalue(typeof(qst))
+          end if
+          rh  =  100* (qw / where(qst.le.0, qst@_FillValue, qst) )
+      end if
+
+      if (typeof(tk).eq."float" .or. typeof(qw).eq."float" \
+                                .or. typeof(p) .eq."float") then
+          rh := tofloat(rh)
+      end if
+
+      rh@long_name = "relative humidity"
+      rh@units     = "%"
+      rh@tag       = "function: relhum_water_ice"
+      copy_VarCoords(tk, rh)
+
+      return (rh)
+end
 ; ------------
 
 undef("crossp3")
@@ -12501,7 +13201,8 @@ begin
       ;statx(1) = stddev(x)             ; std. deviation
        moment   = dim_stat4( work ) 
        statx(0) = moment(0)             ; mean
-       statx(1) = moment(1)             ; std. deviation
+       statx(1) = sqrt(moment(1))       ; sample std. deviation
+                                        ; fixed 15 Oct 2014; had returned variance
        
        qsort( work )                    ; sort into ascending order
        statx(2) = work(0)               ; min ( work )
@@ -12593,7 +13294,7 @@ begin
        end if
    end if
 
-   if (opt .and. opt@PrintStat) then 
+   if (opt .and. (isatt(opt,"PrintStat") .and. opt@PrintStat)) then 
        print(" ")
        print("   ===> "+statx@long_name+" <===")
        print(" [0]            Mean="+statx(0)  ) 
@@ -12777,225 +13478,6 @@ begin
    else
        return(num (lengths.ge.nCrit(0) .and. lengths.le.nCrit(1)) )
    end if
-end
-;---------------------------------
-; undocumented and unsupported
-;---------------------------------
-undef ("calculate_monthly_values")
-function calculate_monthly_values (x:numeric, arith:string, nDim[1]:integer, opt[1]:logical)
-
-; calculate monthly values [avg, sum, min, max]
-; x: numeric array of 5D or less [eg: time,lev,lat,lon]
-;    *must* have time coordinate recognized by cd_calendar
-;    if 5D [case,time,lev,lat,lon]
-; arith: "avg" [also, "ave"], "sum","min","max"     others may be added later
-; nDim : scalar integer that specifies the 'time' dimension [generally, 0]
-; opt  : option ... not used here 
-;
-; Sample usage:  x(time,lat,lon) where time are n-hrly or daily values.
-;        xMonthAvg = calculate_monthly_values(x, "avg", 0, False)
-;        xMonthSum = calculate_monthly_values(x, "sum", 0, False)
-;        xMonthMin = calculate_monthly_values(x, "min", 0, False)
-;        xMonthMax = calculate_monthly_values(x, "max", 0, False)
-;
-; It is assumed that there will be multiple elements for the dim_avg_n
-; calculation. 
-;
-local dimx, rankx, utc_date, year, month, day, hour, ntim \
-    , yrStrt, yrLast, nyrs, NTIM, dAvg, xReturn, xMonth \
-    , NT, nmo, ii, NMOS, MON1, MON2 
-begin
-    dimx   = dimsizes( x )
-    rankx  = dimsizes( dimx )
-
-    if (rankx.gt.5) then
-        print("calculate_monthly_values: rankx="+rankx +" [only 5D or fewer supported]")
-        exit
-    end if
-
-    utc_date = cd_calendar(x&time, 0)
-
-    year     = toint(utc_date(:,0))   
-    month    = toint(utc_date(:,1))  
-    day      = toint(utc_date(:,2))
-    hour     = toint(utc_date(:,3))
-   ;minute   = toint(utc_date(:,4))
-   ;second   = utc_date(:,5)
-
-    if (rankx.le.4) then
-        ntim = dimx(0)
-    else
-        ntim = dimx(1)
-    end if
-
-    yrStrt = year(0)
-    yrLast = year(ntim-1)
-    nyrs   = yrLast-yrStrt+1
-
-    NMOS   = 12
-   ;NTIM   = NMOS*nyrs                                     ; total number of months
-    if (yrStrt.eq.yrLast) then
-        NTIM = month(ntim-1) - month(0) + 1
-    else    
-        MON1 = NMOS-month(0)+1                               ; "Sebi" generalization
-        MON2 = month(ntim-1)
-        NTIM = NMOS*(nyrs-2)+MON1+MON2
-      ;;NTIM = NMOS*(nyrs-2)+(12-(month(0)-1))+month(ntim-1) ; "Sebi" generalization
-    end if
-    dAvg   = dimx
-    if (rankx.le.4) then
-        dAvg(0)= NTIM
-    else
-        dAvg(1)= NTIM
-    end if
-
-    xReturn= new ( dAvg , typeof(x), getFillValue(x))
-    xMonth = new ( NTIM , typeof(x&time), "No_FillValue")
-  ;;printVarSummary(xMonth)
-
-    NT   = -1
-    do yr=yrStrt,yrLast
-
-       nmoStrt = 0                           ; index to start
-       nmoLast = NMOS-1                      ; index to end
-       if (yr.eq.yrStrt) then
-           nmoStrt = month(0)-1              ; possible partial year
-       end if
-       if (yr.eq.yrLast) then
-           nmoLast = month(ntim-1)-1         ; possible partial year
-       end if
-
-      do nmo=nmoStrt,nmoLast
-         NT    = NT+1
-         if (isvar("ii")) then    ; keep this here!!
-             delete(ii)
-         end if
-         ii    = ind(yr.eq.year .and. (nmo+1).eq.month)
-
-         if (.not.ismissing(ii(0))) then
-
-             dimii = dimsizes(ii)     ; should be > 1
-             if (dimii.eq.1) then
-                 print("calculate_monthly_values: there should be more than one element")
-                 print("This is unsupported code.                                      ")
-                 exit
-             end if
-
-             xMonth(NT) = (/ x&time(ii(0)) /)
-
-             if (rankx.eq.1) then
-                 if (arith.eq."avg" .or. arith.eq."ave") then
-                     xReturn(NT) = dim_avg_n(x(ii) , nDim)
-                 end if
-                 if (arith.eq."sum") then
-                     xReturn(NT) = dim_sum_n(x(ii) , nDim)
-                 end if
-                 if (arith.eq."min") then
-                     xReturn(NT) = dim_min_n(x(ii) , nDim)
-                 end if
-                 if (arith.eq."max") then
-                     xReturn(NT) = dim_max_n(x(ii) , nDim)
-                 end if
-             end if
-
-             if (rankx.eq.2) then
-                 if (arith.eq."avg" .or. arith.eq."ave") then
-                     xReturn(NT,:) = dim_avg_n(x(ii,:) , nDim)
-                 end if
-                 if (arith.eq."sum") then
-                     xReturn(NT,:) = dim_sum_n(x(ii,:) , nDim)
-                 end if
-                 if (arith.eq."min") then
-                     xReturn(NT,:) = dim_min_n(x(ii,:) , nDim)
-                 end if
-                 if (arith.eq."max") then
-                     xReturn(NT,:) = dim_max_n(x(ii,:) , nDim)
-                 end if
-             end if
-
-             if (rankx.eq.3) then
-                 if (arith.eq."avg" .or. arith.eq."ave") then
-                     xReturn(NT,:,:) = dim_avg_n(x(ii,:,:) , nDim)
-                 end if
-                 if (arith.eq."sum") then
-                     xReturn(NT,:,:) = dim_sum_n(x(ii,:,:) , nDim)
-                 end if
-                 if (arith.eq."min") then
-                     xReturn(NT,:,:) = dim_min_n(x(ii,:,:) , nDim)
-                 end if
-                 if (arith.eq."max") then
-                     xReturn(NT,:,:) = dim_max_n(x(ii,:,:) , nDim)
-                 end if
-             end if
-
-             if (rankx.eq.4) then
-                 if (arith.eq."avg" .or. arith.eq."ave") then
-                     xReturn(NT,:,:,:) = dim_avg_n(x(ii,:,:,:) , nDim)
-                 end if
-                 if (arith.eq."sum") then
-                     xReturn(NT,:,:,:) = dim_sum_n(x(ii,:,:,:) , nDim)
-                 end if
-                 if (arith.eq."min") then
-                     xReturn(NT,:,:,:) = dim_min_n(x(ii,:,:,:) , nDim)
-                 end if
-                 if (arith.eq."max") then
-                     xReturn(NT,:,:,:) = dim_max_n(x(ii,:,:,:) , nDim)
-                 end if
-             end if
-
-             if (rankx.eq.5) then        ; note the location of time
-                 if (arith.eq."avg" .or. arith.eq."ave") then
-                     xReturn(:,NT,:,:,:) = dim_avg_n(x(:,ii,:,:,:) , nDim)
-                 end if
-                 if (arith.eq."sum") then
-                     xReturn(:,NT,:,:,:) = dim_sum_n(x(:,ii,:,:,:) , nDim)
-                 end if
-                 if (arith.eq."min") then
-                     xReturn(:,NT,:,:,:) = dim_min_n(x(:,ii,:,:,:) , nDim)
-                 end if
-                 if (arith.eq."max") then
-                     xReturn(:,NT,:,:,:) = dim_max_n(x(:,ii,:,:,:) , nDim)
-                 end if
-             end if
-         end if
-
-         delete(ii)
-      end do      ; month
-    end do        ; year
-
-    if (rankx.le.4) then
-        xReturn!0= "time"
-    else
-        xReturn!1= "time"
-    end if
-
-    xMonth@units = x&time@units
-    xReturn&time = xMonth 
-
-    if (isatt(x,"long_name")) then
-        xReturn@long_name = x@long_name
-    end if
-
-    if (isatt(x,"units")) then
-        xReturn@units = x@units
-    end if
-
-    if (rankx.eq.2) then
-        copy_VarCoords(x(0,:), xReturn(0,:))
-    end if
-    if (rankx.eq.3) then
-        copy_VarCoords(x(0,:,:), xReturn(0,:,:))
-    end if
-    if (rankx.eq.4) then
-        copy_VarCoords(x(0,:,:,:), xReturn(0,:,:,:))
-    end if
-    if (rankx.eq.5) then
-        copy_VarCoords(x(:,0,:,:,:), xReturn(:,0,:,:,:))
-    end if
-
-    xReturn@operation_tag = "calculate_monthly_values: "+arith
-
-    return( xReturn ) 
 end
 ;**********************************************************
 undef("merge_levels_sfc")
@@ -13282,6 +13764,54 @@ begin
   TIME   = cd_inv_calendar(toint(date(:,0)),toint(date(:,1)) \
                           ,toint(date(:,2)),toint(date(:,3)) \
                           ,toint(date(:,4)),todouble(date(:,5)),new_time_units, 0)
+
+  if (isatt(time,"calendar")) then
+      TIME@calendar = time@calendar
+  end if
+
+  TIME!0        = "time"
+  TIME&time     =  TIME
+                          ; delete attributes that may no longer be appropriate
+  if (isatt(TIME,"actual_range")) then
+     delete(TIME@actual_range)
+  end if
+  if (isatt(TIME,"delta_t")) then
+     delete(TIME@delta_t)
+  end if
+  if (isatt(TIME,"avg_period")) then
+     delete(TIME@avg_period)
+  end if
+  if (isatt(TIME,"prev_avg_period")) then
+     delete(TIME@prev_avg_period)
+  end if
+
+  if (typeof(time).eq."float") then
+      return(dble2flt(TIME))     ; retain meta data 
+  else
+      return(TIME)
+  end if
+end
+
+; --------------------------
+undef("time_to_newtime_fix")
+function time_to_newtime_fix(time[*]:numeric, new_time_units[1]:string)
+;
+; Change a "udunits" recognized time unit to a new (different)
+; "udunits" recognized time unit. This is identical to 
+; time_to_newtime, except it uses a fixed version of ut_calendar
+; that was added in NCL V6.4.0. This function is still being tested,
+; so hence the "_fix" appended.
+;
+; Example:
+;  TIME = time_to_newtime_fix(time, "days since 1950-01-01 00:00" ) ; Time(time) 
+;  time = time_to_newtime_fix(time, "hours since 1800-01-01 00:00") ; time(time) 
+begin
+  ntim   = dimsizes(time)
+  date   = cd_calendar( time, 0)
+ ;print(date(:,0)+"  "+date(:,1)+"  "+date(:,2)+"  "+date(:,3))
+  TIME   = ut_inv_calendar_fix(toint(date(:,0)),toint(date(:,1)) \
+                              ,toint(date(:,2)),toint(date(:,3)) \
+                              ,toint(date(:,4)),todouble(date(:,5)),new_time_units, 0)
 
   if (isatt(time,"calendar")) then
       TIME@calendar = time@calendar
@@ -13666,10 +14196,10 @@ begin
   end if
 end
 ; ----------------------------------------------------
-undef ("rm_single_dims")
+undef("rm_single_dims")
 function rm_single_dims (x)
 ; remove singleton (degenerate) dimensions. A singleton dimension is size 1.
-; NCL philosophy: do not 'lose' information. 
+; NCL philosophy: do not 'lose' information.
 local dimx, dimy, rankx, dnamx, y, m, n
 begin
   dimx  = dimsizes(x)
@@ -13681,7 +14211,7 @@ begin
   rankx = dimsizes(dimx)
   dnamx = getvardims(x)             ; dim names
 
-  if (all(dimx.eq.1)) then    
+  if (all(dimx.eq.1)) then
       dimy = 1                      ; all degenerate dimensions
   else
       dimy = dimx(ind(dimx.ne.1))
@@ -13690,17 +14220,19 @@ begin
 
   m     = -1
   do n=0,rankx-1
-     if (.not.ismissing(dnamx(n))) then
-         if (iscoord(x, dnamx(n))) then 
-             if (dimx(n).ne.1) then
-                 m   = m+1
-                 y!m = dnamx(n)
-                 y&$dnamx(n)$ = x&$dnamx(n)$ ; attach coord &
-             else                            ; do not 'lose' information
+    if (.not.ismissing(dnamx(n))) then
+         if (dimx(n).ne.1) then
+              m   = m+1
+              y!m = dnamx(n)
+              if (iscoord(x, dnamx(n))) then
+                 y&$dnamx(n)$ = x&$dnamx(n)$ ; attach coord
+              end if
+          else                          
+              if (iscoord(x, dnamx(n))) then
                  y@$dnamx(n)$ = x&$dnamx(n)$ ; attach singleton coord as attribute @
-             end if
-         end if
-     end if
+              end if
+          end if
+      end if
   end do
   copy_VarAtts(x,y)
 
@@ -13999,7 +14531,7 @@ begin
 end
 ;============================================
 undef ("reg_multlin_stats")
-function reg_multlin_stats(Y[*]:numeric, XP:numeric, opt)
+function reg_multlin_stats(Y[*]:numeric, XP:numeric, opt) ; should be float or double
 ;
 ; Nomenclature:
 ; Y     - dependent variable (size NY)
@@ -14031,7 +14563,8 @@ local dimXP, N, NP, NY, M, T, Y, X, b, B, rankXP         \ ; local is
     , Yavg, Yvar, Ystd, Xavg, Xvar, Xstd, Yest, n, m     \ ; not necessary
     , Yres, SST, SSE, SSR, MST, MSE, MSR, SE, Frat       \
     , r2, ra, r, fuv, XXt, XXTi, varcovx, df, stderr, tval, pval \
-    , opt_wm, fmt_XXt, fmt_XXti, fmt_covx, opt_pd, fmt_data
+    , opt_wm, fmt_XXt, fmt_XXti, fmt_covx, opt_pd, fmt_data      \
+    , typeY, typeXP, typeYXP
 begin
 
        dimXP   = dimsizes(XP)
@@ -14071,11 +14604,21 @@ begin
            NP  = 1                     ; one predictor
        end if
 
+       typeY   = typeof(Y) 
+       typeXP  = typeof(XP) 
+       if (typeY.eq."double" .or. typeXP.eq."double") then
+           typeYXP = "double"
+       else
+           typeYXP = "float"           ; default 
+       end if
+
        if (opt .and. isatt(opt,"print_data") .and. opt@print_data) then
            print(" ")
            opt_pd = True
            opt_pd@title  = "----- reg_multlin_stats: Y, XP -----"
-           data       = new( (/N,NP+1/), typeof(Y))
+
+           data   = new( (/N,NP+1/), typeYXP)
+
            data(:,0)  = (/ Y /)
 
            if (NP.eq.1) then
@@ -14102,7 +14645,9 @@ begin
 
        M       = NP+1                     ; extra column for design matrix
                                           ; required ordering for reg_multlin 
-       X       = new ( (/M,N/) , typeof(XP), getFillValue(XP))
+
+       X   = new ( (/M,N/) , typeYXP, getFillValue(XP))
+
        X(0,:)  = 1.0
 
        if (NP.eq.1) then
@@ -14144,7 +14689,7 @@ begin
 
 ; Calculate model estimates: Yest = b(0) + b(1)*   + b(2)* + .....
 
-       Yest = new(N,typeof(Y),getFillValue(Y))
+       Yest = new(N,typeYXP)
        do n=0,N-1
           Yest(n) = b(0) + sum(b(1:)*X(1:,n))   ; array syntax 
        end do
@@ -14228,9 +14773,9 @@ begin
            print(" ")
        end if
            
-       stderr = new( M, typeof(Y))
-       tval   = new( M, typeof(Y))
-       pval   = new( M, typeof(Y))
+       stderr = new( M, typeYXP)
+       tval   = new( M, typeYXP)
+       pval   = new( M, typeYXP)
 
        df  = N-NP
        
@@ -14259,25 +14804,25 @@ begin
        b@long_name = "multiple regression coefficients"
        b@model     = "Yest = b(0) + b(1)*X1 + b(2)*X2 + ...+b(M)*XM"
 
-       b@N     = N              ; # of 'observations'
-       b@NP    = NP             ; # of predictors
-       b@M     = M              ; design matrix size
-       b@bstd  = bstd           ; standardized coefficients
+       b@N      = N             ; # of 'observations'
+       b@NP     = NP            ; # of predictors
+       b@M      = M             ; design matrix size
+       b@bstd   = bstd          ; standardized coefficients
 
-       b@SST   = SST            ; [1]
-       b@SSE   = SSE
-       b@SSR   = SSR
+       b@SST    = SST           ; [1]
+       b@SSE    = SSE
+       b@SSR    = SSR
 
-       b@MST   = MST
-       b@MSE   = MSE
+       b@MST    = MST
+       b@MSE    = MSE
        b@MSE_dof = dof 
-       b@MSR   = MSR
+       b@MSR    = MSR
 
-       b@RSE   = RSE            ; [1]
+       b@RSE    = RSE           ; [1]
        b@RSE_dof= N-M-1         ; [1]
        
-       b@F     = Frat           ; [1]
-       b@F_dof = (/NP,dof/)     ; [2]
+       b@F      = Frat          ; [1]
+       b@F_dof  = (/NP,dof/)    ; [2]
 
        df1      = b@F_dof(0)
        df2      = b@F_dof(1)
@@ -14319,8 +14864,10 @@ function regline_stats(x[*]:numeric, y[*]:numeric)
 ;                     Academic Press (2nd Edition)  ; pgs 180-204
 ; Davis, J.C. (2002): Statistics and Data Analysis in Geology
 ;                     Wiley (3rd Edition)   ; pgs 215-218 
+; Example:
+; http://www.stat.ucla.edu/~hqxu/stat105/pdf/ch11.pdf
 
-local nx, ny, ii, nii, RC, rc
+local nx, ny, ii, nii, RC, rc, Sxx, Sxy, qslp, qint, zz, t025, t975, tnull
 begin
 
 ; Get the lengths of the x and y arrays.
@@ -14334,11 +14881,24 @@ begin
        exit
    end if
 
+; check
+   if (all(x.eq.y)) then
+       print("regline_stats: x and y are exactly the same: will lead to division by 0")
+       rc = 1e10
+       rc@_FillValue = rc
+       return(rc)
+   end if
+
    if (any(ismissing(x)) .or. any(ismissing(y))) then
+       MSG = True
+      ;print("nmsg_x="+num(ismissing(x))+" nmsg_y="+num(ismissing(x)) )
+
        ii  = ind(.not.ismissing(x) .and. .not.ismissing(y))
        nii = dimsizes(ii)
        if (nii.gt.2) then
-           RC  = reg_multlin_stats(y(ii),x(ii),False)
+           xii = x(ii)
+           yii = y(ii)
+           RC  = reg_multlin_stats(yii,xii,False)
        else
            RC  = new(1,typeof(y),getVarFillValue(y))
            RC@info = "Not enough non-missing values: nii="+nii
@@ -14346,8 +14906,10 @@ begin
            return(RC)
        end if
    else
+       MSG = False                            ; mo msg data
        RC  = reg_multlin_stats(y,x,False)
    end if
+
    rc = RC(1)           ; transfers all attributes
 
    rc@long_name = "simple linear regression"
@@ -14357,8 +14919,44 @@ begin
    rc@xave  = rc@Xavg   ; with the original 'regline'
    rc@yave  = rc@Yavg
    rc@rstd  = rc@RSE
-   rc@yintercept = RC(0)
-   rc@b     = RC
+   rc@yintercept = (/ RC(0) /)               ; (/ ... /)  transfer values only
+   rc@b     = (/ RC /)
+
+;  -------- added 6.4.0 ----------> alpha=0.05; (1-alpha)=95%
+   Sxy          = (rc@SST - rc@SSE)/rc       ; = sum((x-rc@Xavg)*(y-rc@Yavg))
+                                             ; = sum(x*y)-((sum(x)*sum(y))/rc@N)
+   Sxx          =  Sxy/rc                    ; = sum((x-rc@Xavg)^2)
+                                             ; = sum(x^2)-((sum(x)^2)/rc@N)
+   t025         = cdft_t(0.025, rc@MSE_dof)  ; -
+   t975         = cdft_t(0.975, rc@MSE_dof)  ; +
+   rc@tnull     = rc/sqrt(rc@MSE/Sxx)        ; test statistic for null hypothesis 
+
+  ;print("Sxy="+Sxy+"  Sxx="+Sxx+"  t025="+t025+"  t975="+t975+"  tnull="+rc@tnull)  ; debug
+
+                                             ; 95% slope & intercept confidence limits
+   qslp         = sqrt(rc@MSE/Sxx)
+   rc@b95       = (/ rc+t025*qslp, rc+t975*qslp /) ; slope 
+
+   qint         = sqrt( rc@MSE*(1.0/rc@N + (rc@Xavg)^2/Sxx) )
+   rc@y95       = (/ rc@yintercept +t025*qint  , rc@yintercept +t975*qint   /) ; y-int
+
+                                             ; 95% mean response confidence intervals
+   if (MSG) then
+       zz       = sqrt(rc@MSE*(1.0/rc@N + (xii-rc@Xavg)^2/Sxx))          ; z[*] 
+   else
+       zz       = sqrt(rc@MSE*(1.0/rc@N + (  x-rc@Xavg)^2/Sxx))          ; z[*] 
+   end if
+   rc@YMR025    = rc@Yest + t025*zz           
+   rc@YMR975    = rc@Yest + t975*zz           
+                                             ; 95% prediction interval
+   if (MSG) then
+       zz       = sqrt(rc@MSE*(1.0 + 1.0/rc@N + (xii-rc@Xavg)^2/Sxx))    ; z[*]
+   else
+       zz       = sqrt(rc@MSE*(1.0 + 1.0/rc@N + (  x-rc@Xavg)^2/Sxx))    ; z[*]
+   end if
+   rc@YPI025    = rc@Yest + t025*zz           
+   rc@YPI975    = rc@Yest + t975*zz           
+;  -------------------------------
 
    return(rc)
 end
@@ -14507,11 +15105,12 @@ begin
 end
 ; *****************************************************************
 ; Generate index values that can be used for sampling
+; NCL indices span 0 to (N-1)
 ;
 undef("generate_sample_indices")
 function generate_sample_indices(N[1], method[1]:integer)
 ;
-; simple function to generate indices
+; simple function to generate 0-based indices
 ;           N = sample size
 ;      method = 0   ==> sample *without* replacement; reshuffle the order 
 ;                       mean/std/... unchanged
@@ -14519,20 +15118,3987 @@ function generate_sample_indices(N[1], method[1]:integer)
 ;
 ;      method = 1   ==> sample *with* replacement
 ;                       mean/std/... will change
-local k
+local k, N1
 begin
     if (method.lt.0 .or. method.gt.1) then
-        print("generate_resample_indices: method="+method+": only 0 or 1 allowed")
+        print("generate_sample_indices: method="+method+": only 0 or 1 allowed")
         exit
     end if
 
+
     if (method.eq.0) then                  
-        k = generate_unique_indices( N )  
+        k  = generate_unique_indices( N )  
     else
-        k = round(random_uniform(-0.499999,N-0.500001,N), 3)
+        N1 = todouble(N-1)       ; largest valid index is (N-1)
+       ;k  = toint(random_uniform(-0.499999999d0, N1+0.499999999d0, N))
+        k  = toint(random_uniform(-0.500000000d0, N1+0.500000000d0, N))
     end if
 
     return(k)
 end
+;==========================
+undef("getTimeFromBnds")
+function getTimeFromBnds(f, opt[1]:logical)   ; f is of type 'list' or 'file'
+local ftype, TIME, DATE, YEAR, nt
+begin
+  ftype = typeof(f)
+
+  if (.not.(ftype.eq."file" .or. ftype.eq."list")) then 
+      print("getTimeFromBnds: argument f must be type file or list: ftype="+ftype)
+      exit
+  end if
+
+  if (ftype.eq."file" .and. isfilevar(f,"time_bnds")) then
+      TIME          = f->time_bnds(:, 0)     ; address 'off-by-one' time    
+      TIME@units    = f->time@units          ; appropriate for CESM
+      TIME@calendar = f->time@calendar
+  else if (isfilevar(f[0],"time_bnds")) then ; must be type 'list'
+           TIME          = f[:]->time_bnds(:, 0)  ; address 'off-by-one' time    
+           TIME@units    = f->time@units     ; appropriate for CESM
+           TIME@calendar = f->time@calendar
+       end if
+  end if
+
+  DATE   = cd_calendar(TIME, -2)             ; YYYYMMDD
+  DATE@long_name = "current date (YYYYMMDD)"
+  DATE!0 = "time"
+ 
+  if (opt) then
+      if (isatt(opt,"yrStrtEnd")) then
+          YEAR = DATE
+          YEAR = DATE/10000
+          YEAR@long_name = "YYYY"
+          nt   = ind(YEAR.ge.yrStrtEnd(0) .and. YEAR.le.yrStrtEnd(1))
+          nt@long_name = "indices for Start/End period: "+yrStrtEnd(0)+"-"+yrStrtEnd(1)
+          return( [/TIME(nt), DATE(nt), nt/] )
+      end if
+  else
+      return([/TIME, DATE/])
+  end if
+    
+end
+;==========================
+undef("pot_temp")
+function pot_temp (p:numeric, t:numeric, npr[*]:integer, opt[1]:logical)
+;
+; Compute potential temperature
+; Nomenclature
+;     p       - pressure levels (default: Pa) 
+;               if a 'units' attribute is present this may be altered
+;     t       - temperature (K)   
+;               Also: equivalent temperature (teqv) could be input
+;                     teqv =  temperature of an air parcel from which all the water vapor 
+;                             has been extracted by an adiabatic process.
+;                     teqv = t + (Lv/cpd)*r  ; 
+;                     cpd  = 1004. or 1005.7 ; specific heat dry air [J/kg/K]
+;                     Lv   = 2.5104e6        ; [J/kg]=[m2/s2]  Latent Heat of Vaporization of Water
+;                     r    = mixing ratio 
+;     npr     - dimension number(s) of 'p' corresponding to temperature 
+;               npr=-1 means that p and t have the same ranks and sizes
+;                      In this case this argument is ignored.
+;     opt     - options: Currently, not use, Set to False
+;
+local dimp, dimt, rankp, rankt, theta, p0
+begin
+  dimp   = dimsizes(p) 
+  dimt   = dimsizes(t) 
+  rankp  = dimsizes(dimp) 
+  rankt  = dimsizes(dimt) 
+
+  p0     = 100000.           ; default [units = Pa]
+  if (isatt(p,"units") .and. (p@units.eq."mb"   .or. \
+                              p@units.eq."MB"   .or. \
+                              p@units.eq."millibar"    .or. \
+                              p@units.eq."millibars"   .or. \
+                              p@units.eq."hPa"  .or. \
+                              p@units.eq."HPA"  .or. \
+                              p@units.eq."hPA"  .or. \
+                              p@units.eq."hpa"  )    ) then
+      p0 = 1000.
+ ;else
+    ;print("pot_temp: WARNING:  units of pressure not recognized: p0="+p0+" Pa used")
+  end if
+
+  if (isatt(t,"units") .and. \
+     .not.(t@units.eq."K" .or. t@units.eq."degK")) then
+     print("pot_temp: WARNING:  units of temperature not recognized")
+  end if
+
+  if (rankp.eq.rankt) then
+      if (all(dimp.eq.dimt)) then
+          theta = t*(p0/p)^0.286  
+      else
+          print("pot_temp: FATAL error: dimension sizes do not match")
+          print("          dimp="+dimp+"   dimt="+dimt) 
+          exit
+      end if
+  else
+      theta = t*(p0/conform(t,p,npr))^0.286  
+  end if
+
+  theta@long_name = "potential temperature"
+  theta@units     = "K"
+  copy_VarCoords(t, theta)
+
+  return( theta )
+end
+;=========================
+undef("pot_temp_equiv")
+function pot_temp_equiv(p:numeric, t:numeric, h:numeric, dim:integer, humVarType[1]:string) ;
+;
+; Calculate Equivalent Potential Temperature 
+; ...  https://en.wikipedia.org/wiki/Equivalent_potential_temperature
+;
+;  p : pressure (must be scalar, 1D or same size as t & q)
+;  t : temperature (degK)
+;  h : humidity variable
+;      (a) specific humidity (kg/kg) : humVarType = "q"
+;      (b) mixing ratio (kg/kg/)     : humVarType = "r"
+;      (c) dew point (K)             : humVarType = "td"
+;      (d) relative humidity (%)     : humVarType = "rh"
+;  
+;  p0: reference pressure: must be same units as p (Pa or hPa)
+;
+; contribution: Carl Schreck (NCSU)
+;
+local dimp, dimt, dimq, rankp, rankt, rankq, p0 \
+    , Lv, cpd, R, kap, r, t_e, pExpand, humVarType_lc
+begin 
+  dimp   = dimsizes(p) 
+  dimt   = dimsizes(t) 
+  dimh   = dimsizes(h) 
+  rankp  = dimsizes(dimp) 
+  rankt  = dimsizes(dimt) 
+  rankh  = dimsizes(dimh) 
+
+  if (.not.(rankh.eq.rankt)) then
+      print("pot_temp_equiv: FATAL error: h,t ranks do not match")
+      exit
+  end if
+
+  if (.not.all(dimt.eq.dimh)) then
+      print("pot_temp_equiv: FATAL error: h,t dimension sizes do not match")
+      exit
+  end if
+
+  p0 = 100000.0                    ; Pa
+  if (all(p.lt.1100)) then
+      p0 = 1000.0                  ; hPa
+  end if
+
+  if (rankp.eq.rankt) then
+      if (all(dimp.eq.dimt)) then
+          pExpand = p
+      else
+          print("pot_temp_equiv: FATAL error: p,t rank ok but dimension sizes do not match")
+          print("                dimp="+dimp+"   dimt="+dimt) 
+          exit
+      end if
+  else                             
+      pExpand = conform(t,p,dim)   ; conform p to t (expand, replicate, broadcast)
+  end if
 
 
+  Lv   = 2.51e6  ; latent heat of vaporization at the triple point [J/kg]; Bluestein, p203        
+  cpd  = 1004.64 ; specific heat at constant pressure for air 
+  R    = 287.04  ; specific gas constant for air [J/(Kg-K)]
+  kap  = R/cpd    
+
+  humVarType_lc = str_lower(humVarType)    ; ensure lower case for testing
+
+  if( humVarType_lc.eq."q" ) then
+    r = h/(1-h)                            ; convert spc humidity to mixing ratio
+  else if( humVarType_lc.eq."r" )
+    r = h                                  ; humidity is already mixing ratio
+  else if( humVarType_lc.eq."td" )
+    if (p0.eq.1000.0) then
+      r = mixhum_ptd( pExpand*100., h, 1 ) ; convert dewpoint to mixing ratio
+    else
+      r = mixhum_ptd( pExpand, h, 1 )      ; convert dewpoint to mixing ratio
+    end if
+  else if( humVarType_lc.eq."rh" )
+    if (p0.eq.1000.0) then
+        r = mixhum_ptrh( pExpand, t, h, 1 )      ; convert relative humidity to mixing ratio
+    else
+        r = mixhum_ptrh( pExpand*0.01, t, h, 1 ) ; convert relative humidity to mixing ratio
+    end if 
+  else
+    print("pot_temp_equiv: FATAL error: Invalid humidity variable" )
+    print("                humVarType="+humVarType)
+    exit
+  end if
+  end if
+  end if
+  end if
+
+  t_e  = t + ( Lv / cpd ) * r    ;                 Lv     cpd         q
+                                 ; Units check: ([J/kg]/[J/(kg-K)])[kg/kg]  => K
+  t_e  = t_e * ( p0 / pExpand )^kap  ; p0 and pm must be same units
+ 
+  t_e@long_name = "equivalent potential temperature"
+  t_e@units     = "K"
+  t_e@tag       = "NCL: pot_temp_equiv"
+  copy_VarCoords( t, t_e ) ; assign coordinates
+  return(t_e)
+end   
+;=========================
+undef("static_stability") 
+function static_stability (p:numeric, t:numeric, npr[1]:integer, sopt[1]:integer)
+;
+; Compute Static Stability
+; Bluestein (1992): Synoptic-Dynamic Meteorology in Midlatitudes
+;                   pg 197, eqn=4.3.8
+;                   s = -T*d[log(theta)]/dp = -(T/theta)*d(theta)/dp
+;
+; Nomenclature
+;     p       - pressure levels (Pa is default)  
+;
+;     t       - temperature (K)    
+;               Also: equivalent temperature (teqv) could be input
+;                     teqv = temperature of an air parcel from which all the water vapor 
+;                            has been extracted by an adiabatic process.
+;                     teqv = t + (Lv/cpd)*r  ; 
+;                     cpd  = 1004. or 1005.7 ; specific heat dry air [J/kg/K]
+;                     Lv   = 2.5104e6        ; [J/kg]=[m2/s2]  Latent Heat of Vaporization of Water
+;                     r    = mixing ratio    ; (kg/kg) 
+;
+;     npr     - dimension number for pressure
+;
+;     sopt    - =0, Return static stability only
+;             - =1, Return static stability, theta, dthdp as type list
+;
+; Note: In a statically stable atmosphere: d(theta)/dp < 0, hence s > 0       
+;
+local dimp, dimt, theta, rankt, rankp, dthdp, s
+begin
+
+  dimp   = dimsizes(p) 
+  dimt   = dimsizes(t) 
+
+  rankp  = dimsizes(dimp)
+  rankt  = dimsizes(dimt)  
+
+  theta  = pot_temp(p, t, npr, False)   ; rankp=rankt then npr is ignored
+
+; dthdp = -T*d[log(theta)]/dp = -(T/theta)*d(theta)/dp
+
+  if (rankp.eq.rankt) then
+      dthdp  = center_finite_diff_n (theta,p,False,0, npr)
+  else
+      if (rankp.eq.1) then
+          dthdp  = center_finite_diff_n (theta,conform(t,p,npr), False,0, npr)
+      else
+          print("static_stability: rank problem:  rankp="+rankp+"; rankt="+rankt)
+          exit
+      end if
+  end if
+
+  s = -(t/theta)*dthdp
+  copy_VarCoords(t,s)
+
+  s@long_name = "static stability"
+  if (isatt(p,"units") .and. (p@units.eq."mb"   .or. \
+                              p@units.eq."MB"   .or. \
+                              p@units.eq."millibar"    .or. \
+                              p@units.eq."millibars"   .or. \
+                              p@units.eq."hPa"  .or. \
+                              p@units.eq."HPA"  .or. \
+                              p@units.eq."hPA"  .or. \
+                              p@units.eq."hpa"  )    ) then
+      s@units     = "K/hPa"   
+  else
+      s@units     = "K/Pa"       ; or "K-m-s2/kg"
+  end if
+
+  if (sopt.eq.0) then
+      return(s)
+  else
+      dthdp@long_name = "vertical derivative of theta with pressure"
+      dthdp@units     = s@units
+      copy_VarCoords(t,dthdp)
+      return( [/ s, theta, dthdp /] )
+  end if
+end
+;=========================
+undef("pot_vort_hybrid")
+function pot_vort_hybrid\
+            (p:numeric, u:numeric, v:numeric, t:numeric
+            ,lat[*]:numeric, gridType[1]:integer, opt[1]:integer)
+;
+; Compute Isentropic Potential Vorticity on hybrid levels
+; CCM Processor User's Guide: May 1994: page B-19
+; Original source P Rasch and B Boville
+;
+; Nomenclature
+;     p       - pressure levels (Pa)  [3D or 4D]
+;     u       - zonal wind  (m/s)     [3D or 4D]          
+;     v       - meridional wind (m/s) [3D or 4D]          
+;     t       - temperature (K)       [3D or 4D]          
+;     gridType- grid type
+;               =0 means gaussian grid
+;               =1 means regular or fixed grid
+;     lat     - latitudes
+;     opt     - options: not used. Set to 0
+;
+; Note: u,v,t,p MUST:
+;    [1] be SOUTH-TO-NORTH 
+;    [2] be GLOBAL because spherical harmonics are used
+;    [3] have named dimensions because data are reordered
+;   
+; Usage:
+;   f    = addfile ("foo.nc", "r")
+;   U    = f->U    ; (time,lev,lat,lon) or (lev,lat,lon)
+;   V    = f->V
+;   T    = f->T
+;   lat  = f->lat
+;   hyam = f->hyam
+;   hybm = f->hybm
+;   p0   = f->P0  ; p0=100000
+;   ps   = f->PS  ; Pa
+;   p    = pres_hybrid_ccm (ps,p0,hyam,hybm)  ; Pa [kg/(m s2)]
+;   copy_VarCoords(U,p)
+;
+;               ; Potential Vorticity
+;   PV = pot_vort_hybrid(p,u,v,t,lat, 0,  0)
+;
+; Note: A nice basic discussion of PV may be found at:
+; Mid-Latitude Atmospheric Dynamics: A First Course
+; Jonathan E. Martin, Wiley 2006,   QC880.M36   , pp276-onward
+; 
+local ranku, rankv, rankt, rankp, npr, nlt, dthdp  \
+    , dudp, dvdp ,theta, W, f, vr, dthdx, dthdy, G, W, rad, pv
+begin
+                                   ; ERROR CHECK
+  ranku  = dimsizes(dimsizes(u)) 
+  if (.not.(ranku.eq.3 .or. ranku.eq.4)) then
+      print("pot_vort_hybrid: only 3D and 4D arrays allowed: rank="+ranku)
+      exit
+  end if
+  rankv  = dimsizes(dimsizes(v)) 
+  rankt  = dimsizes(dimsizes(t)) 
+  rankp  = dimsizes(dimsizes(p)) 
+  if (.not.(ranku.eq.rankv .and. ranku.eq.rankt .and. ranku.eq.rankp)) then
+      print("pot_vort_hybrid: u, v, t, p must be the same rank: ranku=" \
+            +ranku+"  rankv="+rankv+"  rankt="+rankt+"  rankp="+rankp)
+      exit
+  end if
+
+  if (.not.(gridType.eq.0 .or. gridType.eq.1)) then
+      print("pot_vort_hybrid: unrecognized gridType: only 0 and 1 allowed")
+      print("               gridType="+gridType)
+      ier = 1
+  end if
+
+  if ((lat(1)-lat(0)).le.0) then
+      print("pot_vort_hybrid: data must be in S-N order")
+      exit
+  end if
+
+  if (ranku.eq.3) then       ; (lev,lat,lon)  => (0,1,2) => (npr,nlt,2)
+      npr = 0
+      nlt = 1                 
+  end if
+  if (ranku.eq.4) then       ; (time,lev,lat,lon)  => (0,1,2,3) > (0,npr,nlt,2)
+      npr = 1
+      nlt = 2                  
+  end if
+
+  S           = static_stability(p,t,npr,1)   ; variable of type list
+
+  s           = S[0]    ; [...] is list syntax    
+  theta       = S[1]    ; theta = pot_tmp(p, t, npr, 0)
+  dthdp       = S[2]    ; dthdp = center_finite_diff_n (theta,p,False,0,npr)
+  s@_FillValue= 1e20
+  delete(S)
+
+ ;printVarSummary( s )  ; s not used for this formulation
+ ;printMinMax( s, True )
+ ;printVarSummary( theta )
+ ;printMinMax( theta, True )
+ ;printVarSummary( dthdp )
+ ;printMinMax( dth2p, True )
+                              ; compute VERTICAL (pressure) derivatives
+  dudp  = center_finite_diff_n (    u,p,False,0,npr)
+  dvdp  = center_finite_diff_n (    v,p,False,0,npr)
+                              ; compute 
+                              ; (1) lat/lon temperature gradients [K/m]
+                              ; (2) relative vorticity            [1/s]
+  dthdx   = theta             ; create E-W gradient array
+  dthdy   = theta             ;        S-N        
+  dthdx@long_name = "longitudinal gradient (derivative)"
+  dthdy@long_name = "latitudinal gradient (derivative)"
+  dthdx@units     = "K/m"
+  dthdy@units     = "K/m"
+
+  if (gridType.eq.0) then
+      gradsg (theta, dthdx, dthdy) 
+      vr = uv2vrG(u,v)
+  end if
+  if (gridType.eq.1) then
+      gradsf (theta, dthdx, dthdy) 
+      vr = uv2vrF(u,v)
+  end if
+
+  G   = 9.80665                    ; m/s2 ; gravity at 45 deg lat used by the WMO
+  W   = 7.292e-5                   ; (1/s)     ; earth ang rotation
+  rad = 4.*atan(1.)/180.
+  if (typeof(lat).eq.typeof(vr)) then
+      f = 2.*W*sin(lat*rad)          ; (1/s)     ; coriolis parameter
+  else 
+      f = 2.*W*sin(tofloat(lat)*rad)
+  end if
+
+  vr  = vr + conform(vr,f,nlt)     ; absolute vorticity   
+                                   ; G used for commonly used units
+  pv    = -G*(vr*dthdp - (dthdx*dvdp-dthdy*dudp) )  
+  pv@long_name  = "potential vorticity"
+  pv@short_name = "PV"
+  pv@units      = "K m2/kg/s"      ; common units
+  copy_VarCoords(t,pv)
+
+  if (opt.eq.0) then
+      return( pv )
+  else
+      return( [/pv, s, theta, dthdp, dudp, dvdp, dtdx, dtdy/] )
+  end if
+end
+
+;----------------------------------------------------------------------------
+undef("pot_vort_isobaric")
+function pot_vort_isobaric\
+            (p[*]:numeric, u:numeric, v:numeric, t:numeric
+            ,lat[*]:numeric, gridType[1]:integer, opt:integer)
+;
+; Compute Potential Vorticity on constant pressure levels
+; Bluestein: Synoptic-Dynamic Meteorology in Midlatitudes
+;            Bug reported by Andy Show (Dec 2015)
+;            pg 264  Eq 4.5.93 with [ (R/(s*p) ] replaced by [ 1/s ]) 
+;            R/(s*p) = (R/p)(p/(R*T*d(theta)/dp) = 1/(T*d(theta)/dp ]= 1/s 
+;
+; Nomenclature
+;     p       - pressure levels (Pa)  [1D]
+;     u       - zonal wind  (m/s)     [3D or 4D]          
+;     v       - meridional wind (m/s) [3D or 4D]          
+;     t       - temperature (K)       [3D or 4D]          
+;     lat     - latitudes
+;     gridType- grid type
+;               =0 means gaussian grid
+;               =1 means regular or fixed grid
+;     opt     - options: not used
+;
+; Note: u,v,t MUST be SOUTH-TO-NORTH 
+;       and must be GLOBAL because spherical harmonics are used
+;   
+; Usage:
+;   f   = addfile ("foo.nc", "r")
+;   U   = f->U    ; (time,lev,lat,lon) or (lev,lat,lon)
+;   V   = f->V
+;   T   = f->T    ; K
+;   lat = f->lat
+;   lev = f->lev  
+;   lev = lev*100
+;   lev@units = "Pa"
+;               ; Potential Vorticity
+;   PV = pot_vort_isobaric(lev,u,v,t,lat, 0, 0)
+;
+; Note: A nice basic discussion of PV may be found at:
+; Mid-Latitude Atmospheric Dynamics: A First Course
+; Jonathan E. Martin, Wiley 2006,   QC880.M36   , pp276-onward
+;
+local ranku, rankv, rankt, npr, nlt, dthdp, dudp, dvdp \
+     ,theta, S, s, con, R, W, f, vr, dtdx, dtdy, rad, pv
+begin
+                                   ; ERROR CHECK
+  ranku  = dimsizes(dimsizes(u)) 
+  if (.not.(ranku.eq.3 .or. ranku.eq.4)) then
+      print("StaticStabilityP: only 3D and 4D arrays allowed: rank="+ranku)
+      exit
+  end if
+  rankv  = dimsizes(dimsizes(v)) 
+  rankt  = dimsizes(dimsizes(t)) 
+  if (.not.(ranku.eq.rankv .and. ranku.eq.rankt)) then
+      print("pot_vort_isobaric: u, v, t must be the same rank: ranku=" \
+            +ranku+"  rankv="+rankv+"  rankt="+rankt)
+      exit
+  end if
+
+  if (.not.(gridType.eq.0 .or. gridType.eq.1)) then
+      print("pot_vort_isobaric: unrecognized gridType: only 0 and 1 allowed")
+      print("           gridType="+gridType)
+      ier = 1
+  end if
+
+  if ((lat(1)-lat(0)).le.0) then
+      print("pot_vort_isobaric: data must be in S-N order")
+      exit
+  end if
+
+  if (ranku.eq.3) then       ; (lev,lat,lon)  => (0,1,2) > (0,npr,nlt)
+      npr = 0
+      nlt = 1
+  end if
+  if (ranku.eq.4) then       ; (time,lev,lat,lon)  => (0,1,2,3) > (0,npr,nlt,2)
+      npr = 1
+      nlt = 2
+  end if
+
+  S           = static_stability(p,t,npr,1)   ; variable of type list
+
+  s           = S[0]    ; [...] is list syntax    
+  theta       = S[1]
+  dthdp       = S[2]
+  s@_FillValue= 1e20
+  delete(S)
+
+ ;printVarSummary( s )
+ ;printMinMax( s, True )
+ ;printVarSummary( theta )
+ ;printMinMax( theta, True )
+ ;printVarSummary( dthdp )
+ ;printMinMax( dthdp, True )
+                              ; compute VERTICAL (pressure) derivatives ; shear
+  dudp        = center_finite_diff_n (    u,p,False,0,npr)
+  dvdp        = center_finite_diff_n (    v,p,False,0,npr)
+
+                              ; compute 
+                              ; (1) lat/lon temperature gradients [K/m]
+                              ; (2) relative vorticity            [1/s]
+
+  dtdx   = t                  ; create E-W gradient array with coordinate info
+  dtdy   = t                  ;        S-N        
+  dtdx@long_name = "longitudinal gradient (derivative)"
+  dtdy@long_name = "latitudinal gradient (derivative)"
+  dtdx@units     = "K/m"
+  dtdy@units     = "K/m"
+
+  if (gridType.eq.0) then
+      gradsg (t, dtdx, dtdy) 
+      vr = uv2vrG(u,v)
+  end if
+  if (gridType.eq.1) then
+      gradsf (t, dtdx, dtdy) 
+      vr = uv2vrF(u,v)
+  end if
+
+  G   = 9.80665                    ; m/s2 ; gravity at 45 deg lat used by the WMO
+  R   = 287.04                     ; m2/(s2-K) ; gas constant dry air
+  W   = 7.292e-5                   ; (1/s)     ; earth ang rotation
+  rad = 4.*atan(1.)/180.
+  if (typeof(lat).eq.typeof(vr)) then
+      f = 2.*W*sin(lat*rad)          ; (1/s)     ; coriolis parameter
+  else
+      f = 2.*W*sin(tofloat(lat)*rad)
+  end if
+
+  vr  = vr + conform(vr,f,nlt)     ; absolute vorticity   
+  s   = where(s.eq.0, s@_FillValue, s)    ; safety
+  con = 1/s
+                                   ; G* added to get common pv units 
+  pv  = -G*(vr + con*(dvdp*dtdx-dudp*dtdy))*dthdp  
+  pv@long_name  = "potential vorticity"
+  pv@short_name = "PV"
+  pv@units      = "K m2/kg/s"      ; common units
+  copy_VarCoords(t,pv)
+
+  if (opt.eq.0) then
+      return( pv )
+  else
+      return( [/pv, s, theta, dthdp, dudp, dvdp, dtdx, dtdy/] )
+  end if
+end
+;====================
+undef("advect_var")
+function advect_var (u:numeric, v:numeric, x:numeric,gridType[1]:integer 
+                    ,long_name:string, units:string, iopt[1]:integer)
+;
+; compute advection of a variable: UV.GRADIENT(X) ; U*(dX/dlon) + V*(dX/dlat)
+;
+; Requires:
+;    (1) grid be global cuz spherical harmonics are used
+;    (2) required dimension order ([time,[lev,]lat,lon)
+;    (3) the input grids *must* be ordered South==>North
+; 
+; Nomenclature:
+;   u, v      - zonal and meridional wind components [m/s]
+;               rightmost dimensions must be ([...,]lat,lon)
+;   x         - scalar quantity to be advected 
+;               rightmost dimensions must be ([...,]lat,lon)
+;               eg: T, Z, divergence, vorticity, latent energy,..., whatever
+;   gridType  - type of grid: 0=gaussian, 1=fixed
+;   long_name - descriptive name (eg: "Temperature Advection" )
+;   units     - units of result  (eg: "m-K/s" )
+;   iopt      - flag: =0 means return only the advect result          
+;                     =1 means return the advect, longitidinal and latitudinal gradient
+;                        as part of a list
+; Usage:
+;   f = addfile ("foo.nc", "r")
+;   u = f->U    ; (time,lev,lat,lon)
+;   v = f->V
+;   T = f->T
+;               ; linear advection of temperature
+;   Tadv = advect_var(u,v,T,0,"linear advection of temperature","m-K/s",0)
+;
+local dimu, dimv, dimx, ranku, rankv, rankx, ier \
+    , x_grad_lon, x_grad_lat, advect
+begin
+                             ; ERROR CHECKING
+  dimu  = dimsizes(u)
+  dimv  = dimsizes(v)
+  dimx  = dimsizes(x)
+  ranku = dimsizes(dimu)
+  rankv = dimsizes(dimv)
+  rankx = dimsizes(dimx)
+
+  ier   = 0
+  if (.not.(gridType.eq.0 .or. gridType.eq.1)) then
+      print("advect_var: unrecognized gridType: only 0 and 1 allowed")
+      print("            gridType="+gridType)
+      ier = 1
+  end if
+  if (.not.(ranku.eq.rankv .and. ranku.eq.rankx)) then
+      print("advect_var: all input arguments must have the same rank")
+      print("            ranku="+ranku)
+      print("            rankv="+rankv)
+      print("            rankx="+rankx)
+      ier = ier + 10
+  end if
+  if (.not.(all(dimu.eq.dimv) .and. all(dimu.eq.dimx))) then
+      print("advect_var: all input arguments must have the same dimension sizes")
+      print("            ranku="+ranku)
+      print("            rankv="+rankv)
+      print("            rankx="+rankx)
+      ier = ier + 100
+  end if
+  if (rankx.lt.2) then
+      print("advect_var: variable rank must be at least 2D: ([time,[lev,]lat,plon)")
+      print("advect_var: rank="+rankx+"D")
+      ier = ier + 1000
+  end if
+
+  dnam  = getvardims(x)             ; dimension names
+  ynam  = dnam(rankx-2)             ; latitude dimension name
+  if (.not.ismissing(ynam) .and. iscoord(x,ynam)) then
+      yord  = isMonotonic(x&$ynam$)
+      if (yord.le.0) then
+          print("advect_var: grid is not in South-to-North order.")
+          ier = ier + 10000
+      end if
+  else
+      print("advect_var: Warning: No named dimensions. Can not check grid order.")
+  end if
+
+  if (ier.ne.0) then
+      print("advect_var fatal error(s) encountered: ier="+ier)
+      exit
+  end if
+
+  x_grad_lon = new( dimx, typeof(x), getFillValue(x) )
+  x_grad_lat = new( dimx, typeof(x), getFillValue(x) )
+
+  if (gridType.eq.0) then
+      gradsg  (x, x_grad_lon, x_grad_lat)
+  end if
+  if (gridType.eq.1) then
+      gradsf  (x, x_grad_lon, x_grad_lat)
+  end if
+                                        ; advection
+  
+  uxgrad_lon = u*x_grad_lon 
+  vxgrad_lat = v*x_grad_lat
+  advect     = uxgrad_lon + vxgrad_lat
+                                        ; add meta data
+  copy_VarCoords(x, advect)
+  advect@long_name = long_name
+  advect@units     = units
+
+  if (iopt.eq.0) then
+      return(advect)
+  else
+      copy_VarCoords(x, x_grad_lon)
+      x_grad_lon@long_name = "longitudinal gradient"
+
+      copy_VarCoords(x, x_grad_lat)
+      x_grad_lat@long_name = "latitudinal gradient"
+
+      return([/ advect, x_grad_lon, x_grad_lat /] )
+
+     ;copy_VarCoords(x, ux_grad_lon)
+     ;x_grad_lon@long_name = "zonal advection"
+
+     ;copy_VarCoords(x, vx_grad_lat)
+     ;x_grad_lat@long_name = "meridional advevtion"
+
+     ;return([/ advect, x_grad_lon, x_grad_lat, uxgrad_lon, vxgrad_lat  /] )
+  end if
+
+end
+;====================
+undef("advect_variable")
+function advect_variable (u:numeric, v:numeric, x:numeric,gridType[1]:integer 
+                          ,long_name:string, units:string, iopt[1]:integer)
+; advect_variable was the original function
+begin
+  return( advect_var(u, v, x, gridType, long_name, units, iopt) )
+end
+;---
+undef("log1px")
+function log1px(x:numeric)
+; Common function in other languages 
+local y, Fill
+begin
+  if (isatt(x,"_FillValue")) then
+      Fill = x@_FillValue
+  else
+      if (typeof(x).eq."double") then
+          Fill = 1d20
+      else
+          Fill = 1e20
+      end if
+  end if
+
+  y = where((1+x).gt.0, log(1+x), Fill)   
+
+  if (any(y.eq.Fill)) then
+      y@_FillValue = Fill
+  end if
+  return (y)
+end
+;================
+undef("pres_hybrid_ccm_se")
+function pres_hybrid_ccm_se(ps:numeric,p0[1]:numeric,hya[*]:numeric,hyb[*]:numeric)
+local dimNames, dim_ps, ntim, ncol, ps_dumy, pres_dumy, pres
+begin
+
+  dimNames = getvardims(ps) ; (time,ncol)
+  if (dimNames(1).ne."ncol") then
+      print("pres_hybrid_ccm_se: You are a MORON! This is not an SE grid!")
+      exit
+  end if
+
+  dim_ps = dimsizes(ps)
+  ntim = dim_ps(0)
+  ncol = dim_ps(1)
+
+  ps_dumy = conform_dims( (/ntim,1,ncol/), ps, (/0,2/))
+
+  pres_dumy = pres_hybrid_ccm (ps_dumy,p0,hya,hyb) ; (ntim,klev,1,ncol)
+  pres = pres_dumy(:,:,0,:) ; (ntim,klev,ncol)
+
+; the following is not needed for builtin function
+
+  pres@long_name = "vertical pressure"
+  pres@units = "Pa" ; [kg/(m s2)]
+
+  copy_VarCoords(ps, pres(:,0,:))
+  pres!1 = "lev"
+
+  return(pres)
+end 
+;================
+undef("dpres_hybrid_ccm_se")
+function dpres_hybrid_ccm_se(ps:numeric,p0[1]:numeric,hya[*]:numeric,hyb[*]:numeric)
+local dimNames, dim_ps, ntim, ncol, ps_dumy, dpres_dumy, dpres
+begin
+
+  dimNames = getvardims(ps) ; (time,ncol)
+  if (dimNames(1).ne."ncol") then
+      print("dpres_hybrid_ccm_se: You are a MORON! This is not an SE grid!")
+      exit
+  end if
+
+  dim_ps = dimsizes(ps)
+  ntim = dim_ps(0)
+  ncol = dim_ps(1)
+
+  ps_dumy = conform_dims( (/ntim,1,ncol/), ps, (/0,2/))
+
+  dpres_dumy = dpres_hybrid_ccm (ps_dumy,p0,hya,hyb) ; (ntim,klev,1,ncol)
+  dpres = dpres_dumy(:,:,0,:) ; (ntim,klev,ncol)
+
+; the following is not needed for builtin function
+
+  dpres@long_name = "layer thickness"
+  dpres@units = "Pa" ; [kg/(m s2)]
+
+  copy_VarCoords(ps, dpres(:,0,:))
+  dpres!1 = "lev"
+
+  return(dpres)
+end 
+;===================
+undef ("eofunc_north")
+function eofunc_north(eval[*]:numeric, N[1]:integer, prinfo[1]:logical)
+;
+; North, G.R. et al (1982): Sampling Errors in the Estimation of Empirical Orthogonal Functions.
+; Mon. Wea. Rev., 110, 699–706.
+; doi: http://dx.doi.org/10.1175/1520-0493(1982)110<0699:SEITEO>2.0.CO;2
+;
+; Usage after 'eofunc'. Here ntim was used,  
+;             prinfo = True
+;             sig    = eval_north(eof@eval, ntim, prinfo)
+;
+local neval, dlam, low, high, sig, n
+begin
+  neval   = dimsizes(eval)
+  if (neval.eq.1)
+      print("eofunc_north: neval=1, no testing can be performed")
+      sig = True 
+      sig@long_name = "EOF separation is not testable N=1"
+      sig@N         =  N
+      return(sig)
+  end if
+
+  dlam    = eval * sqrt(2.0/N)   ; eq 24
+  low     = eval-dlam
+  high    = eval+dlam
+
+  sig     = new(dimsizes(eval), logical)
+  sig = False  ; default is not significantly separated
+
+; first and last eigenvalues are special cales
+
+  if (eval(0).gt.high(1)) then
+      sig(0) = True
+  end if
+  if (eval(neval-1).lt.low(neval-2)) then
+      sig(neval-1) = True
+  end if
+
+; loop over other eignvalues
+
+  if (N.gt.2) then
+      do n=1,neval-2
+         if (eval(n).lt.low(n-1) .and. eval(n).gt.high(n+1)) then
+             sig(n) = True
+         end if
+      end do
+  end if
+
+  if (prinfo) then
+      print(dlam+"   "+low+"   "+eval+"   "+high+"  "+sig)
+  end if
+
+  sig@long_name = "EOF separation"
+  sig@N         =  N
+  return(sig)
+end
+;===================
+undef ("eof_north") ; documentation snafu
+function eof_north(eval[*]:numeric, N[1]:integer, prinfo[1]:logical)
+begin
+  sig = eofunc_north(eval, N, prinfo)
+  return(sig)
+end
+;-----
+undef("parse_globalatts_hdf5")
+function parse_globalatts_hdf5( f, attName[1]:string )
+
+; Do this *ONCE* for *EACH* global attribute
+
+local header, cr, delim, strs, nstrs, n, info, hinfo
+begin
+ header= f@$attName$                      ; long string[1]
+
+ cr    = str_get_nl()                     ; carriage return (new line)
+ delim = cr + " ;"
+ strs  = str_split(header, delim)
+ nstrs = dimsizes(strs)
+ 
+ hinfo = new( (/nstrs,2/), "string")
+ do n=0,nstrs-1
+    info := str_split(strs(n), "=")
+    hinfo(n,0) = info(0)
+    if (dimsizes(info) .eq. 2 ) then	
+	hinfo(n,1) = info(1) 
+    else
+	hinfo(n,1) = ""
+    end if
+ end do 
+ hinfo@hdf5_global_attribute_name = attName
+
+ return(hinfo)
+end
+;---
+undef("extract_globalatts_hdf5")
+function extract_globalatts_hdf5( hinfo[*][2]:string, name_to_extract[1]:string)
+; extract the value associated with the attribute which created 'hinfo'
+; info is output from function getfilevaratts_hdf5
+begin
+  
+  if (.not.isatt(hinfo,"hdf5_global_attribute_name")) then
+      print("Warning:  hdf5_global_attribute_name is missing")
+  end if
+    
+  idx = ind(hinfo(:,0) .eq. name_to_extract)
+  if (ismissing(idx(0))) then
+      return("extract_globalatts_hdf5: "+name_to_extract+" is missing")
+  end if
+  
+  return(hinfo(idx(0),1))  ; to the right of = sign
+end
+;--------------
+undef("coriolis_param")
+function coriolis_param(lat:numeric)
+; Coriolis Parameter 
+local rad, omega
+begin
+  if (typeof(lat).eq."double") then
+      omega = 7.292d-5                   ; (1/s)     ; earth ang rotation
+      rad   = get_d2r("double")          ; rad=4d0*atan(1d0)/180d0
+  else
+      omega = 7.292e-5         
+      rad   = get_d2r("float")           ; rad=4.0*atan(1.0)/180.0
+  end if
+
+  fcor  = 2*omega*sin(lat*rad)    
+  fcor@long_name = "Coriolis parameter"
+  fcor@units     = "1/s"
+  copy_VarCoords(lat, fcor)
+
+  return(fcor)
+end
+;--------------
+undef("wgt_vertical_n")
+function wgt_vertical_n (X:numeric, dp:numeric, iopt:integer, lev_dim[1]:integer)
+; 
+; Perform weighted vertical average (integral) or sum
+; 
+; Requirement: X must be in the following order: ([time,],lev,lat,lon)
+;
+; Nomenclature:
+; X         - array to be integrated. No missing data allowed
+; dp        - pressure thickness computed by "dpres_hybrid_ccm" or "dpres_plevel"
+;             Must be the same size/shape as X
+;             No missing data allowed.
+; iopt      - =0 weighted vertical average
+;             =1 weighted vertical sum
+;             =2 weighted vertical sum, vertical avg
+; lev_dim   - level dimension
+;             lev_dim = 0                            ; (lev), (0); (time,lev),  (0,1) 
+;                                                    ; (lev,lat,lon),  (0,1,2) 
+;             lev_dim = 1                            ; (time,lev,lat,lon), (0,1,2,3)
+;             lev_dim = 2                            ; (case,time,lev,lat,lon), (01,2,3,4)
+;+++++++++++++++++++++++
+; Usage for hybrid levels
+;        f = addfile("....", "r")
+;        hyai = f->hyai
+;        hybi = f->hybi
+;        p0   = f->P0                               ; p0=1000 or p0=100000
+;        ps   = f->PS
+;    
+;        dp   = dpres_hybrid_ccm (ps,p0,hyai,hybi)  ; Pa [kg/(m s2)]
+;--------------------
+; Usage for pressure levels
+;        f   = addfile("....", "r")
+;        lev = f->lev  ; (/  1,  2,  3,  5,   7, 10, 20, 30, \   ; hPa 
+;                           50, 70,100,150, 200,250,300,400, \
+;                          500,600,700,775, 850,925,1000 /)
+;                      ; uniys of lev and psfc must match
+;        psfc= f->PS   ; PA         (time,lat,lon)
+;        lev = lev*100 ; make PA to match psfc       
+;        lev@units = "PA"
+;
+;        ptop= 0       ; integrate 0==>psfc at each grid point
+;
+;                      ; dp(klev,nlat,mlon) or dp(ntim,klev,nlat,mlon)
+;        dp  = dpres_plevel(lev, psfc, ptop, 0)     ; Pa [kg/(m s2)]
+;--------------------
+; Use the 'dp' from above                           ; (  0 , 1 , 2 , 3 )
+;        t    = f->T                                ; (time,lev,lat,lon)
+;        xvi  = wgt_vert_n(t, dp,  0, 1)
+
+local dimX, dimDP, rankX, Xdp, vsum, wsum, vavg
+begin
+
+  dimX  = dimsizes( X )
+  dimDP = dimsizes( dp )
+  rankX = dimsizes( dimX )
+
+  if (.not.all(dimDP.eq.dimX) ) then  ; error check
+      print("wgt_vertical_n: dimension sizes are not equal")
+      print("wgt_vertical_n:  dimX="+dimX)
+      print("wgt_vertical_n: dimDP="+dimsizes(dp) )
+      exit
+  end if
+
+  if (isatt(X,"_FillValue") .and. any(ismissing(X)) ) then  ; error check
+      print("wgt_vertical_n: No _FillValue allowed")
+      print("wgt_vertical_n: X: nFill="+num(ismissing(X)))
+      exit
+  end if
+
+;;if (isatt(dp,"_FillValue") .and. any(ismissing(dp)) ) then  ; error check
+;;    print("wgt_vertical_n: No _FillValue allowed")
+;;    print("wgt_vertical_n: dp: nFill="+num(ismissing(dp)))
+;;    exit
+;;end if
+
+  Xdp  = X*dp                                ; [? kg/(m s2)]   (temporary variable)
+  copy_VarCoords(X, Xdp)
+
+  vsum = dim_sum_n_Wrap( Xdp, lev_dim )      ; sum vertically [ie integrate]
+  if (iopt.eq.1) then
+      return(vsum)
+  end if
+
+  wsum = dim_sum_n_Wrap( dp , lev_dim )      ;  "      " 
+  if (any(wsum.eq.0)) then
+      if (.not.isatt(wsum,"_FillValue")) then
+          wsum@_FillValue = default_fillvalue(typeof(wsum))
+      end if
+      wsum = where(wsum.eq.0, wsum@_FillValue, wsum)   ; avoid division by 0
+  end if
+      
+  vavg = vsum/wsum                           ; one less dimension (no vertical dim)
+  copy_VarMeta(vsum, vavg) 
+  vavg@NCL_op = "Weighted Vertical Average"
+
+  vsum@NCL_op = "Weighted Vertical Sum"
+  wsum@NCL_op = "Summed Weights"
+
+  if (iopt.eq.0) then
+      return(vavg)
+  end if
+
+  return([/ vavg, vsum, wsum /] )    ; iopt=2
+end
+;--------------------------------------------------------
+undef("dim_maxind")
+function dim_maxind(x, nDim[1]:integer)
+;
+; This is a modification of the original algorithmn posted to ncl-talk by
+; Dave Allured (NOAA Affilate): April, 2016
+;
+local dimx, rankx, N, xmax, nmsgx, dim_xmax, t, tr, mask1
+begin
+  dimx  = dimsizes(x)
+  rankx = dimsizes(dimx)
+
+  if (nDim.ne.0) then
+      print("dim_maxind: *** Currently nDim must be set to zero; nDim="+nDim)
+      return( new(dimx(1:), integer, -99) )
+  end if
+
+  if (rankx.gt.4) then
+      print("dim_maxind: *** Currently 1D, 2D, 3D, 4D are supported; rank="+rankx)
+      print("                This corresponds to the leftmost dimension.")
+      return( new(dimx(1:), integer, -99) )
+  end if
+
+  if (rankx.eq.1) then
+      ind_xmax           = maxind(x)
+      ind_xmax@long_name = "index of 1st  max value"
+      ind_xmax@tag       = "dim_maxind"
+      return(ind_xmax)
+  end if
+
+  N     = dimx(nDim)    ; size of the dimension corresponding to 'nDim'    
+
+  xmax     = dim_max_n_Wrap (x, nDim)
+  dim_xmax = dimsizes(xmax)
+  ind_xmax = new (dim_xmax, integer, -99 )
+
+
+  if (rankx.eq.2) then
+      do t = 1, N
+         tr = N-t
+         mask1    = (x(tr,:) .ge. xmax)
+         mask1    = where (ismissing(mask1), False, mask1)
+         ind_xmax = where (mask1, tr, ind_xmax)
+      end do
+  end if
+
+  if (rankx.eq.3) then
+      do t = 1, N
+         tr = N-t
+         mask1    = (x(tr,:,:) .ge. xmax)
+         mask1    = where (ismissing(mask1), False, mask1)
+         ind_xmax = where (mask1, tr, ind_xmax)
+      end do
+  end if
+
+  if (rankx.eq.4) then
+      do t = 1, N
+         tr = N-t
+         mask1    = (x(tr,:,:,:) .ge. xmax)
+         mask1    = where (ismissing(mask1), False, mask1)
+         ind_xmax = where (mask1, tr, ind_xmax)
+      end do
+  end if
+
+  copy_VarCoords(xmax, ind_xmax)
+  ind_xmax@long_name = "index of 1st  max value"
+  ind_xmax@tag       = "dim_maxind"
+
+  return(ind_xmax)
+end
+;--------------------------------------------------
+undef("dim_minind")
+function dim_minind(x, nDim[1]:integer)
+;
+; It is a modification of the original algorithmn posted to ncl-talk  
+; Dave Allured (NOAA Affilate): April, 2016
+;
+local dimx, rankx, N, xmin, dim_xmin, t, tr, mask1
+begin
+  dimx  = dimsizes(x)
+  rankx = dimsizes(dimx)
+
+  if (nDim.ne.0) then
+      print("dim_minind: *** Currently nDim must be set to zero; nDim="+nDim)
+      return( new(dimx(1:), integer, -99) )
+  end if
+
+  if (rankx.gt.4) then
+      print("dim_minind: *** Currently 1D, 2D, 3D, 4D are supported; rank="+rankx)
+      print("                This corresponds to the leftmost dimension.")
+      return( new(dimx(1:), integer, -99) )
+  end if
+
+  if (rankx.eq.1) then
+      ind_xmin           = minind(x)
+      ind_xmin@long_name = "index of 1st min value"
+      ind_xmin@tag       = "dim_minind"
+      return(ind_xmin)
+  end if
+
+  N     = dimx(nDim)    ; size of the dimension corresponding to 'nDim'    
+
+  xmin     = dim_min_n_Wrap (x, nDim)
+  dim_xmin = dimsizes(xmin)
+  ind_xmin = new (dim_xmin, integer, -99)
+
+  if (rankx.eq.2) then
+      do t = 1, N
+         tr = N-t
+         mask1    = (x(tr,:) .le. xmin)
+         mask1    = where (ismissing(mask1), False, mask1)
+         ind_xmin = where (mask1, tr, ind_xmin)
+      end do
+  end if
+
+  if (rankx.eq.3) then
+      do t = 1, N
+         tr = N-t
+         mask1    = (x(tr,:,:) .le. xmin)
+         mask1    = where (ismissing(mask1), False, mask1)
+         ind_xmin = where (mask1, tr, ind_xmin)
+      end do
+  end if
+
+  if (rankx.eq.4) then
+      do t = 1, N
+         tr = N-t
+         mask1    = (x(tr,:,:,:) .le. xmin)
+         mask1    = where (ismissing(mask1), False, mask1)
+         ind_xmin = where (mask1, tr, ind_xmin)
+      end do
+  end if
+
+  copy_VarCoords(xmin, ind_xmin)
+  ind_xmin@long_name = "index of 1st  min value"
+  ind_xmin@tag       = "dim_minind"
+
+  return(ind_xmin)
+end
+;--------------------------------------------------
+undef("cohsq_c2p")
+function cohsq_c2p(coher2:numeric, df:numeric)
+;
+; INPUT:
+; coher2 - coherence squared (0-1)
+; df     - degrees of freedom
+;
+; Dennis Hartmann
+; http://www.atmos.washington.edu/~dennis/552_Notes_6c.pdf
+;     See Table 6.2 , page 187 and the associated caption on page 186
+;
+; Paul Julian's paper
+; http://journals.ametsoc.org/doi/abs/10.1175/1520-0469%281975%29032%3C0836%3ACOTDOS%3E2.0.CO%3B2
+;
+begin
+                                                    ; df from FFT
+;;prob = 1.0-(1.0-coher2)^((df/2.0)-1.0)            ; Paul Julian 
+  prob = 1.0-(1.0-coher2)^( df     -1.0)            ; match Hartmann           
+
+  prob@long_name = "coherence squared probability"
+  prob@NCL_tag   = "cohsq_c2p: p=1-(1-coher_sq)^(df-1)"
+  copy_VarCoords(coher2, prob)
+  return(prob)
+end
+;--------------------------------------------------
+undef("cohsq_p2c")
+function cohsq_p2c(prob:numeric, df:numeric)
+; 
+; INPUT:
+; prob  - probability (0-1)
+; df    - degrees of freedom
+;
+; Dennis Hartmann
+; http://www.atmos.washington.edu/~dennis/552_Notes_6c.pdf
+;     See Table 6.2 , page 187 and the associated caption on page 186
+;
+; Paul Julian's paper
+; http://journals.ametsoc.org/doi/abs/10.1175/1520-0469%281975%29032%3C0836%3ACOTDOS%3E2.0.CO%3B2
+;
+begin
+                                                    ; df from FFT
+;;c2  =  1.-(1.-prob)^(1./((df/2.)-1.))             ; Paul Julian 
+  c2  =  1.-(1.-prob)^(1./( df    -1.))             ; match Hartmann
+
+  c2@long_name = "coherence-squared confidence level"
+  c2@NCL_tag   = "cohsq_p2c: coher_sq=1-(1-prob)^(1/(df-1))"
+  copy_VarCoords(prob, c2)
+  return(c2)
+end
+;--------------------------------------------------
+;------------------------------
+undef("brunt_vaisala_atm")
+function brunt_vaisala_atm(th:numeric, z:numeric, opt[1]:integer, ndimz[1]:integer)
+;
+; Brunt-Vaisala: 
+;   The frequency at which a displaced air parcel will oscillate when displaced 
+;   vertically within a statically stable environment.
+;
+; AMS Glossary:  
+; BruntV: http://glossary.ametsoc.org/wiki/Brunt-v%C3%A4is%C3%A4l%C3%A4_frequency
+;
+; Nomenclature:
+;   th - potential temperature (degK); could also be virtual potential temperature
+;   z  - geometric height (m)
+;   opt- =0 return Brunt-Vaisala frequency only
+;   opt- =1 return Brunt-Vaisala frequency and dthdz as part of a list variable
+;
+local dimth, dthdz , pmflag, g, buoy, brunt
+begin
+;;dimz    = dimsizes(z)
+  dimth   = dimsizes(th)
+;;rankz   = dimsizes(dimz)   
+;;rankth  = dimsizes(dimth)
+
+  dthdz   = center_finite_diff_n(th, z, False, 0, ndimz)
+
+ ;copy_VarCoords(th, dthdz)
+ ;dthdz@long_name = "Vertical Gradient of potential temperature"
+ ;dthdz@units     = "degK/m"
+ ;print("brunt_vaisala_atm: dthdz: min="+min(dthdz)+"   max="+max(dthdz))
+
+  g      = 9.80665                ; m/s2 at 45N
+  buoy   = (g/th)*dthdz           ; 'buoyancy' term (N^2): [m/s2][1/K][K/m]=[1/s2]     
+                                  ; buoyancy can be negative if dthdz < 0
+ ;buoy@long_name = "buoyancy"
+ ;buoy@units     = "1/s^2"
+ ;copy_VarCoords(th, buoy)
+ ;print("buoyancy: min="+min(buoy)+"   max="+max(buoy))
+
+  pmflag = new(dimth, "integer", -9999 )
+  pmflag = where(buoy.lt.0, -1, 1)
+
+  brunt  = sqrt(abs(buoy))     
+  brunt  = brunt*pmflag           ; add negative flag
+  delete(pmflag)
+
+  copy_VarCoords(th, brunt)
+  brunt@long_name = "Brunt-Vaisala frequency"
+  brunt@units     = "1/s"
+  brunt@info      = "http://glossary.ametsoc.org/wiki/Brunt-v%C3%A4is%C3%A4l%C3%A4_frequency"
+  brunt@sign      = "brunt<0 means the buoyancy was <0"
+  brunt@sign_1    = "User could use where(brunt.lt.0, 0, brunt) to create only positive values "
+
+  if (opt.eq.0) then
+      return( brunt )
+  else
+      return( [/ brunt, dthdz /] )
+  end if
+end
+;-------------------------------
+undef("eady_growth_rate")
+function eady_growth_rate(th:numeric, u:numeric, z:numeric, lat:numeric,  opt[1]:integer, ndimz[1]:integer)
+;
+; Maximum Eady Growth Rate  
+;
+; Reference: 
+;   R. S. Lindzen and Brian Farrell, 1980: 
+;   A Simple Approximate Result for the Maximum Growth Rate of Baroclinic Instabilities. 
+;   J. Atmos. Sci., 37, 1648–1654. 
+;    http://dx.doi.org/10.1175/1520-0469(1980)037<1648:ASARFT>2.0.CO;2
+;
+;   Simmonds, I., and E.-P. Lim (2009): 
+;   Biases in the calculation of Southern Hemisphere mean baroclinic eddy growth rate 
+;   Geophys. Res. Lett., 36, L01707 
+;   doi:10.1029/2008GL036320
+;
+;   Vallis, G.K. (2006) 
+;   Atmospheric and Oceanic Dynamics: Fundamentals and Large-Scale Circulation
+;   Cambridge Univ. Press, New York.
+;    
+; Nomenclature
+; th   - potential temperature (K)
+;        http://glossary.ametsoc.org/wiki/potential_temperature
+;        https://www.ncl.ucar.edu/Document/Functions/Contributed/pot_temp.shtml
+; u    - zonal wind components (m/s) ; same dimensionality as 'th'
+; z    - height (m)
+; lat  - latitude of each grid point ; same dimensionality as 'th'  
+; opt  - =0 (egr only); 
+; ndimz- dimension of 'th' for which vertical gradient is to be calculated
+;        th(:), wspd(:), z(:) ..... ndimz=0
+;        th(:,:,:)  , z(:) or z(:,:,:)   and the left is the vertical dim, ndimz=0
+;        th(:,:,:,:), z(:) or z(:,:,:,:) and the left is the time dimension 
+;                                        and the next is height,  ndimz=1 
+;
+;
+local dimth, dimu, dimz, dimth, dimlat, rankth, ranku, rankz, rankth, ranklat \
+    , u_shear, brunt, fcor, g, omega, con, rad, egr
+begin
+                                ; dimension checking
+  dimu    = dimsizes(u)
+  dimz    = dimsizes(z)
+  dimth   = dimsizes(th)
+  dimlat  = dimsizes(lat)
+
+  ranku   = dimsizes(dimu)   
+  rankz   = dimsizes(dimz)   
+  rankth  = dimsizes(dimth)
+  ranklat = dimsizes(dimlat)   
+
+  if (.not.(rankth.eq.ranku .and. rankth.eq.rankz .and. rankth.eq.ranklat) \
+      .and. all(dimth.eq.dimu) .and. all(dimth.eq.dimz) .and. all(dimth.eq.dimlat)) then
+      print("eady_growth_rate: th, u, lat and must have the same rank & sizes")
+      print("ranku="+ranku+"  rankth="+rankth+"  rankz="+rankz+"  ranklat="+ranklat)
+      print(dimth)
+      print(dimu) 
+      print(dimz) 
+      print(dimlat) 
+      exit
+  end if
+
+  brunt   = brunt_vaisala_atm(th, z, 0, ndimz)
+
+  dudz    = center_finite_diff_n(u , z, False, 0, ndimz) 
+
+  copy_VarCoords(u, dudz)
+  dudz@long_name  = "vertical gradient of the zonal wind (zonal wind shear): du/dz"
+  dudz@units      = "1/s"
+ ;print("eady_growth_rate: dudz: min="+min(dudz)+"   max="+max(dudz))
+
+  g     = 9.80665                    ; m/s2 ; gravity at 45 deg lat used by the WMO
+  con   = 0.3098
+  fcor  = coriolis_param(lat)        ; (1/s)     ; coriolis parameter
+                                     ; prevent 1/0
+  if (any(brunt.eq.0)) then
+      if (.not.isatt(brunt,"_FillValue")) then
+          if (typeof(brunt).eq."double") then
+              brunt@_FillValue = 1d20
+          else
+              brunt@_FillValue = 1e20
+          end if
+       end if
+       brunt = where(brunt.eq.0, brunt@_FillValue, brunt)
+  end if
+
+  egr   = con*abs(fcor)*abs(dudz)/brunt
+  egr@long_name = "maximum eady growth rate"
+  egr@units     = ""
+  copy_VarCoords(u, egr)
+
+  if (opt.eq.0) then
+      return (egr)
+  else if (opt.eq.1) then
+      return ( [/egr, dudz /] )
+  else if (opt.eq.2) then
+      return ( [/egr, dudz, brunt /] )
+  end if
+  end if
+  end if
+
+end
+;-------------------------------
+undef("rigrad_bruntv_atm")
+function rigrad_bruntv_atm(thv:numeric, u:numeric, v:numeric, z:numeric, opt[1]:integer,  ndim[1]:integer)
+;
+; Gradient Richardson Number: RI  = buoyancy/shear_flow
+
+;      Criterion for assessing the stability of stratified shear flow
+;
+;      A dimensionless ratio, Ri, related to the buoyant production or 
+;      consumption of turbulence divided by the shear production of turbulence.
+;      It is used to indicate dynamic stability and the formation of turbulence.
+;      The critical Richardson number, Ric, is about 0.25 (although reported values have 
+;      ranged from roughly 0.2 to 1.0), and flow is dynamically unstable and turbulent 
+;      when Ri < Ric. Such turbulence happens either when the wind shear is great enough 
+;      to overpower any stabilizing buoyant forces (numerator is positive), or when there 
+;      is static instability (numerator is negative). 
+;
+;      If the Richardson number is much less than unity, buoyancy is unimportant in the flow. 
+;      If it is much greater than unity, buoyancy is dominant (in the sense that there is 
+;      insufficient kinetic energy to homogenize the fluids).
+;
+;      Large values of Ri indicate very stable conditions while low values *may*
+;      indicate dynamic stability (subcritical region).
+;
+;      Note: Above indicates 0.25 as critical number but others indicate 1.0
+;
+;
+; Brunt-Vaisala: 
+;   The frequency at which a displaced air parcel will oscillate when displaced 
+;   vertically within a statically stable environment.
+;
+; AMS Glossary:  
+; BruntV: http://glossary.ametsoc.org/wiki/Brunt-v%C3%A4is%C3%A4l%C3%A4_frequency
+; Ri_Num: http://glossary.ametsoc.org/wiki/Gradient_richardson_number
+;         The latter uses Tv and not THETAv in denominator. ?Error?  Think so.
+;         http://en.wikipedia.org/wiki/Richardson_number
+;         Actually, in the boundary layer (near 1000hpa) Tv ~ thv
+;         SEE:  http://radiometrics.com/data/uploads/2012/11/chan_iop08b.pdf
+;
+; Nomenclature
+; thv  - *virtual* potential temperature (K): virtual_pot_temp = pot_temp*(1+0.61w)
+;        http://glossary.ametsoc.org/wiki/Virtual_potential_temperature
+;        NOte: 'regular' potential temperature is likely 'good enough'
+;
+; u,v  - wind components (m/s) ; same dimensionality as 'th' and 't'
+; z    - height (m)
+; opt  - option
+;        opt=0   return gradient Richardson number only
+;        opt=1   return Brunt-Vaisala frequency only    
+;        opt=2   return gradient Richardson number & Brunt-Vaisala frequency    
+;        opt=3   return gradient Richardson number , Brunt-Vaisala frequency    
+;                       buoyancy, wind shear2
+; ndim - dimension of 'th' for which vertical gradient is to be calculated
+;        th(:), wspd(:), z(:) ..... ndim=0
+;        th(:,:,:)  , z(:) or z(:,:,:)   and the left is the vertical dim, ndim=0
+;        th(:,:,:,:), z(:) or z(:,:,:,:) and the left is the time dimension 
+;                                        and the next is height,  ndim=1 
+local dimthv, dimu, dimv, dimz, rankthv, ranku, rankv, rankz \
+    , g, dthvdz, pmflag, buoy, dudz, dvdz, shear2, Ri
+begin
+                                ; dimension checking
+  dimu    = dimsizes(u)
+  dimv    = dimsizes(v)
+  dimz    = dimsizes(z)
+  dimthv  = dimsizes(thv)
+
+  rankthv = dimsizes(dimthv)
+  ranku   = dimsizes(dimu)   
+  rankv   = dimsizes(dimv)   
+  rankz   = dimsizes(dimz)   
+                                
+  if (.not.(rankthv.eq.ranku .and. all(dimthv.eq.dimz) .and. all(dimthv.eq.dimu))) then
+      print("rigrad_bruntv_atm: thv, u, v must have the same rank & dimensionality")
+      print(dimthv)
+      print(dimu) 
+      print(dimz) 
+      exit
+  end if
+
+  dthvdz  = center_finite_diff_n(thv, z, False, 0, ndim) 
+
+  copy_VarCoords(thv, dthvdz)
+  dthvdz@long_name = "Vertical Gradient of potential temperature"
+  dthvdz@units     = "degK/m"
+ ;print("rigrad_bruntv_atm: dthvdz: min="+min(dthvdz)+"   max="+max(dthvdz))
+
+  g      = 9.80665                ; m/s2
+  buoy   = (g/thv)*dthvdz         ; 'buoyancy' term: [m/s2][1/K][K/m]=[1/s2]     
+
+  copy_VarCoords(thv, buoy)
+  buoy@long_name = "buoyancy"
+  buoy@units     = "1/s^2"
+ ;print("buoyancy: min="+min(buoy)+"   max="+max(buoy))
+
+  pmflag = new(dimthv, "integer", -9999 )
+  pmflag = where(buoy.lt.0, -1, 1)
+
+  brunt  = sqrt(abs(buoy))     
+  brunt  = brunt*pmflag
+  delete(pmflag)
+
+  copy_VarCoords(thv, brunt)
+  brunt@long_name = "Brunt-Vaisala (buoyancy) frequency: atm"
+  brunt@units     = "1/s"
+  brunt@info      = "http://glossary.ametsoc.org/wiki/Brunt-v%C3%A4is%C3%A4l%C3%A4_frequency"
+  brunt@sign      = "brunt<0 means the buoyancy was <0"
+  brunt@sign_1    = "User could use where(brunt.lt.0, 0, brunt) to create only positive values "
+
+  delete(dthvdz)
+  
+  dudz   = center_finite_diff_n(u , z, False, 0, ndim) 
+  copy_VarCoords(u, dudz)
+  dudz@long_name  = "vertical gradient of the zonal wind: du/dz"
+  dudz@units      = "1/s"
+ ;print("rigrad_bruntv_atm: dudz: min="+min(dudz)+"   max="+max(dudz))
+
+  dvdz   = center_finite_diff_n(v , z, False, 0, ndim) 
+  copy_VarCoords(v, dvdz)
+  dvdz@long_name  = "vertical gradient of the meridional wind: dv/dz"
+  dvdz@units      = "1/s"
+ ;print("rigrad_bruntv_atm: dvdz: min="+min(dvdz)+"   max="+max(dvdz))
+
+  shear2 = (dudz^2 + dvdz^2) 
+  copy_VarCoords(u, shear2)
+  shear2@long_name  = "wind shear squared"
+  shear2@units      = "1/s^2"
+ ;print("rigrad_bruntv_atm: shear2: min="+min(shear)+"   max="+max(shear))
+  delete([/dudz,dvdz/])
+
+  Ri     = buoy/shear2               ; [1/s2] / [1/s2] => dimensionless
+  copy_VarCoords(u, Ri)
+  Ri@long_name   = "Gradient Richardson Number"
+  Ri@info = "http://glossary.ametsoc.org/wiki/Gradient_richardson_number"
+
+  if (opt.eq.0) then
+      return(Ri)
+  end if
+
+  if (opt.eq.1) then
+      return([/Ri, brunt/])
+  end if
+  
+  return([/ Ri, brunt, buoy, shear2 /])
+end
+;=============
+undef("dz_pop")
+; compute layer thicknesses for POP: z_t ot z_w  (ALL layers)
+function dz_pop(z[*])
+local kz, dz
+begin
+  kz           = dimsizes(z)
+  dz           = new( kz, typeof(z), "No_FillValue")
+  dz(0)        = 0.5*(z(0)+z(1))                       ; top layer has sfc
+  dz(1:kz-2)   = 0.5*(z(2:kz-1)-z(0:kz-3))
+  dz(  kz-1)   = z(kz-1) - 0.5*(z(kz-1)+z(kz-2))       ; bottom layer
+  copy_VarCoords(z, dz)
+  dz@long_name = "depth layer thickness"
+  dz@units     = z@units
+  dz@sum_dz    = sum(dz)   ; should match the bottom layer [ eg: z_t(kz-1) ]
+
+  return(dz)
+end
+;========================
+undef("fire_index_haines")
+function fire_index_haines(p[*]:numeric,t[*]:numeric, td[*]:numeric, opt[1]:logical)
+;
+; nomenclature:
+;   p  - pressure levels (hPa)    ; must be a coordinate variable
+;   t  - temperature (C)          ; must have a pressure coordinate variable
+;   td - dew point temperature (C); must have a pressure coordinate variable
+;  opt - not used; set to False
+;  
+; http://www.nwas.org/digest/papers/1988/Vol13-Issue2-May1988/Pg23-Haines.pdf
+; The Haines_Index is technically the "Low Atmosphere Stability Index" ==> LASI
+;
+; It consists of two parts: 
+;    (i) Stability Term: (Tpl - Tp2) 
+;   (ii) Moisture Term : (Tp1 - TDp1)
+
+; The Haines Index can range between 2 and 6. 
+; The drier and more unstable the lower atmosphere the higher the index.
+; ROS means 'Risk Of Spread'
+; A Haines Index of 2-3= a very low ROS, 4= low ROS, 5=moderate ROS, and 6= high ROS.
+; 
+; The function calculates a "low" (0), "mid" (1) and "high" (2) elevation index
+; -----------------------------------------
+; The following classifications are based upon: 
+;    http://www.erh.noaa.gov/cae/haines.htm
+;
+; The HI boundaries are those used for the above web site.
+; The low-level Haines boundary values for the Coastal and Midlands zones, and 
+; the mid-level Haines bounadries for the Upstate zones.
+
+local HI, st, mt, klvl, stLow, mtLow, stMid, mtMid, stHigh, mtHigh
+begin
+
+  if (.not.(isdimnamed(p,0))) then
+      print("fire_index_haines: p argument must  have a named dimension")
+      exit
+  else
+      pName = getvardims(p)
+      if (.not.(iscoord(t,pName) .and. iscoord(td,pName))) then 
+          print("fire_index_haines: t, td arguments must ciirdinate variables")
+          exit
+      end if
+  end if
+
+  klvl = 3                                ; 3 level HI
+
+; calculate individual stability and moisture terms
+; There is no need for the 'st' and 'mt' arrays.
+; The computations could be done without them. 
+; However, I think they make things a bit clearer. Further, it makes it
+;          possible to return them as separate variables via a 'list' variable 
+
+  st      = new ( klvl, "float", "No_FillValue")
+  st(0)   = t({950}) - t({850})     ; low elevaltion
+  st(1)   = t({850}) - t({700})     ; mid
+  st(2)   = t({700}) - t({500})     ; high
+  st!0    = "elevation"
+  st@long_name = "HI: Stability Term"
+  st@units     = "degC"
+ ;printVarSummary(st)
+
+  mt      = new ( klvl, "float", "No_FillValue")
+  mt(0)   = t({850}) - td({850})    ; low elevaltion
+  mt(1)   = t({850}) - td({850})    ; mid
+  mt(2)   = t({700}) - td({700})    ; high
+  mt!0    = "elevation"
+  mt@long_name = "HI: Moisture Term"
+  mt@units     = "degC"
+ ;printVarSummary(mt)
+
+; Classification (HI -> Haines Index)
+
+  HI      = new ( klvl, "float", "No_FillValue")
+  HI      = 0                   ; initialize (not necessary here)
+                                ; just doing it to be explicit
+; Low (index 0)
+
+  stLow   = (/ 3.5, 7.5 /)      
+  mtLow   = (/ 5.5, 9.5 /)
+
+  if (st(0).le.stLow(0)) then   ; stability
+      HI(0) = 1 
+  else if (st(0).gt.stLow(0) .and. st(0).le.stLow(1)) then
+      HI(0) = 2 
+  else if (st(0).gt.stLow(1)) then
+      HI(0) = 3 
+     end if
+   end if
+  end if
+
+  if (mt(0).le.mtLow(0)) then   ; moisture (combine with stability)
+      HI(0) = HI(0)+ 1 
+  else if (mt(0).gt.mtLow(0) .and. mt(0).le.mtLow(1)) then
+      HI(0) = HI(0)+ 2  
+  else if (mt(0).gt.mtLow(1)) then
+      HI(0) = HI(0)+ 3
+     end if
+   end if
+  end if
+
+; Mid (index 1)
+
+  stMid   = (/ 5.5, 9.5 /)      
+  mtMid   = (/ 5.5,11.5 /)
+
+  if (st(1).le.stMid(0)) then    ; stability
+      HI(1) = 1 
+  else if (st(1).gt.stMid(0) .and. st(1).le.stMid(1)) then
+      HI(1) = 2 
+  else if (st(1).gt.stMid(1)) then
+      HI(1) = 3 
+     end if
+   end if
+  end if
+
+  if (mt(1).le.mtMid(0)) then   ; moisture (combine with stability)
+      HI(1) = HI(1)+ 1 
+  else if (mt(1).gt.mtMid(0) .and. mt(1).le.mtMid(1)) then
+      HI(1) = HI(1)+ 2  
+  else if (mt(1).gt.mtMid(1)) then
+      HI(1) = HI(1)+ 3 
+     end if
+   end if
+  end if
+
+; High (index 2)
+
+  stHigh  = (/ 17.0, 20.5 /)      
+  mtHigh  = (/ 14.0, 20.0 /)
+
+  if (st(2).le.stHigh(0)) then    ; stability
+      HI(2) = 1 
+  else if (st(2).gt.stHigh(0) .and. st(2).le.stHigh(1)) then
+      HI(2) = 2 
+  else if (st(2).gt.stHigh(1)) then
+      HI(2) = 3 
+     end if
+   end if
+  end if
+
+  if (mt(2).le.mtHigh(0)) then   ; moisture (combine with stability)
+      HI(2) = HI(2)+ 1 
+  else if (mt(2).gt.mtHigh(0) .and. mt(2).le.mtHigh(1)) then
+      HI(2) = HI(2)+ 2 
+  else if (mt(2).gt.mtHigh(1)) then
+      HI(2) = HI(2)+ 3 
+     end if
+   end if
+  end if
+
+  HI@long_name = "Haines Index"
+  HI@reference = "http://www.nwas.org/digest/papers/1988/Vol13-Issue2-May1988/Pg23-Haines.pdf" 
+  HI!0         = "elevation"
+  HI@info      = "Low Atmosphere Stability Index (LASI)" 
+  HI@elevation = (/"Low", "Medium", "High"/)
+  HI@details   = "http://www.erh.noaa.gov/cae/haines.htm"
+
+  return (HI)
+;;return( (/HI, st, mt/) )  ; return 3 variables
+end
+;=================================================
+undef("time_reassign")
+function time_reassign(f, timeName[1]:string)
+;
+; utility to center the time using the 'time_bounds' argument
+;
+; double time(time) ;
+;        time:units = "days since 2011-01-01 00:00:00" ;
+;        time:calendar = "noleap" ;
+;        time:bounds = "time_bounds"   ; attribute which points to bounds variable
+;
+;     f1   = addfile ("foo.nc", "r")   ; f1 is type file
+;     time = time_reassign(f, "time")
+; or
+;     fils = systemfunc("ls foo*nc")
+;     f2   = addfiles(fils, "r")       ; f2 is type list
+; create a 'correct' (center of mass) time
+;     time = time_reassign(f2, "time")
+; 
+; ----------------------------------------------------
+; Oddity: some files have 'time' as type float & 'time_bnd' as double
+;         I speculate the reverse is also true.                       
+; ----------------------------------------------------
+local time, tbnd
+begin
+  if (.not.(typeof(f).eq."file" .or. typeof(f).eq."list")) then
+      print("time_reassign: FATAL: input argument f must be of type list or file: type is "+typeof(f)) 
+      exit
+  end if
+
+  if (typeof(f).eq."file") then
+      time = f->$timeName$
+      if (isatt(time,"bounds") .and. isfilevar(f,time@bounds) ) then
+          tbnd = f->$time@bounds$      ; (ntim,2)
+      else
+          print("time_reassign: WARNING: No time bounds attribute available; return original time")
+          return(time)
+      end if
+  else                              ; must be type list
+      time = f[:]->$timeName$       ; (ntim)
+      if (isatt(time,"bounds") .and. isfilevar(f[0],time@bounds) ) then
+          tbnd = f[:]->$time@bounds$    ; (ntim,2)
+      else
+          print("time_reassign: WARNING: No time bounds attribute  available; return original time") 
+          return(time)
+      end if
+  end if
+           ; the following was needed cuz some files had 'time' as float & 'time_bnds' as double
+  time     = (/ totype( (tbnd(:,0)+tbnd(:,1))*0.5 , typeof(time)) /)  ; center of 'time' bnds
+  time&$timeName$ = time
+  time@NCL = "function time_reassign used to reassign time to mid-value of bounds"
+  return(time)
+end
+;----
+undef("time_reassign_cv2var")
+function time_reassign_cv2var(f, timeName[1]:string, varName[1]:string)
+;
+;   f1   = addfile ("foo.nc","r")
+;   temp = time_reassign_cv2var(f1, "time", "T")
+; or
+;   f2   = addfiles(  fils   ,"r")
+;   temp = time_reassign_cv2var(f2, "time", "T")
+begin
+  if (.not.(typeof(f).eq."file" .or. typeof(f).eq."list")) then
+      print("getVar_time_reassign: FATAL: input argument f must be of type list or file: type is "+typeof(f)) 
+      exit
+  end if
+
+  time = time_reassign(f, timeName)   ; new time coordinate
+
+  if (typeof(f).eq."file") then
+      if (isfilevar(f,varName)) then
+          var = f->$varName$
+      else
+          print("time_reassign_cv2var: FATAL: variable "+varName+" on file") 
+          exit
+      end if
+  else                                ; must be type list
+      if (isfilevar(f[0],varName)) then
+          var = f->$varName$
+      else
+          print("time_reassign_cv2var: FATAL: variable "+varName+" on file") 
+          exit
+      end if
+  end if
+
+  var&$timeName$ = time               ; rassign time coordinate variable (cv)
+  var@NCL = "function time_reassign_cv2var used to reassign time coordinate variable to mid-value of bounds"
+  return(var)
+end
+;----
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; 
+undef("demod_cmplx")
+function demod_cmplx(y:numeric, frqdem[1]:numeric, frqcut[1]:numeric, nwt[1]:integer,  ndim[1]:integer,  opt[1]:logical)
+;
+; Simple complex demodulation 
+; Extract approximately periodic components (ie, slowly varying) from a time series
+; The data Y(t) is taken to be a nearly-periodic signal plus everything else, Z(t).
+; The amplitude (A) and phase of the periodic signal are allowed to be time-dependent 
+; but assumed to vary slowly compared to the frequency 'omega'.
+;
+; Source: http://www.uni-muenster.de/ZIV.BennoSueselbeck/s-html/helpfiles/demod.html
+;   Complex demodulation is a technique for analyzing nonstationary time series by estimating 
+;   the instantaneous amplitude and phase of a given harmonic component. To better understand 
+;   the results of complex demodulation several lowpass filters should be tried: the smaller 
+;   the pass band, the less instantaneous in time but more specific in frequency is the result.
+;
+; Nice summary:
+; http://faculty.washington.edu/kessler/generals/complex-demodulation.pdf
+;
+; This technique fails when the frequency of oscillation differs from the modulation 
+; frequency by more than the cutoff frequency of the low-pass filter. 
+;
+local dimy, ranky, pi, zero, one, frqdem25, frqdem50, ny, arg, ARG, yr, ys \
+    , delf, ihp, nsigma, fcb, wgt, amp, pha
+begin
+   if (typeof(y).eq."double" .or. typeof(frqdem).eq."double" \
+                             .or. typeof(frqcut).eq."double" ) then
+       pi       = 4d0*atan(1d0)
+       zero     = 0.0d
+       one      = 1.0d
+       frqdem25 = 0.25d
+       frqdem50 = 0.50d
+   else
+       pi       = 4.0*atan(1.0)
+       zero     = 0.0 
+       one      = 1.0 
+       frqdem25 = 0.25 
+       frqdem50 = 0.50 
+   end if
+   pi2 = 2*pi
+
+   dimy  = dimsizes(y)
+   ranky = dimsizes(dimy) 
+   ny    = dimy(ndim) 
+   delf  = one/ny
+
+; error check
+
+   if (frqcut.le.delf .or. frqcut.gt.frqdem50 .or. \
+       frqdem.le.delf .or. frqdem.gt.frqdem50      ) then
+       print("demod_cmplx: illegal value(s): frqcut="+frqcut+" : frqdem="+frqdem)
+       exit
+   end if
+
+; demodulate (primary): Bloomfield, 1976: page 148
+
+   arg = ispan(0,ny-1,1)*frqdem*2*pi
+   ARG = conform(y, arg, ndim)     ; all dimensions
+                                   ; complex demodulate 
+   yr  =  y*cos(ARG)*2             ; 'real' series
+   yi  = -y*sin(ARG)*2             ; 'imaginary'       
+
+;---Create weights for Lanczos low pass filter
+;---Apply filter weights to raw demodulated series (nwt/2 point 'lost; at start/end)
+
+   if (opt .and. isatt(opt,"NoFilter") .and. opt@NoFilter) then
+      print("demod_cmplx: no low pass filter applied")
+
+   else                            ; default is low pass filter
+      ihp    = 0                  
+      nsigma = one                       
+      if (opt .and. isatt(opt, "nsigma")) then
+          nsigma := totype(opt@nsigma, typeof(pi))
+      end if 
+   
+      fcb    = totype(-999, typeof(pi))
+      wgt    = filwgts_lanczos (nwt, ihp, frqcut, fcb, nsigma)  
+   
+      yr     = wgt_runave_n_Wrap ( yr, wgt, 0, 0) 
+      yi     = wgt_runave_n_Wrap ( yi, wgt, 0, 0) 
+   end if
+  
+;---Calculate the amplitudes
+   
+   amp = sqrt(yr^2 + yi^2)
+   pha = where(amp.eq.zero, zero, atan2(yi, yr)) 
+
+   amp@long_name = "amplitude"
+   pha@long_name = "phase"         
+   if (isatt(y,"units")) then
+       amp@units = y@units
+   end if
+
+   copy_VarCoords(y, amp)
+   copy_VarCoords(y, pha)
+
+   return([/ amp, pha /])           ; return as a list
+end
+;=================================================
+undef("epflux4")
+function epflux4(U[*][*][*][*]:numeric, V[*][*][*][*]:numeric \
+                ,T[*][*][*][*]:numeric, plvl[*]:numeric, lat[*]:numeric \
+                ,opt[1]:logical)
+
+;*******************************************************
+; Purpose:
+; NCL Script to calculate near-realtime Eliassen-Palm flux from NCEP Reanalysis Data
+; This version produces Quasi-geostrophic Eliassen-Palm Fluxes in spherical coordinates
+; Plots the EP Flux vectors in a latitude-log(pressure) coordinate
+; Optionally plot the divergence of EP-Flux
+;*******************************************************
+; History
+; Original code written (2009) by J. Barsugli [NOAA/ESRL PSD]
+; Adapted by C. Smith [NOAA/ESRL PSD]a.gov
+; Modified by Joe Barsugli to add contours of EP-Flux divergence June 2010
+; Modified by Joe Barsugli to redo scaling of arrows in the vertical June 2010
+; Original code available here:  
+;         http://www.esrl.noaa.gov/psd/data/epflux/epflux.2010.ncl
+;********************************************************
+; Modified by Dennis Shea to NCL 6.0.0 release June 2012 (hidden) 
+; Made into a supported function by Dennis Shea Sept. 2015 for 6.3.1 inclusion
+;********************************************************
+; Reference:
+; Edmon, H.J., B.J. Hoskins,and M.E. McIntyre,1980:
+; Eliassen-Palm cross sections for the troposphere.
+; J. Atmos. Sci., 37:2600–2616
+;********************************************************
+; local not required
+local PLVL, P0, LAT, a, PI, phi, cphi, acphi, asphi, omega, latfac   \
+    , THETA, THEATp, THETAptm, THETAza, Uza, Vza, UV, UVzm, UVzmtm   \
+    , Fphi, Fp, dudt, EPdiv, EPdiv1, EPdiv2, EPdiv \
+    , rhofac, strat1, stratmask, print_var_info
+begin
+  print_var_info = False
+  if (opt .and. isatt(opt,"print_var_info")) then
+      print_var_info = True
+  end if
+
+;---Dimension sizes
+
+;;dimUVT = dimsizes(U)
+;;ntim   = dimUVT(0)
+;;klvl   = dimUVT(1)
+;;nlat   = dimUVT(2)
+;;mlon   = dimUVT(3)
+
+;---PLVL is a local version of 'plvl' in Pa
+  
+  PLVL = plvl
+  if (max(plvl).lt.2000) then                 ; must be hPa
+      PLVL = PLVL*100                         ; make local be Pa
+  end if
+  logPLVL = log(PLVL)                         ; used below
+  P0      = 100000                            ; "Pa", reference
+
+;---LAT is a local version of 'lat'. 
+;   Get around any pole singularity: ie., avoid dividing by cos(90)=0.0 
+;   Set abs(LAT)=90 to _FillValue
+
+  LAT = lat
+  LAT@_FillValue = totype(1e20,typeof(LAT))   ; any out-of-range value will do
+  LAT = where(abs(LAT).eq.90, LAT@_FillValue, LAT) 
+  
+;---Constants & quantities needed
+ 
+  a     = 6.37122e06       ; radius of the earth (m)
+  PI    = get_pi(U)        ; same type as 'U'
+  omega = 7.2921e-5   
+
+  phi   = LAT*PI/180.0     ; latitude in radians
+  cphi  = cos(phi)
+  acphi = a*cphi             
+  asphi = a*sin(phi)       ; a*sin latitude for use in calculating the divergence.
+  f     = 2*omega*sin(phi) ; coriolis parameter
+  
+  latfac= acphi*cphi       ; scale factor includes extra cos(phi) 
+                           ; for graphical display of arrows 
+                           ; see Edmon et al, 1980
+;---Compute theta (degK)
+
+ ;THETA   = T*(conform(T,PLVL,1)/P0)^(-0.286) ; (time,lev,lat,lon); (0,1,2,3)
+  THETA   = T*(P0/conform(T,PLVL,1))^( 0.286) ; (time,lev,lat,lon)
+  THETA@long_name = "potential temperature"
+  THETA@units     = "degK"
+  copy_VarCoords(T, THETA)
+
+  if (print_var_info) then
+      printVarSummary(THETA)
+      printMinMax(THETA,0)
+      print("~~~")
+  end if
+
+
+;---Zonal mean (zm) THEATA
+
+  THETAzm = dim_avg_n_Wrap(THETA, 3)          ; (time,lev,lat) => (0,1,2)
+  THETAzm@long_name = "zonal mean potential temperature"
+
+  if (print_var_info) then
+      printVarSummary(THETAzm)
+      printMinMax(THETAzm,0)
+      print("~~~")
+  end if
+  
+;---d(THETAzm)/d(log(p))                      ; p<==>plvl
+
+  THETAp   = center_finite_diff_n (THETAzm,logPLVL,False,0,1) ; (time,lev,lat)
+  THETAp@long_name = "d(THETAzm)/d[log(p)]"
+  THETAp@units     = "degK"
+  copy_VarCoords(THETAzm, THETAp)
+
+  if (print_var_info) then
+      printVarSummary(THETAp)
+      printMinMax(THETAp,0)
+      print("~~~")
+  end if
+                                             
+;---Compute (1/p)*THETAp = THETAp/p (overwrite variable) 
+
+  THETAp   = THETAp/conform(THETAp,PLVL,1)    ; broadcast PLVL to all other dimensions
+  THETAp@long_name = "THETAp/plvl"
+  THETAp@units     = "degK/Pa"
+
+  if (print_var_info) then
+      printVarSummary(THETAp)
+      printMinMax(THETAp,0)
+      print("~~~")
+  end if
+
+;---Compute time average of THETAp
+
+  THETAptm = dim_avg_n_Wrap(THETAp,0)         ; (lev,lat,lon)
+
+  if (print_var_info) then
+      printVarSummary(THETAptm)
+      printMinMax(THETAptm,0)
+      print("~~~")
+  end if
+
+;---Zonal mean wind component anomalies (za)
+  
+  Uza     = dim_rmvmean_n_Wrap(U,3)           ; (time,lev,lat,lon)
+  Vza     = dim_rmvmean_n_Wrap(V,3)
+  THETAza = dim_rmvmean_n_Wrap(THETA,3)
+  THETAza@long_name = "THETA zonal anomaly"
+  Vza@long_name     = "V meridional anomaly"                    
+  Uza@long_name     = "U zonal anomaly U"                    
+
+  if (print_var_info) then
+      printVarSummary(Uza)
+      printMinMax(Uza,0)
+      print("~~~")
+      printVarSummary(Vza)
+      printMinMax(Vza,0)
+      print("~~~")
+      printVarSummary(THETAza)
+      printMinMax(THETAza,0)
+      print("~~~")
+  end if
+
+;---Anomaly products
+  
+  UV       = Uza*Vza                          ; (time,lev,lat,lon)
+  UV@long_name = "Uza*Vza: U'V'"
+  UV@units = "m2/s2"
+  copy_VarCoords(U,UV)
+
+  if (print_var_info) then
+      printVarSummary(UV)
+      printMinMax(UV,0)
+      print("~~~")
+  end if
+
+  VTHETA  = Vza*THETAza                       ; (time,lev,lat,lon)
+  VTHETA@long_name = "Vza*THETAza"
+  VTHETA@units     = "degK-m/s"
+  copy_VarCoords(V,VTHETA)
+
+  if (print_var_info) then
+      printVarSummary(VTHETA)
+      printMinMax(VTHETA,0)
+      print("~~~")
+  end if
+
+;---Zonal (zm) & time (tm) means of UV & VTHETA 
+
+  UVzm    = dim_avg_n_Wrap(UV  ,3)            ; (time,lev,lat)
+  UVzm@long_name   = "zonal mean UV"
+
+  if (print_var_info) then
+      printVarSummary(UVzm)
+      printMinMax(UVzm,0)
+      print("~~~")
+  end if
+
+  UVzmtm  = dim_avg_n_Wrap(UVzm,0)            ; (lev,lat) 
+  UVzmtm@long_name = "time mean of zonal mean UV"
+
+  if (print_var_info) then
+      printVarSummary(UVzmtm)
+      printMinMax(UVzmtm,0)
+      print("~~~")
+  end if
+  
+  VTHETAzm   = dim_avg_n_Wrap(VTHETA  ,3)     ; (time,lev,lat)
+  VTHETAzm@long_name   = "zonal mean UV"
+
+  if (print_var_info) then
+      printVarSummary(VTHETAzm)
+      printMinMax(VTHETAzm,0)
+      print("~~~")
+  end if
+
+  VTHETAzmtm = dim_avg_n_Wrap(VTHETAzm,0)     ; (lev,lat)
+  VTHETAzmtm@long_name = "time mean of zonal mean UV"
+
+  if (print_var_info) then
+      printVarSummary(VTHETAzmtm)
+      printMinMax(VTHETAzmtm,0)
+      print("~~~")
+  end if
+
+;---EP flux meridional and vertical compoments
+  
+  Fphi  = -UVzmtm*conform(UVzmtm,latfac,1)                     ; (lev,lat)
+  Fp    = (VTHETAzmtm/THETAptm)*conform(VTHETAzmtm,f*acphi,1)  ; (lev,lat)
+  Fphi@long_name = "UVzmtm: meridional component of EP flux"
+  Fp@long_name   = "(VTHETAzmtm/THETAptm): vertical component of EP flux"
+  copy_VarCoords(UVzmtm    ,Fphi)
+  copy_VarCoords(VTHETAzmtm,Fp)
+
+  if (print_var_info) then
+      printVarSummary(Fphi)
+      printMinMax(Fphi,0)
+      print("~~~")
+      printVarSummary(Fp)
+      printMinMax(Fp,0)
+      print("~~~")
+  end if
+
+;---EP Flux Divergence
+;   Derivative w.r.t latitude  using  1/[a cos(phi)]  d/dphi [cos(phi)*X] =  d/d [asin(phi)] Fphi
+;   Note: Fphi already has the extra factor of cos(phi)
+
+  EPdiv1 = center_finite_diff_n(Fphi,asphi,False,0,1)  
+  EPdiv1@long_name = "Meridional divergence"
+
+  EPdiv2 = center_finite_diff_n(Fp,PLVL,False,0,0)    
+  EPdiv2@long_name = "Vertical divergence"
+
+  EPdiv  = EPdiv1 + EPdiv2                             ; Add components
+  EPdiv@long_name   = "EP flux divergence"
+  copy_VarCoords(Fp, EPdiv)
+
+  if (print_var_info) then
+      printMinMax(EPdiv1,0)
+      print("~~~")
+      printMinMax(EPdiv2,0)
+      print("~~~")
+      printVarSummary(EPdiv)
+      printMinMax(EPdiv,0)
+      print("~~~")
+  end if
+  delete( [/EPdiv1, EPdiv2 /])
+  
+;---Compute acceleration from div(F):   
+;   Rate of change in angular momentum per unit mass and divide by a*cos(phi).
+  
+  dudt = 86400*EPdiv/conform(EPdiv,acphi,1) ; 
+  dudt@long_name = "acceleration of zonal wind"
+  dudt@units     = "m/s2"
+  copy_VarCoords(EPdiv,dudt)
+
+  if (print_var_info) then
+      printVarSummary(dudt)
+      printMinMax(dudt,0)
+      print("~~~")
+  end if
+
+;---Optional return (opt@raw=True)
+
+  if (opt .and. isatt(opt, "raw") .and. opt@raw) then
+      return ([/ Fphi, Fp, EPdiv, dudt /] )   ; 'raw' 
+  end if
+
+;---Scale the vectors for plot 
+;   First scale according to Edmon et al. for pressure coordinates
+;   (even though I am using log-p display -- not entirely consistent as the arrows 
+;    may "look" divergent when they are not, but better visibility in practice)
+
+  Fp   = Fp*conform(Fp,cphi,1)   
+  Fphi = Fphi/a
+  
+;---Next scale by the relative ranges of the two axes of the plot(3.14 radians by 10^5 Pa)
+
+  Fp   = Fp/P0                      ; Fp/1.0e5
+  Fphi = Fphi/PI
+
+;---Option: scale by sqrt(pressure)
+
+  if (opt .and. isatt(opt, "scale_sqrt_p") .and. .not.opt@scale_sqrt_p) then
+      scale_by_sqrt_p = 0               ; not used
+  else   
+      scale_by_sqrt_p = 1               ; default
+      rhofac   = sqrt(P0/PLVL)
+
+      Fp   = Fp*conform(Fp,rhofac,0)
+      Fphi = Fphi*conform(Fphi,rhofac,0)
+
+      Fp@long_name   = "Vertical EP Flux: scaled by sqrt(P0/plvl)" 
+      Fphi@long_name = "Meridional EP Flux: scaled by sqrt(P0/plvl)" 
+  end if
+  
+;--Scale by a magnification factor above 100 hPa (10000 Pa). 
+
+  if (opt .and. isatt(opt,"magf")) then
+      strat1    = where(PLVL.lt.10000, opt@magf, 1)
+      stratmask = conform(Fp,strat1,0)
+      Fp        = Fp*stratmask
+      Fphi      = Fphi*stratmask
+      Fp@tag    = "magnification factor at <= 100 hPa: magf="+opt@magf
+      Fphi@tag  = "magnification factor at <= 100 hPa: magf="+opt@magf
+  end if
+
+  return ([/ Fphi, Fp, EPdiv, dudt /] )  ; standard 'scaled' values
+end
+;---------------------------------------------------------------------------------
+; generic function interface ... promote 3D to 4D ... if applicable
+;---------------------------------------------------------------------------------
+undef("epflux")
+function epflux(U:numeric, V:numeric, T:numeric, plvl[*]:numeric, lat[*]:numeric, opt[1]:logical)
+local dimUVT, rankUVT, klvl, nlat, mlon, ntim, epflx, U4, V4, T4
+begin
+  dimUVT  = dimsizes(U)
+  rankUVT = dimsizes(dimUVT)
+
+  if (rankUVT.lt.3 .or.rankUVT.gt.4) then
+      print("epflux: U/V/T rank must be 3 or 4; rank="+rankUVT)
+      print("epflux: dimsizes(U)="+dimUVT)
+      exit
+  end if
+
+  if (rankUVT.eq.4) then
+      epflx  = epflux4(U,V,T,plvl,lat,opt)
+
+  else                    ; create a temporary 4D array; the 'time' timension is bogus
+      klvl = dimUVT(0)
+      nlat = dimUVT(1)
+      mlon = dimUVT(2)
+      ntim = 1            ; place holder
+
+      U4   = new( (/ntim,klvl,nlat,mlon/), typeof(U), getFillValue(U)) 
+      V4   = new( (/ntim,klvl,nlat,mlon/), typeof(V), getFillValue(V)) 
+      T4   = new( (/ntim,klvl,nlat,mlon/), typeof(T), getFillValue(T)) 
+      U4(0:0,:,:,:) = U 
+      V4(0:0,:,:,:) = V 
+      T4(0:0,:,:,:) = T 
+                          ; the following is *not* necessary but ....
+      U4!0 = "time_dumy"    
+      V4!0 = "time_dumy"
+      T4!0 = "time_dumy"
+      U4&time_dumy = 0
+      V4&time_dumy = 0
+      T4&time_dumy = 0
+
+      epflx = epflux4(U4,V4,T4,plvl,lat,opt)
+  end if
+
+  return(epflx)
+end
+;---------
+undef("heat_index_nws_eqns")
+function heat_index_nws_eqns(t:numeric, rh:numeric, crit[3]:numeric, c[9]:numeric \
+                            ,eqnType[1]:integer, opt[1]:logical)
+; 'heat_index_nws' driver; input t is **degF**
+local HI, A, t2, rh2, trh
+begin
+                                                           ; NWS practice
+  HI = (0.5*(t+61.0+((t-68.0)*1.2)+(rh*0.094)) + t)*0.5    ; avg (Steadman and t)
+  HI = where(t.le.40, t, HI)                               ; http://ehp.niehs.nih.gov/1206273/
+
+ ;A  = -10.3 + 1.1*t + 0.047*HI                            ; ehp.1206273.g003.tif
+ ;if (A.ge.40 .and. A.lt.lt.crit(0)) then
+ ;    HI = A 
+ ;end if
+ ;delete(A)
+
+  if (all(t.lt.crit(0))) then
+      eqnType = 0
+  else
+      HI = where(HI.ge.crit(0)  \
+                ,c(0)+ c(1)*t + c(2)*rh + c(3)*t*rh  + c(4)*t^2              \
+                +c(5)*rh^2 + c(6)*t^2*rh  + c(7)*t*rh^2 + c(8)*(t^2)*(rh^2)  \
+                ,HI)                 
+    
+      HI = where(rh.lt.13 .and. (t.gt.80 .and. t.lt.112) \
+                ,HI-((13-rh)/4)*sqrt((17-abs(t-95.))/17), HI)
+    
+      HI = where(rh.gt.85 .and. (t.gt.80 .and. t.lt.87)  \
+                ,HI+((rh-85)/10)*((87-t)/5), HI)
+
+      eqnType = 1
+  end if
+
+  return(HI)
+end
+; ------
+undef("heat_index_nws")
+function heat_index_nws(t:numeric, rh:numeric, iounit[2]:integer, opt[1]:logical)
+;
+; http://www.wpc.ncep.noaa.gov/html/heatindex_equation.shtml
+; https://en.wikipedia.org/wiki/Heat_index
+; Reference:
+; R. G. Steadman, 1979: 
+;    The Assessment of Sultriness. Part I: A Temperature-Humidity Index Based on Human Physiology and Clothing Science.
+;    J. Appl. Meteor., 18, 861–873.
+;    doi: http://dx.doi.org/10.1175/1520-0450(1979)018<0861:TAOSPI>2.0.CO;2 
+;
+; Lans P. Rothfusz (1990): NWS Technical Attachment (SR 90-23)
+;
+; The ‘Heat Index’ is a measure of how hot weather "feels" to the body.
+; The combination of temperature an humidity produce an "apparent temperature" 
+; or the temperature the body "feels". The returned values are for shady locations only. 
+; Exposure to full sunshine can increase heat index values by up to 15°F. 
+; Also, strong winds, particularly with very hot, dry air, can be extremely 
+; hazardous as the wind adds heat to the body
+;
+; The computation of the heat index is a refinement of a result obtained by multiple 
+; regression analysis carried out by Lans P. Rothfusz and described in a 
+; 1990 National Weather Service (NWS) Technical Attachment (SR 90-23).  
+;
+; In practice, the Steadman formula is computed first and the result averaged 
+; with the temperature. If this heat index value is 80 degrees F or higher, 
+; the full regression equation along with any adjustment as described above is applied. 
+;
+local HI, T, Tcrit, c, eqnType, units
+begin
+
+  if (iounit(0).lt.0 .or. iounit(0).gt.2) then
+      print("heat_index_nws: invalid iounit(0): invalid(0)="+iounit(0))
+      exit
+  end if
+  if (iounit(1).lt.0 .or. iounit(1).gt.2) then
+      print("heat_index_nws: invalid iounit(1): invalid(1)="+iounit(1))
+      exit
+  end if
+  if (all(rh.lt.1)) then
+      print("heat_index_nws: rh must be % not fractional; All rh are < 1")
+      exit
+  end if
+
+       ; Default coef are for .ge.80F and 40-100% humidity 
+  coef  = (/-42.379, 2.04901523, 10.14333127, -0.22475541   \
+           ,-0.00683783, -0.05481717, 0.00122874, 0.00085282, -0.00000199 /)
+  crit  = (/ 80, 40, 100/)    ; (T_low (F),  RH_low,  RH_High/)
+
+       ; Optional coef are for 70F-115F and humidities between 0 and 80% 
+       ; Within 3F of default coef
+  if (opt .and. isatt(opt,"coef") .and. opt@coef.eq.2) then
+      coef := (/ 0.363445176, 0.988622465, 4.777114035, -0.114037667  \
+               ,-0.000850208,-0.020716198, 0.000687678,  0.000274954, 0.0 /)
+      crit := (/ 70, 0, 80/)   ; F
+  end if
+
+  eqnType = -1
+  if (iounit(0).eq.2) then                          ; t must be degF
+      HI = heat_index_nws_eqns(t, rh, crit, coef, eqnType, opt) ; use input (t) directly
+  else
+      if (iounit(0).eq.0) then
+           T = 1.8*t + 32                           ; degC => degF
+      else
+           T = 1.8*t - 459.67                       ; degK => degF
+      end if
+      HI = heat_index_nws_eqns(T, rh, crit, coef, eqnType, opt) ; use local T
+  end if
+
+  if (iounit(1).eq.2) then                 
+      units = "degF"
+  else
+      if (iounit(1).eq.0) then
+          HI = (HI-32)*0.55555
+          units = "degC"
+      else
+          HI = (HI+459.67)*0.55555
+          units = "degK"
+      end if
+  end if
+
+  HI@long_name = "heat index: NWS"
+  HI@units     = units
+  HI@www       = "http://www.wpc.ncep.noaa.gov/html/heatindex_equation.shtml"
+  HI@info      = "appropriate for shady locations with no wind"
+  if (eqnType.eq.0) then
+      HI@tag   = "NCL: heat_index_nws; (Steadman+t)*0.5"
+  else
+      HI@tag   = "NCL: heat_index_nws; (Steadman+t)*0.5 and Rothfusz"            
+  end if
+  copy_VarCoords(t, HI)
+
+  return(HI)
+end
+;----------------------------------------------------------
+undef("latent_heat_water")
+function latent_heat_water(t:numeric, iounit[2]:integer, key[1]:integer, opt[1]:logical)
+;
+;   Baker, Schlatter  17-may-1982     original version.
+;
+;   This function returns the latent heat of
+;               evaporation/condensation         for key=1
+;               melting/freezing                 for key=2
+;               sublimation/deposition           for key=3
+;   for water. The latent heat heatl (joules per kilogram) is a
+;   function of temperature t. The formulas are polynomial
+;   approximations to the values in table 92, p. 343 of the Smithsonian
+;   Meteorological Tables, sixth revised edition, 1963 by Roland List.
+;   The approximations were developed by Eric Smith at Colorado State University.
+;   polynomial coefficients
+
+;   iounit(0)=0 means the input are in degrees C (degC);
+;   iounit(0)=1 means the input are in degrees K (degK);
+;   iounit(0)=2 means the input are in degrees F. 
+
+;   iounit(1)=0 means the output are in J/kg
+;   iounit(1)=1 means the output are in J/g
+;   iounit(1)=2 means the output are in cal/g
+
+;   1 J/g = 0.238846 cal/g; 1 cal/g = 4.1868 J/g
+
+local ttype, t0, con, cun, a, tk, heatl, lname
+begin
+  ttype = typeof(t)
+
+  if (ttype.eq."double") then
+      t0  = 273.15d
+      con = 5.0d/9.0d
+      cun = (/1.0d, 0.001d, 0.238846d /)
+  else
+      t0  = 273.15
+      con = 5.0/9.0
+      cun = (/1.0, 0.001, 0.238846 /)
+  end if
+
+; Polynomial Coefficients
+
+  if (key.eq.1) then
+      if (ttype.eq."double") then
+          a = (/ 3337118.5d, -3642.8583d,  2.1263947d /)
+      else
+          a = (/ 3337118.5 , -3642.8583 ,  2.1263947  /)
+      end if
+      lname = "Latent Heat: evaporation/condensation"
+  else if (key.eq.2) then
+      if (ttype.eq."double") then
+          a = (/-1161004.0d,  9002.2648d, -12.931292d /)
+      else
+          a = (/-1161004.0 ,  9002.2648 , -12.931292  /)
+      end if
+      lname = "Latent Heat: melting/freezing"
+  else if (key.eq.3) then
+      if (ttype.eq."double") then
+          a = (/ 2632536.8d,  1726.9659d, -3.6248111d /)
+      else
+          a = (/ 2632536.8 ,  1726.9659 , -3.6248111  /)
+      end if
+      lname = "Latent Heat: sublimation/deposition"
+  else
+      print("latent_heat_water: illegal key value: key="+key)
+      exit
+  end if   ; key=3
+  end if   ; key=2
+  end if   ; key=1
+
+  if (iounit(0).eq.0) then        ; input in C; convert to K 
+      heatl = a(0)+ a(1)*(t+t0) + a(2)*(t+t0)^2
+  else if (iounit(0).eq.1) then   ; input in K; no need convert units
+      heatl = a(0)+ a(1)*t + a(2)*t*t
+  else if (iounit(0).eq.2) then   ; input in F; convert to K 
+      tk    = (t-32)*con + t0
+      heatl = a(0)+ a(1)*tk + a(2)*tk^2
+  end if   ; iounit(0)=2
+  end if   ; iounit(0)=1
+  end if   ; iounit(0)=0
+
+ ;print("latent_heat_water: key="+key+"  heatl="+heatl)
+
+; meta data
+
+  heatl@long_name = lname
+
+  if (iounit(1).eq.0) then
+      heatl@units = "J/kg"         ; joules per kilogram 
+  else if (iounit(1).eq.1) then
+      heatl = heatl*cun(1) 
+      heatl@units = "J/g"          ; joules per gram 
+  else if (iounit(1).eq.2) then
+      heatl = (heatl*cun(1))*cun(2)
+      heatl@units = "cal/g"        ; calories (IT) per gram 
+  end if   ; iounit(0)=2
+  end if   ; iounit(0)=1
+  end if   ; iounit(0)=0
+
+  copy_VarCoords(t, heatl)         ; copy coords
+  return(heatl)
+end     ; latent_heat_water
+;----------------------------------------------------------
+undef("calculate_monthly_values")
+function calculate_monthly_values (x:numeric, arith:string, nDim[1]:integer, opt[1]:logical)
+;
+; calculate monthly values [avg, sum, min, max]
+; x: numeric array of 5D or less [eg: time,lev,lat,lon]
+;    *must* have time coordinate recognized by cd_calendar
+;    if 5D [case,time,lev,lat,lon]
+; arith: "avg" [also, "ave"], "sum","min","max"     others may be added later
+; nDim : scalar integer that specifies the 'time' dimension [generally, 0]
+; opt  : only used to eliminate a warning message
+;        opt= 0 ... default ... print Warning
+;        opt=-1 ... do not print Warning
+;
+; Sample usage:  x(time,lat,lon) where time are n-hrly or daily values.
+;        xMonthAvg = calculate_monthly_values(x, "avg", 0, False)
+;        xMonthSum = calculate_monthly_values(x, "sum", 0, False)
+;        xMonthMin = calculate_monthly_values(x, "min", 0, False)
+;        xMonthMax = calculate_monthly_values(x, "max", 0, False)
+;        xMonthVar = calculate_monthly_values(x, "var", 0, False)
+;        xMonthStd = calculate_monthly_values(x, "std", 0, False)
+;                  ************
+; Note that NCL's 'dimension reduction' which, in general, I view as a feature,
+;      introduces some processing issues in the 'corner case' of one value.
+;      This requires extra (nuisance) steps and leads to 'code bloat'.  :-(
+;                  ************
+; If this function is slow, consider using the Climate Data Operator (CDO)
+;      cdo monmean foo_hourly_or_daily.nc  foo_monthly_mean.nc
+;      cdo monmin  foo_hourly_or_daily.nc  foo_monthly_min.nc
+;      cdo monmax  foo_hourly_or_daily.nc  foo_monthly_max.nc
+;      cdo monsum  foo_hourly_or_daily.nc  foo_monthly_sum.nc
+;                  ************
+;
+local dnamx, TNAME, TIME, dimx, rankx, NTIM, utc_date, year, month, ntim, work
+     ,yyyy, mm, nt, it, nmos, xStat, nval_crit, yrStrt, yrLast
+begin
+    if (.not.(arith.eq."ave" .or. arith.eq."avg" .or. arith.eq."sum"  \
+                             .or. arith.eq."min" .or. arith.eq."max"  \     
+                             .or. arith.eq."var" .or. arith.eq."std") ) then
+        print("calculate_monthly_values: unrecognizezed 'arith' argument="+arith)
+        exit
+    end if
+
+; a monthly mean will be calculated only if the # of values is >= nval_crit
+
+    nval_crit = 1                                  ; default
+    if (opt .and. isatt(opt,"nval_crit")) then
+        nval_crit = toint(opt@nval_crit)
+    end if
+
+    dnamx    = getvardims(x)                       ; dimension names
+    TNAME    = dnamx(nDim)                         ; typically TNAME="time"
+ 
+    dimx     = dimsizes(x)                         ; dimensions sizes
+    rankx    = dimsizes(dimx)                      ; # of dimensions
+    ntim     = dimx(nDim)                          ; size of input time dimension
+
+;--- Create current yyyy/mm
+;   'cd_calendar' recognizes any 'calendar' attribute associated with ' x&$TNAME$ '.
+;    Hence, the elements below (yyyy, month, ..) reflect that calendar.
+;    No calendar attributes defaults to gregorian [standard].
+
+    utc_date = cd_calendar(x&$TNAME$, 0)           ; (x&$TNAME$, 0) ; typically   x&time
+    year     = floattointeger(utc_date(:,0))
+    month    = floattointeger(utc_date(:,1))
+    day      = floattointeger(utc_date(:,2))
+   ;hour     = floattointeger(utc_date(:,3))
+   ;minute   = floattointeger(utc_date(:,4))
+   ;second   = utc_date(:,5)
+
+;--- Create monthly coordinate variable. Size must be determined because
+;    each month *may* have different number of time steps. 
+;    An example might be a field program.
+
+    nt       =  -1                                 ; number of individual days
+    work     = new (ntim, typeof(x&$TNAME$), getVarFillValue(x&$TNAME$)) 
+
+    yrStrt   = min(year)
+    yrLast   = max(year)
+
+    do yyyy=yrStrt,yrLast
+      do mm=min(month),max(month)
+         it := ind(yyyy.eq.year .and. mm.eq.month)
+         if (.not.all(ismissing(it))) then
+             nt   = nt+1
+             work(nt) = (/ x&$TNAME$(it(0)) /)     ; use 1st encountered time  
+             nit  = dimsizes(it)                   ; for print only
+           ;;print("yyyy="+yyyy+"  mm="+mm +"  nit="+nit+"  it(0)="+it(0)+" nt="+nt)
+         end if    ; .not.all(ismissing(it))
+      end do       ; mm
+    end do         ; yyyy
+
+    if (nt.lt.0) then
+        print("WARNING: calculate_monthly_values: no values for period: "+ \
+               yrStrt+"-"+yrLast)
+        xStat      = getVarFillValue(x)
+        xStat!0    = "time"
+        xStat&time = getVarFillValue(x)
+        xStat@long_name = "All Missing Values"
+        return(xStat)
+    end if
+    NTIM = nt+1           ; number of months
+  ;;print("NTIM="+NTIM)
+
+    TIME   = work(0:nt)
+    TIME!0 = "TIME"
+    if (isatt(x&$TNAME$,"long_name")) then
+        TIME@long_name = x&$TNAME$@long_name 
+    else
+        TIME@long_name = "time corresponding to 1st time of current month"
+       TIME@long_name = "time corresponding to 1st encountered time of current month"
+ 
+    end if
+    if (isatt(x&$TNAME$,"units")) then
+        TIME@units     = x&$TNAME$@units 
+    end if
+    if (isatt(x&$TNAME$,"calendar")) then
+        TIME@calendar  = x&$TNAME$@calendar 
+    end if
+
+    TIME&TIME = TIME               ; create coordinate variable 
+    delete(work)                   ; no longer needed
+
+    nt   = -1
+    nmos = 12
+
+    if (rankx.eq.1) then
+        xStat  = new ( (/NTIM/), typeof(x), getVarFillValue(x))
+
+        do yyyy=yrStrt,yrLast
+          do mm=min(month),max(month)
+             it  := ind(yyyy.eq.year .and. mm.eq.month) 
+             if (.not.all(ismissing(it))) then
+                 nit  = dimsizes(it)
+                 nt = nt+1
+                 if (arith.eq."avg" .or. arith.eq."ave") then
+                     if (nit.gt.1) then ; work around for NCL's dimension reduction
+                         xStat(nt)  = dim_avg_n( x(it), nDim)
+                     else               ; one 'it'
+                         xStat(nt)  = x(it(0))
+                     end if
+                 end if
+                 if (arith.eq."sum") then
+                     if (nit.gt.1) then ; work around for NCL's dimension reduction
+                         xStat(nt)  = dim_sum_n( x(it), nDim)
+                     else               ; one 'it'
+                         xStat(nt)  = x(it(0))
+                     end if
+                 end if
+                 if (arith.eq."min") then
+                     if (nit.gt.1) then ; work around for NCL's dimension reduction
+                         xStat(nt)  = dim_min_n( x(it), nDim)
+                     else               ; one 'it'
+                         xStat(nt)  = x(it(0))
+                     end if
+                 end if
+                 if (arith.eq."max") then
+                     if (nit.gt.1) then ; work around for NCL's dimension reduction
+                         xStat(nt)  = dim_max_n( x(it), nDim)
+                     else               ; one 'it'
+                         xStat(nt)  = x(it(0))
+                     end if
+                 end if
+                 if (arith.eq."var") then
+                     if (nit.gt.1) then ; work around for NCL's dimension reduction
+                         xStat(nt)  = dim_variance_n( x(it), nDim)
+                     else               ; one 'it'; variance set to zero
+                         xStat(nt)  = 0.0       
+                     end if
+                 end if
+                 if (arith.eq."std") then
+                     if (nit.gt.1) then ; work around for NCL's dimension reduction
+                         xStat(nt)  = dim_stddev_n( x(it), nDim)
+                     else               ; one 'it'; std. dev set to zero
+                         xStat(nt)  = 0.0       
+                     end if
+                 end if
+                         
+                 if (nval_crit.gt.1) then
+                     nit_valid = dim_num_n(.not.ismissing(x(it)),0)
+                     xStat(nt) = where(nit_valid.ge.nval_crit,  xStat(nt),  xStat@_FillValue)
+                 end if ; nval_crit
+
+             end if     ; .not.all(ismissing(it))
+          end do        ; mm
+        end do          ; yyyy
+
+        copy_VarAtts(x, xStat)
+    end if              ; rankx.eq.1 
+
+    if (rankx.eq.2) then
+        xStat  = new ( (/NTIM,dimx(1)/), typeof(x), getVarFillValue(x))
+
+        do yyyy=yrStrt,yrLast
+          do mm=min(month),max(month)
+             it  := ind(yyyy.eq.year .and. mm.eq.month) 
+             if (.not.all(ismissing(it))) then
+                 nit = dimsizes(it)
+                 nt  = nt+1
+                 if (arith.eq."avg" .or. arith.eq."ave") then
+                     if (nit.gt.1) then ; work around for NCL's dimension reduction
+                         xStat(nt,:)  = dim_avg_n( x(it,:), nDim)
+                     else               ; one 'it'
+                         xStat(nt,:)  = x(it(0),:)
+                     end if
+                 end if
+                 if (arith.eq."sum") then
+                     if (nit.gt.1) then ; work around for NCL's dimension reduction
+                         xStat(nt,:)  = dim_sum_n( x(it,:), nDim)
+                     else               ; one 'it'
+                         xStat(nt,:)  = x(it(0),:)
+                     end if
+                 end if
+                 if (arith.eq."min") then
+                     if (nit.gt.1) then ; work around for NCL's dimension reduction
+                         xStat(nt,:)  = dim_min_n( x(it,:), nDim)
+                     else               ; one 'it'
+                         xStat(nt,:)  = x(it(0),:)
+                     end if
+                 end if
+                 if (arith.eq."max") then
+                     if (nit.gt.1) then ; work around for NCL's dimension reduction
+                         xStat(nt,:)  = dim_max_n( x(it,:), nDim)
+                     else               ; one 'it'
+                         xStat(nt,:)  = x(it(0),:)
+                     end if
+                 end if
+                 if (arith.eq."var") then
+                     if (nit.gt.1) then ; work around for NCL's dimension reduction
+                         xStat(nt,:)  = dim_variance_n( x(it,:), nDim)
+                     else               ; one 'it'; variance set to zero
+                         xStat(nt,:)  = 0.0       
+                     end if
+                 end if
+                 if (arith.eq."std") then
+                     if (nit.gt.1) then ; work around for NCL's dimension reduction
+                         xStat(nt,:)  = dim_stddev_n( x(it,:), nDim)
+                     else               ; one 'it'; std. dev set to zero
+                         xStat(nt,:)  = 0.0       
+                     end if
+                 end if
+                         
+                 if (nval_crit.gt.1) then
+                     nit_valid   = dim_num_n(.not.ismissing(x(it,:)),0)
+                     xStat(nt,:) = where( nit_valid.ge.nval_crit,  xStat(nt,:),  xStat@_FillValue)
+                 end if  ; nval_crit
+
+             end if    ; .not.all(ismissing(it))
+          end do       ; mm
+        end do         ; yyyy
+
+        copy_VarMeta(x(0,:), xStat(0,:))
+    end if             ; rankx.eq.2 
+
+    if (rankx.eq.3) then
+        xStat  = new ( (/NTIM,dimx(1),dimx(2)/), typeof(x), getVarFillValue(x))
+
+        do yyyy=yrStrt,yrLast
+          do mm=min(month),max(month)
+             it  := ind(yyyy.eq.year .and. mm.eq.month) 
+             if (.not.all(ismissing(it))) then
+                 nt  = nt+1
+                 nit = dimsizes(it)
+                 if (arith.eq."avg" .or. arith.eq."ave") then
+                     if (nit.gt.1) then ; work around for NCL's dimension reduction
+                         xStat(nt,:,:)  = dim_avg_n( x(it,:,:), nDim)
+                     else               ; one 'it'
+                         xStat(nt,:,:)  = x(it(0),:,:)
+                     end if
+                 end if
+                 if (arith.eq."sum") then
+                     if (nit.gt.1) then ; work around for NCL's dimension reduction
+                         xStat(nt,:,:)  = dim_sum_n( x(it,:,:), nDim)
+                     else               ; one 'it'
+                         xStat(nt,:,:)  = x(it(0),:,:)
+                     end if
+                 end if
+                 if (arith.eq."min") then
+                     if (nit.gt.1) then ; work around for NCL's dimension reduction
+                         xStat(nt,:,:)  = dim_min_n( x(it,:,:), nDim)
+                     else               ; one 'it'
+                         xStat(nt,:,:)  = x(it(0),:,:)
+                     end if
+                 end if
+                 if (arith.eq."max") then
+                     if (nit.gt.1) then ; work around for NCL's dimension reduction
+                         xStat(nt,:,:)  = dim_max_n( x(it,:,:), nDim)
+                     else               ; one 'it'
+                         xStat(nt,:,:)  = x(it(0),:,:)
+                     end if
+                 end if
+                 if (arith.eq."var") then
+                     if (nit.gt.1) then ; work around for NCL's dimension reduction
+                         xStat(nt,:,:)  = dim_variance_n( x(it,:,:), nDim)
+                     else               ; one 'it'; variance set to zero
+                         xStat(nt,:,:)  = 0.0       
+                     end if
+                 end if
+                 if (arith.eq."std") then
+                     if (nit.gt.1) then ; work around for NCL's dimension reduction
+                         xStat(nt,:,:)  = dim_stddev_n( x(it,:,:), nDim)
+                     else               ; one 'it'; std. dev set to zero
+                         xStat(nt,:,:)  = 0.0       
+                     end if
+                 end if
+                         
+                 if (nval_crit.gt.1) then
+                     nit_valid     = dim_num_n(.not.ismissing(x(it,:,:)),0)
+                     xStat(nt,:,:) = where( nit_valid.ge.nval_crit,  xStat(nt,:,:),  xStat@_FillValue)
+                 end if  ; nval_crit
+
+             end if    ; .not.all(ismissing(it))
+          end do       ; mm
+        end do         ; yyyy
+
+        copy_VarMeta(x(0,:,:), xStat(0,:,:))
+    end if             ; rankx.eq.3 
+
+    if (rankx.eq.4) then
+        xStat  = new ( (/NTIM,dimx(1),dimx(2),dimx(3)/), typeof(x), getVarFillValue(x))
+
+        do yyyy=yrStrt,yrLast
+          do mm=min(month),max(month)
+             it  := ind(yyyy.eq.year .and. mm.eq.month) 
+             if (.not.all(ismissing(it))) then
+                 nit = dimsizes(it)
+                 nt  = nt+1
+                 if (arith.eq."avg" .or. arith.eq."ave") then
+                     if (nit.gt.1) then ; work around for NCL's dimension reduction
+                         xStat(nt,:,:,:)  = dim_avg_n( x(it,:,:,:), nDim)
+                     else               ; one 'it'
+                         xStat(nt,:,:,:)  = x(it(0),:,:,:)
+                     end if
+                 end if
+                 if (arith.eq."sum") then
+                     if (nit.gt.1) then ; work around for NCL's dimension reduction
+                         xStat(nt,:,:,:)  = dim_sum_n( x(it,:,:,:), nDim)
+                     else               ; one 'it'
+                         xStat(nt,:,:,:)  = x(it(0),:,:,:)
+                     end if
+                 end if
+                 if (arith.eq."min") then
+                     if (nit.gt.1) then ; work around for NCL's dimension reduction
+                         xStat(nt,:,:,:)  = dim_min_n( x(it,:,:,:), nDim)
+                     else               ; one 'it'
+                         xStat(nt,:,:,:)  = x(it(0),:,:,:)
+                     end if
+                 end if
+                 if (arith.eq."max") then
+                     if (nit.gt.1) then ; work around for NCL's dimension reduction
+                         xStat(nt,:,:,:)  = dim_max_n( x(it,:,:,:), nDim)
+                     else               ; one 'it'
+                         xStat(nt,:,:,:)  = x(it(0),:,:,:)
+                     end if
+                 end if
+                 if (arith.eq."var") then
+                     if (nit.gt.1) then ; work around for NCL's dimension reduction
+                         xStat(nt,:,:,:)  = dim_variance_n( x(it,:,:,:), nDim)
+                     else               ; one 'it'; variance set to zero
+                         xStat(nt,:,:,:)  = 0.0       
+                     end if
+                 end if
+                 if (arith.eq."std") then
+                     if (nit.gt.1) then ; work around for NCL's dimension reduction
+                         xStat(nt,:,:,:)  = dim_stddev_n( x(it,:,:,:), nDim)
+                     else               ; one 'it'; std. dev set to zero
+                         xStat(nt,:,:,:)  = 0.0       
+                     end if
+                 end if
+                         
+                 if (nval_crit.gt.1) then
+                     nit_valid       = dim_num_n(.not.ismissing(x(it,:,:,:)),0)
+                     xStat(nt,:,:,:) = where( nit_valid.ge.nval_crit,  xStat(nt,:,:,:),  xStat@_FillValue)
+                 end if  ; nval_crit
+
+             end if    ; .not.all(ismissing(it))
+          end do       ; mm
+        end do         ; yyyy
+
+        copy_VarMeta(x(0,:,:,:), xStat(0,:,:,:))
+    end if             ; rankx.eq.4 
+
+    if (rankx.eq.5) then
+        xStat  = new ( (/dimx(0),NTIM,dimx(2),dimx(3),dimx(4)/), typeof(x), getVarFillValue(x))
+
+        do yyyy=yrStrt,yrLast
+          do mm=min(month),max(month)
+             it  := ind(yyyy.eq.year .and. mm.eq.month) 
+             if (.not.all(ismissing(it))) then
+                 nit  = dimsizes(it)
+                 nt = nt+1
+                 if (arith.eq."avg" .or. arith.eq."ave") then
+                     if (nit.gt.1) then ; work around for NCL's dimension reduction
+                         xStat(:,nt,:,:,:)  = dim_avg_n( x(:,it,:,:,:), nDim)
+                      else               ; one 'it'
+                         xStat(:nt,:,:,:)  = x(:,it(0),:,:,:)
+                     end if
+                 end if
+                 if (arith.eq."sum") then
+                     if (nit.gt.1) then ; work around for NCL's dimension reduction
+                         xStat(:,nt,:,:,:)  = dim_sum_n( x(:,it,:,:,:), nDim)
+                     else               ; one 'it'
+                         xStat(:,nt,:,:,:)  = x(:,it(0),:,:,:)
+                     end if
+                 end if
+                 if (arith.eq."min") then
+                     if (nit.gt.1) then ; work around for NCL's dimension reduction
+                         xStat(:,nt,:,:,:)  = dim_min_n( x(:,it,:,:,:), nDim)
+                     else               ; one 'it'
+                         xStat(:,nt,:,:,:)  = x(:,it(0),:,:,:)
+                     end if
+                 end if
+                 if (arith.eq."max") then
+                     if (nit.gt.1) then ; work around for NCL's dimension reduction
+                         xStat(:,nt,:,:,:)  = dim_max_n( x(:,it,:,:,:), nDim)
+                     else               ; one 'it'
+                         xStat(:,nt,:,:,:)  = x(:,it(0),:,:,:)
+                     end if
+                 end if
+                 if (arith.eq."var") then
+                     if (nit.gt.1) then ; work around for NCL's dimension reduction
+                         xStat(:,nt,:,:,:)  = dim_variance_n( x(:,it,:,:,:), nDim)
+                     else               ; one 'it'; set variance to zero
+                         xStat(:,nt,:,:,:)  = 0.0
+                     end if
+                 end if
+                 if (arith.eq."std") then
+                     if (nit.gt.1) then ; work around for NCL's dimension reduction
+                         xStat(:,nt,:,:,:)  = dim_stddev_n( x(:,it,:,:,:), nDim)
+                     else               ; one 'it'; set set. dev. to zero
+                         xStat(:,nt,:,:,:)  = 0.0
+                     end if
+                 end if
+                         
+                 if (nval_crit.gt.1) then
+                     nit_valid         = dim_num_n(.not.ismissing(x(it,:,:,:,:)),0)
+                     xStat(nt,:,:,:,:) = where( nit_valid.ge.nval_crit,  xStat(nt,:,:,:,:),  xStat@_FillValue)
+                 end if  ; nval_crit
+
+             end if    ; .not.all(ismissing(it))
+          end do       ; mm
+        end do         ; yyyy
+    end if             ; rankx.eq.5 
+
+    xStat!nDim    = TNAME 
+    xStat&$TNAME$ = TIME
+    xStat@NCL_tag = "calculate_monthly_values: arith="+arith
+    return(xStat)
+end
+;----------------------------------------------------------
+undef("calculate_daily_values")
+function calculate_daily_values (x:numeric, arith:string, nDim[1]:integer, opt[1]:logical)
+;                  ************
+; Note that NCL's 'dimension reduction' which, in general, I view as a feature,
+;      introduces some processing issues in the 'corner case' of one value.
+;      This requires extra (nuisance) steps and leads to 'code bloat'.  :-(
+;                  ************
+; If this function is slow, consider using the Climate Data Operator (CDO)
+;      cdo daymean foo_hourly.nc  foo_daily_mean.nc
+;      cdo daymin  foo_hourly.nc  foo_daily_min.nc
+;      cdo daymax  foo_hourly.nc  foo_daily_max.nc
+;      cdo daysum  foo_hourly.nc  foo_daily_sum.nc
+;                  ************
+local dnamx, TIME, TNAME, dimx, rankx, NTIM, utc_date, year, month, day \
+     ,ntim, work, yyyy, mm, dd, dymon, it, nt, nmos, xSta, nval_crit, yrStrt, yrLast
+begin
+    if (.not.(arith.eq."ave" .or. arith.eq."avg" .or. arith.eq."sum"  \
+                             .or. arith.eq."min" .or. arith.eq."max") ) then
+        print("calculate_daily_values: unrecognizezed 'arith' argument="+arith)
+        exit
+    end if
+
+; a daily mean will be calculated only if the # of values is >= nval_crit
+
+    if (opt .and. isatt(opt,"nval_crit") .and. typeof(opt@nval_crit).eq."integer") then
+        nval_crit = opt@nval_crit
+    else
+        nval_crit = 1
+    end if
+
+    dnamx    = getvardims(x)                       ; dimension names
+    TNAME    = dnamx(nDim)                         ; typically TNAME="time"
+ 
+    dimx     = dimsizes(x)
+    rankx    = dimsizes(dimx)                      ; # of dimensions
+    ntim     = dimx(nDim)                          ; size of input time dimension
+
+;--- Create current yyyy/mm/dd
+;   'cd_calendar' recognizes any 'calendar' attribute associated with ' x&$TNAME$ '.
+;    Hence, the elements below (yyyy, month, ..) reflect that calendar.
+;    No calendar attribute defaults to gregorian [standard].
+
+    utc_date = cd_calendar(x&$TNAME$, 0)           ; (x&$TNAME$, 0) ; typically   x&time
+    year     = floattointeger(utc_date(:,0))
+    month    = floattointeger(utc_date(:,1))
+    day      = floattointeger(utc_date(:,2))
+    hour     = floattointeger(utc_date(:,3))
+   ;minute   = floattointeger(utc_date(:,4))
+   ;second   = utc_date(:,5)
+
+    yrStrt   = min(year)
+    yrLast   = max(year)
+
+;--- Create daily coordinate variable. Size must be determined because
+;    each day *may* have different number of time steps. 
+;    An example might be a field program.
+
+    nt       =  -1                                 ; number of individual days
+    work     = new (ntim, typeof(x&$TNAME$), getVarFillValue(x&$TNAME$)) 
+    do yyyy=yrStrt,yrLast
+      do mm=min(month),max(month)
+         dymon  = days_in_month ( yyyy, mm) 
+        do dd=1,dymon          
+           it  := ind(yyyy.eq.year .and. mm.eq.month .and. dd.eq.day) 
+           nit  = dimsizes(it)
+           if (.not.ismissing(it(0)) .and. nit.ge.nval_crit) then
+               nt = nt+1
+               work(nt) = (/ x&$TNAME$(it(0)) /)   ; use 1st time of current day  
+           end if
+        end do     ; dd
+      end do       ; mm
+    end do         ; yyyy
+    NTIM = nt+1    ; get 1-based total
+
+    TIME   = work(0:nt)
+    TIME!0 = "TIME"
+    if (isatt(x&$TNAME$,"long_name")) then
+        TIME@long_name = x&$TNAME$@long_name 
+    else
+        TIME@long_name = "time corresponding to 1st time of current day"
+    end if
+    if (isatt(x&$TNAME$,"units")) then
+        TIME@units     = x&$TNAME$@units 
+    end if
+    if (isatt(x&$TNAME$,"calendar")) then
+        TIME@calendar  = x&$TNAME$@calendar
+    end if
+
+    TIME&TIME = TIME               ; create coordinate variable 
+    delete(work)                   ; no longer needed
+
+    nt   = -1
+    nmos = 12
+
+    if (rankx.eq.1) then
+        xStat  = new ( (/NTIM/), typeof(x), getVarFillValue(x))
+
+        do yyyy=min(year),max(year)
+          do mm=min(month),max(month)
+             dymon = days_in_month ( yyyy, mm) 
+            do dd=1,dymon          ; min(day),max(day)
+               it := ind(yyyy.eq.year .and. mm.eq.month .and. dd.eq.day) 
+               nit = dimsizes(it)
+               if (.not.ismissing(it(0)) .and. nit.ge.nval_crit) then
+                   nt = nt+1
+                   if (arith.eq."avg" .or. arith.eq."ave") then
+                       if (nit.gt.1) then ; work around for NCL's dimension reduction
+                           xStat(nt)  = dim_avg_n( x(it), nDim)
+                       else               ; one 'it'
+                           xStat(nt)  = x(it(0))
+                       end if
+                   end if
+                   if (arith.eq."sum") then
+                       if (nit.gt.1) then ; work around for NCL's dimension reduction
+                           xStat(nt)  = dim_sum_n( x(it), nDim)
+                       else               ; one 'it'
+                           xStat(nt)  = x(it(0))
+                       end if
+                   end if
+                   if (arith.eq."min") then
+                       if (nit.gt.1) then ; work around for NCL's dimension reduction
+                           xStat(nt)  = dim_min_n( x(it), nDim)
+                       else               ; one 'it'
+                           xStat(nt)  = x(it(0))
+                       end if
+                   end if
+                   if (arith.eq."max") then
+                       if (nit.gt.1) then ; work around for NCL's dimension reduction
+                           xStat(nt)  = dim_max_n( x(it), nDim)
+                       else               ; one 'it'
+                           xStat(nt)  = x(it(0))
+                       end if
+                   end if
+                         
+                   if (nval_crit.gt.1) then
+                       nit_valid  = dim_num_n(.not.ismissing(x(it)),0)
+                       xStat(nt)  = where( nit_valid.ge.nval_crit,  xStat(nt),  xStat@_FillValue)
+                   end if  ; nval_crit
+
+               end if  ; .not.ismissing(it(0))
+            end do     ; dd
+          end do       ; mm
+        end do         ; yyyy
+
+        copy_VarAtts(x, xStat)
+    end if             ; rankx.eq.1 
+
+    if (rankx.eq.2) then
+        xStat  = new ( (/NTIM,dimx(1)/), typeof(x), getVarFillValue(x))
+
+        do yyyy=min(year),max(year)
+          do mm=min(month),max(month)
+             dymon = days_in_month ( yyyy, mm) 
+            do dd=1,dymon          ; min(day),max(day)
+               it := ind(yyyy.eq.year .and. mm.eq.month .and. dd.eq.day) 
+               nit = dimsizes(it)
+               if (.not.ismissing(it(0)) .and. nit.ge.nval_crit) then
+                   nt = nt+1
+                   if (arith.eq."avg" .or. arith.eq."ave") then
+                       if (nit.gt.1) then ; work around for NCL's dimension reduction
+                           xStat(nt,:)  = dim_avg_n( x(it,:), nDim)
+                       else               ; one 'it'
+                           xStat(nt,:)  = x(it(0),:)
+                       end if
+                   end if
+                   if (arith.eq."sum") then
+                       if (nit.gt.1) then ; work around for NCL's dimension reduction
+                           xStat(nt,:)  = dim_sum_n( x(it,:), nDim)
+                       else               ; one 'it'
+                           xStat(nt,:)  = x(it(0),:)
+                       end if
+                   end if
+                   if (arith.eq."min") then
+                       if (nit.gt.1) then ; work around for NCL's dimension reduction
+                           xStat(nt,:)  = dim_min_n( x(it,:), nDim)
+                       else               ; one 'it'
+                           xStat(nt,:)  = x(it(0),:)
+                       end if
+                   end if
+                   if (arith.eq."max") then
+                       if (nit.gt.1) then ; work around for NCL's dimension reduction
+                           xStat(nt,:)  = dim_max_n( x(it,:), nDim)
+                       else               ; one 'it'
+                           xStat(nt,:)  = x(it(0),:)
+                       end if
+                   end if
+                        
+                   if (nval_crit.gt.1) then
+                       nit_valid   = dim_num_n(.not.ismissing(x(it,:)),0)
+                       xStat(nt,:) = where( nit_valid.ge.nval_crit,  xStat(nt,:),  xStat@_FillValue)
+                   end if  ; nval_crit
+
+               end if  ; .not.ismissing(it(0))
+            end do     ; dd
+          end do       ; mm
+        end do         ; yyyy
+
+        copy_VarMeta(x(0,:), xStat(0,:))
+    end if             ; rankx.eq.2 
+
+    if (rankx.eq.3) then
+        xStat  = new ( (/NTIM,dimx(1),dimx(2)/), typeof(x), getVarFillValue(x))
+
+        do yyyy=min(year),max(year)
+          do mm=min(month),max(month)
+             dymon = days_in_month ( yyyy, mm) 
+            do dd=min(day),max(day)
+               it := ind(yyyy.eq.year .and. mm.eq.month .and. dd.eq.day) 
+               nit = dimsizes(it)
+               if (.not.ismissing(it(0)) .and. nit.ge.nval_crit) then
+                   nt = nt+1
+                   if (arith.eq."avg" .or. arith.eq."ave") then
+                       if (nit.gt.1) then ; work around for NCL's dimension reduction
+                           xStat(nt,:,:)  = dim_avg_n( x(it,:,:), nDim)
+                       else               ; one 'it'
+                           xStat(nt,:,:)  = x(it(0),:,:)
+                       end if
+                   end if
+                   if (arith.eq."sum") then
+                       if (nit.gt.1) then ; work around for NCL's dimension reduction
+                           xStat(nt,:,:)  = dim_sum_n( x(it,:,:), nDim)
+                       else               ; one 'it'
+                           xStat(nt,:,:)  = x(it(0),:,:)
+                       end if
+                   end if
+                   if (arith.eq."min") then
+                       if (nit.gt.1) then ; work around for NCL's dimension reduction
+                           xStat(nt,:,:)  = dim_min_n( x(it,:,:), nDim)
+                       else               ; one 'it'
+                           xStat(nt,:,:)  = x(it(0),:,:)
+                       end if
+                   end if
+                   if (arith.eq."max") then
+                       if (nit.gt.1) then ; work around for NCL's dimension reduction
+                           xStat(nt,:,:)  = dim_max_n( x(it,:,:), nDim)
+                       else               ; one 'it'
+                           xStat(nt,:,:)  = x(it(0),:,:)
+                       end if
+                   end if
+                         
+                   if (nval_crit.gt.1) then
+                       nit_valid     = dim_num_n(.not.ismissing(x(it,:,:)),0)
+                       xStat(nt,:,:) = where( nit_valid.ge.nval_crit,  xStat(nt,:,:),  xStat@_FillValue)
+                   end if  ; nval_crit
+
+               end if  ; .not.ismissing(it(0))
+            end do     ; dd
+          end do       ; mm
+        end do         ; yyyy
+
+        copy_VarMeta(x(0,:,:), xStat(0,:,:))
+    end if             ; rankx.eq.3 
+
+    if (rankx.eq.4) then
+        xStat  = new ( (/NTIM,dimx(1),dimx(2),dimx(3)/), typeof(x), getVarFillValue(x))
+
+        do yyyy=min(year),max(year)
+          do mm=min(month),max(month)
+             dymon = days_in_month ( yyyy, mm) 
+            do dd=min(day),max(day)
+               it := ind(yyyy.eq.year .and. mm.eq.month .and. dd.eq.day) 
+               nit = dimsizes(it)
+               if (.not.ismissing(it(0)) .and. nit.ge.nval_crit) then
+                   nt = nt+1
+                   if (arith.eq."avg" .or. arith.eq."ave") then
+                       if (nit.gt.1) then ; work around for NCL's dimension reduction
+                           xStat(nt,:,:,:)  = dim_avg_n( x(it,:,:,:), nDim)
+                       else               ; one 'it'
+                           xStat(nt,:,:,:)  = x(it(0),:,:,:)
+                       end if
+                   end if
+                   if (arith.eq."sum") then
+                       if (nit.gt.1) then ; work around for NCL's dimension reduction
+                           xStat(nt,:,:,:)  = dim_sum_n( x(it,:,:,:), nDim)
+                       else               ; one 'it'
+                           xStat(nt,:,:,:)  = x(it(0),:,:,:)
+                       end if
+                   end if
+                   if (arith.eq."min") then
+                       if (nit.gt.1) then ; work around for NCL's dimension reduction
+                           xStat(nt,:,:,:)  = dim_min_n( x(it,:,:,:), nDim)
+                       else               ; one 'it'
+                           xStat(nt,:,:,:)  = x(it(0),:,:,:)
+                       end if
+                   end if
+                   if (arith.eq."max") then
+                       if (nit.gt.1) then ; work around for NCL's dimension reduction
+                           xStat(nt,:,:,:)  = dim_max_n( x(it,:,:,:), nDim)
+                       else               ; one 'it'
+                           xStat(nt,:,:,:)  = x(it(0),:,:,:)
+                       end if
+                   end if
+                        
+                   if (nval_crit.gt.1) then
+                       nit_valid       = dim_num_n(.not.ismissing(x(it,:,:,:)),0)
+                       xStat(nt,:,:,:) = where( nit_valid.ge.nval_crit,  xStat(nt,:,:,:),  xStat@_FillValue)
+                   end if  ; nval_crit
+
+
+               end if  ; .not.ismissing(it(0))
+            end do     ; dd
+          end do       ; mm
+        end do         ; yyyy
+
+        copy_VarMeta(x(0,:,:,:), xStat(0,:,:,:))
+    end if             ; rankx.eq.4 
+
+    if (rankx.eq.5) then
+        xStat  = new ( (/dimx(0),NTIM,dimx(2),dimx(3),dimx(4)/), typeof(x), getVarFillValue(x))
+        do yyyy=min(year),max(year)
+          do mm=min(month),max(month)
+             dymon = days_in_month ( yyyy, mm) 
+            do dd=min(day),max(day)
+               it := ind(yyyy.eq.year .and. mm.eq.month .and. dd.eq.day) 
+               nit = dimsizes(it)
+               if (.not.ismissing(it(0)) .and. nit.ge.nval_crit) then
+                   nt = nt+1
+                   if (arith.eq."avg" .or. arith.eq."ave") then
+                       if (nit.gt.1) then ; work around for NCL's dimension reduction
+                           xStat(:,nt,:,:,:)  = dim_avg_n( x(:,it,:,:,:), nDim)
+                       else               ; one 'it'
+                           xStat(:,nt,:,:,:)  = x(:,it(0),:,:,:)
+                       end if
+                   end if
+                   if (arith.eq."sum") then
+                       if (nit.gt.1) then ; work around for NCL's dimension reduction
+                           xStat(:,nt,:,:,:)  = dim_sum_n( x(:,it,:,:,:), nDim)
+                       else               ; one 'it'
+                           xStat(:,nt,:,:,:)  = x(:,it(0),:,:,:)
+                       end if
+                   end if
+                   if (arith.eq."min") then
+                       if (nit.gt.1) then ; work around for NCL's dimension reduction
+                           xStat(:,nt,:,:,:)  = dim_min_n( x(:,it,:,:,:), nDim)
+                       else               ; one 'it'
+                           xStat(:,nt,:,:,:)  = x(:,it(0),:,:,:)
+                       end if
+                   end if
+                   if (arith.eq."max") then
+                       if (nit.gt.1) then ; work around for NCL's dimension reduction
+                           xStat(:,nt,:,:,:)  = dim_max_n( x(:,it,:,:,:), nDim)
+                       else               ; one 'it'
+                           xStat(:,nt,:,:,:)  = x(:,it(0),:,:,:)
+                       end if
+                   end if
+                         
+                   if (nval_crit.gt.1) then
+                       nit_valid         = dim_num_n(.not.ismissing(x(it,:,:,:,:)),0)
+                       xStat(nt,:,:,:,:) = where( nit_valid.ge.nval_crit,  xStat(nt,:,:,:,:),  xStat@_FillValue)
+                   end if  ; nval_crit
+
+               end if  ; .not.ismissing(it(0))
+            end do     ; dd
+          end do       ; mm
+        end do         ; yyyy
+
+        copy_VarMeta(x(:,0,:,:,:), xStat(:,0,:,:,:))
+    end if             ; rankx.eq.5 
+
+    xStat!nDim    = TNAME 
+    xStat&$TNAME$ = TIME
+
+    xStat@NCL_tag = "calculate_daily_values: arith="+arith
+    return(xStat)
+end
+;---------------------------------------------------------------------
+undef("calculate_segment_values")
+function calculate_segment_values (x:numeric, arith:string, nDim[1]:integer, opt[1]:logical)
+;                  ************
+; Note that NCL's 'dimension reduction' which, in general, I view as a feature,
+;      introduces some processing issues in the 'corner case' of one value.
+;      This requires extra (nuisance) steps and leads to 'code bloat'.  :-(
+;                  ************
+local dnamx, TIME, TNAME, dimx, rankx, NTIM, utc_date, year, month, day \
+     ,ntim, work, yyyy, mm, dd, dymon, it, nt, nmos, xSta, nval_crit, lseg, nseg
+begin
+    if (.not.(arith.eq."ave" .or. arith.eq."avg" .or. arith.eq."sum"  \
+                             .or. arith.eq."min" .or. arith.eq."max") ) then
+        print("calculate_segment_values: unrecognizezed 'arith' argument="+arith)
+        exit
+    end if
+
+; define segment length in terms of 'day length' ... default is 7
+
+    lseg = 7                                       ; default [7 days]
+    if (opt .and. isatt(opt,"segment_length")) then
+        lseg = toint(opt@segment_length)
+    end if
+    lseg1 = lseg-1
+
+; a segment mean will be calculated only if the # of values is >= nval_crit
+
+    nval_crit = 1                                  ; default [1 day]
+    if (opt .and. isatt(opt,"nval_crit")) then
+        nval_crit = toint(opt@nval_crit)
+    end if
+
+    dnamx    = getvardims(x)                       ; dimension names
+    TNAME    = dnamx(nDim)                         ; typically TNAME="time"
+    TIME     = x&$TNAME$                           ; extract for convenience
+
+; cd_convert has bug recognizing calendar attribute
+; This function currently works with the 'standard' and 'gregorian' calendars. 
+; No calendar attribute defaults to 'gregorian.'
+
+    if (isatt(TIME,"calendar") .and. \
+        .not.(TIME@calendar.eq."standard" .or. TIME@calendar.eq."gregorian")) then
+        print("calculate_segment_values: does not work with calendar="+TIME@calendar)
+        exit
+    end if 
+ 
+    dimx     = dimsizes(x)
+    rankx    = dimsizes(dimx)                      ; # of dimensions
+    ntim     = dimx(nDim)                          ; size of input time dimension
+
+;--- Create current yyyy/mm/dd
+
+    utc_date = cd_calendar(TIME, 0)                ; (x&$TNAME$, 0) ; typically   x&time
+    year     = floattointeger(utc_date(:,0))
+    month    = floattointeger(utc_date(:,1))
+    day      = floattointeger(utc_date(:,2))
+    hour     = floattointeger(utc_date(:,3))
+   ;minute   = floattointeger(utc_date(:,4))
+   ;second   = utc_date(:,5)
+
+;--- Trick: create a 'time' variable in units of 'days since' the start of the input array.
+
+    timeDay  = cd_convert( TIME, "days since "+year(0)+"-"+month(0)+"-"+day(0)+" 00:00" )
+    timeDay@info = "indicates the start time of the current segment"
+  ;;print(timeDay)  ; for (non-standard; non-gregorian) this will have episodic 1 day gaps
+
+    nday_span= round((timeDay(ntim-1)-timeDay(0)), 3)  ; last_day - start_day; start_day=0  
+    nseg     = nday_span/lseg                          ; eg: lseg=7;  nseg= # weeks
+
+    nt       = -1
+    ndyStrt  = 0
+    ndyLast  = lseg1
+    timeSeg  = new( nseg, typeof(timeDay)) 
+
+   ;print(year+"  "+month+"  "+day+"  "+timeDay)
+   ;print("nday_span="+nday_span+"; nseg="+nseg)
+   ;print("rankx="+rankx+"  ndyStrt="+ndyStrt+"  ndyLast="+ndyLast)
+
+    if (rankx.eq.1) then
+        xStat  = new ( (/nseg/), typeof(x), getVarFillValue(x))
+
+        do ns=0,nseg-1
+           it := ind(timeDay.ge.ndyStrt .and. timeDay.le.ndyLast)
+           if (.not.all(ismissing(it))) then
+               nit = dimsizes(it)
+               nt  = nt+1
+
+               if (.not.ismissing(it(0))) then
+                   timeSeg(nt) = timeDay(it(0))
+    
+                   if (arith.eq."avg" .or. arith.eq."ave") then
+                       if (nit.gt.1) then ; work around for NCL's dimension reduction
+                           xStat(nt)  = dim_avg_n( x(it), nDim)
+                       else               ; one 'it'
+                           xStat(nt)  = x(it(0))
+                       end if
+                   end if
+                   if (arith.eq."sum") then
+                       if (nit.gt.1) then ; work around for NCL's dimension reduction
+                           xStat(nt)  = dim_sum_n( x(it), nDim)
+                       else               ; one 'it'
+                           xStat(nt)  = x(it(0))
+                       end if
+                   end if
+                   if (arith.eq."min") then
+                       if (nit.gt.1) then ; work around for NCL's dimension reduction
+                           xStat(nt)  = dim_min_n( x(it), nDim)
+                       else               ; one 'it'
+                           xStat(nt)  = x(it(0))
+                       end if
+                   end if
+                   if (arith.eq."max") then
+                       if (nit.gt.1) then ; work around for NCL's dimension reduction
+                           xStat(nt)  = dim_max_n( x(it), nDim)
+                       else               ; one 'it'
+                           xStat(nt)  = x(it(0))
+                       end if
+                   end if
+
+                   if (nval_crit.gt.1) then
+                       nit_valid = dim_num_n(.not.ismissing(x(it)),0)   
+                       xStat(nt) = where(nit_valid.ge.nval_crit,  xStat(nt),  xStat@_FillValue)
+                   end if             ;  nval_crit
+               end if                 ; .not.ismissing(it(0))
+           end if                     ; .not.all(ismissing(it))
+
+           ndyStrt = ndyLast+1          ; update segment bounds
+           ndyLast = ndyStrt+lseg1
+        end do         ; ns (segment loop)         
+
+        copy_VarAtts(x, xStat)
+    end if             ; rankx.eq.1 
+
+    if (rankx.eq.2) then
+        xStat  = new ( (/nseg,dimx(1)/), typeof(x), getVarFillValue(x))
+
+        do ns=0,nseg-1
+           it  := ind(timeDay.ge.ndyStrt .and. timeDay.le.ndyLast)
+           if (.not.all(ismissing(it))) then
+               nit  = dimsizes(it)
+               nt   = nt+1
+
+               if (.not.ismissing(it(0))) then
+                   timeSeg(nt) = timeDay(it(0))
+    
+                   if (arith.eq."avg" .or. arith.eq."ave") then
+                       if (nit.gt.1) then ; work around for NCL's dimension reduction
+                           xStat(nt,:)  = dim_avg_n( x(it,:), nDim)
+                       else               ; one 'it'
+                           xStat(nt,:)  = x(it(0),:)
+                       end if
+                   end if
+                   if (arith.eq."sum") then
+                       if (nit.gt.1) then ; work around for NCL's dimension reduction
+                           xStat(nt,:)  = dim_sum_n( x(it,:), nDim)
+                       else               ; one 'it'
+                           xStat(nt,:)  = x(it(0),:)
+                       end if
+                   end if
+                   if (arith.eq."min") then
+                       if (nit.gt.1) then ; work around for NCL's dimension reduction
+                           xStat(nt,:)  = dim_min_n( x(it,:), nDim)
+                       else               ; one 'it'
+                           xStat(nt,:)  = x(it(0),:)
+                       end if
+                   end if
+                   if (arith.eq."max") then
+                       if (nit.gt.1) then ; work around for NCL's dimension reduction
+                           xStat(nt,:)  = dim_max_n( x(it,:), nDim)
+                       else               ; one 'it'
+                           xStat(nt,:)  = x(it(0),:)
+                       end if
+                   end if
+    
+                            
+                   if (nval_crit.gt.1) then
+                       nit_valid   = dim_num_n(.not.ismissing(x(it,:)),0)
+                       xStat(nt,:) = where( nit_valid.ge.nval_crit,  xStat(nt,:),  xStat@_FillValue)
+                   end if                 ; nval_crit
+               end if                     ; .not.ismissing(it(0))
+           end if                         ; .not.all(ismissing(it))
+
+           ndyStrt = ndyLast+1            ; update segment bounds
+           ndyLast = ndyStrt+lseg1
+        end do                            ; ns (segment loop)         
+
+        copy_VarMeta(x(0,:), xStat(0,:))
+    end if             ; rankx.eq.2 
+
+    if (rankx.eq.3) then
+        xStat  = new ( (/nseg,dimx(1),dimx(2)/), typeof(x), getVarFillValue(x))
+
+        do ns=0,nseg-1
+           it  := ind(timeDay.ge.ndyStrt .and. timeDay.le.ndyLast)
+           if (.not.all(ismissing(it))) then
+                nit  = dimsizes(it)
+                nt   = nt+1
+
+               if (.not.ismissing(it(0))) then
+                   timeSeg(nt) = timeDay(it(0))
+ 
+                   if (arith.eq."avg" .or. arith.eq."ave") then
+                       if (nit.gt.1) then ; work around for NCL's dimension reduction
+                           xStat(nt,:,:)  = dim_avg_n( x(it,:,:), nDim)
+                       else               ; one 'it'
+                           xStat(nt,:,:)  = x(it(0),:,:)
+                       end if
+                   end if
+                   if (arith.eq."sum") then
+                       if (nit.gt.1) then ; work around for NCL's dimension reduction
+                           xStat(nt,:,:)  = dim_sum_n( x(it,:,:), nDim)
+                       else               ; one 'it'
+                           xStat(nt,:,:)  = x(it(0),:,:)
+                       end if
+                   end if
+                   if (arith.eq."min") then
+                       if (nit.gt.1) then ; work around for NCL's dimension reduction
+                           xStat(nt,:,:)  = dim_min_n( x(it,:,:), nDim)
+                       else               ; one 'it'
+                           xStat(nt,:,:)  = x(it(0),:,:)
+                       end if
+                   end if
+                   if (arith.eq."max") then
+                       if (nit.gt.1) then ; work around for NCL's dimension reduction
+                           xStat(nt,:,:)  = dim_max_n( x(it,:,:), nDim)
+                       else               ; one 'it'
+                           xStat(nt,:,:)  = x(it(0),:,:)
+                       end if
+                   end if
+                             
+                   if (nval_crit.gt.1) then
+                       nit_valid     = dim_num_n(.not.ismissing(x(it,:,:)),0)
+                       xStat(nt,:,:) = where( nit_valid.ge.nval_crit,  xStat(nt,:,:),  xStat@_FillValue)
+                   end if               ; nval_crit
+               end if                   ; .not.ismissing(it(0)))
+           end if                       ; .not.all(ismissing(it))
+
+           ndyStrt = ndyLast+1          ; update segment bounds
+           ndyLast = ndyStrt+lseg1
+        end do         ; ns (segment loop)         
+
+        copy_VarMeta(x(0,:,:), xStat(0,:,:))
+    end if             ; rankx.eq.3 
+
+    if (rankx.eq.4) then
+        xStat  = new ( (/nseg,dimx(1),dimx(2),dimx(3)/), typeof(x), getVarFillValue(x))
+
+        do ns=0,nseg-1
+           it  := ind(timeDay.ge.ndyStrt .and. timeDay.le.ndyLast)
+           if (.not.all(ismissing(it))) then
+                nit  = dimsizes(it)
+                nt   = nt+1
+
+                if (.not.ismissing(it(0))) then
+                    timeSeg(nt) = timeDay(it(0))
+     
+                    if (arith.eq."avg" .or. arith.eq."ave") then
+                        if (nit.gt.1) then ; work around for NCL's dimension reduction
+                            xStat(nt,:,:,:)  = dim_avg_n( x(it,:,:,:), nDim)
+                        else               ; one 'it'
+                            xStat(nt,:,:,:)  = x(it(0),:,:,:)
+                        end if
+                    end if
+                    if (arith.eq."sum") then
+                        if (nit.gt.1) then ; work around for NCL's dimension reduction
+                            xStat(nt,:,:,:)  = dim_sum_n( x(it,:,:,:), nDim)
+                        else               ; one 'it'
+                            xStat(nt,:,:,:)  = x(it(0),:,:,:)
+                        end if
+                    end if
+                    if (arith.eq."min") then
+                        if (nit.gt.1) then ; work around for NCL's dimension reduction
+                            xStat(nt,:,:,:)  = dim_min_n( x(it,:,:,:), nDim)
+                        else               ; one 'it'
+                            xStat(nt,:,:,:)  = x(it(0),:,:,:)
+                        end if
+                    end if
+                    if (arith.eq."max") then
+                        if (nit.gt.1) then ; work around for NCL's dimension reduction
+                            xStat(nt,:,:,:)  = dim_max_n( x(it,:,:,:), nDim)
+                        else               ; one 'it'
+                            xStat(nt,:,:,:)  = x(it(0),:,:,:)
+                        end if
+                    end if
+     
+                    if (nval_crit.gt.1) then
+                        nit_valid       = dim_num_n(.not.ismissing(x(it,:,:,:)),0)
+                        xStat(nt,:,:,:) = where( nit_valid.ge.nval_crit,  xStat(nt,:,:,:),  xStat@_FillValue)
+                    end if              ; nval_crit
+                end if                  ; .not.ismissing(it(0))
+           end if                       ; .not.all(ismissing(it))
+
+           ndyStrt = ndyLast+1          ; update segment bounds
+           ndyLast = ndyStrt+lseg1
+        end do         ; ns (segment loop)         
+
+        copy_VarMeta(x(0,:,:,:), xStat(0,:,:,:))
+    end if             ; rankx.eq.4 
+
+    xStat!nDim    = TNAME 
+    xStat&$TNAME$ = timeSeg
+
+    xStat@NCL_tag = "calculate_segment_values: lseg="+lseg+" days: arith="+arith
+    return(xStat)
+end
+;---------------------------------------------------------------------
+; The UNION of two sets is the set of elements which are in either set.
+; For example: let A = (1,2,3) and let B = (3,4,5). 
+; Now the UNION of A and B, written A union B = (1,2,3,4,5). 
+; There is no need to list the 3 twice.
+;---------------------------------------------------------------------
+undef("venn2_union")
+function venn2_union( a, b )
+local AB, ab, ranka, rankb
+begin
+   if (typeof(a).ne.typeof(b)) then
+       print("venn2_union: arguments a and b must be the same type")
+       print("             typeof(a)="+typeof(a))
+       print("             typeof(b)="+typeof(b))
+       exit
+   end if
+
+   ranka = dimsizes(dimsizes(a))
+   rankb = dimsizes(dimsizes(b))
+                          
+   if (ranka.eq.1 .and. rankb.eq.1) then
+       AB = array_append_record(a,b, 0)
+   else 
+       if (ranka.eq.1) then
+           AB = array_append_record(a,ndtooned(b), 0)
+       else if (rankb.eq.1) then         
+                AB = array_append_record(ndtooned(a), b, 0)
+            else
+                AB = array_append_record(ndtooned(a)   \
+                                        ,ndtooned(b), 0)
+            end if
+       end if
+   end if
+
+   ab     = get_unique_values(AB)    ; 'get_unique_values' sorts the values
+                                     ; into a one-dimenaional array
+   ab@tag = "NCL: venn2_union"
+   return(ab)
+end
+
+;---------------------------------------------------------------------
+; The INTERSECTION of two sets is the set of elements which are in both sets.
+; For example: let A = (1,2,3) and B = (3,4,5). 
+; The INTERSECTION of A and B, written A intersection B = (3).
+;---------------------------------------------------------------------
+undef("venn2_intersection")   
+function venn2_intersection( a, b )
+local atype, btype, au, bu, nau, nbu, abi, k, n, m
+begin
+   atype = typeof(a)
+   btype = typeof(b)
+   if (atype.ne.btype) then
+       print("venn2_intersection: arguments a and b must be the same type")
+       print("                    typeof(a)="+atype)
+       print("                    typeof(b)="+btype)
+       exit
+   end if
+                                ; 'get_unique_values' sorts the elements
+                                ;  and returns a one-dimensional arry
+   au  = get_unique_values(a)   ; avoid duplicate 'a' entries
+   bu  = get_unique_values(b)   ; avoid duplicate 'b' entries
+
+   nau = dimsizes(au)
+   nbu = dimsizes(bu)
+                                ; reserve space
+   abi = new (min((/nau,nbu/)), typeof(a), default_fillvalue(atype))
+   k   = -1
+
+   na  = 0                                 ; MH suggested loop
+   nb  = 0
+   do while(na.lt.nau.and.nb.lt.nbu)
+     if (bu(nb).gt.au(na)) then
+         na = na + 1
+     else 
+         if (au(na).gt.bu(nb)) then
+             nb = nb + 1
+         else                              ; they are equal         
+             k = k+1
+             abi(k) = au(na)
+             nb = nb + 1
+             na = na + 1
+         end if
+     end if
+   end do
+
+   if (k.eq.-1) then           
+       abi    := new (1, typeof(a), default_fillvalue(atype))
+       abi@tag = "venn2_intersection; NULL set; no intersection pairs"
+       return(abi)
+   end if
+
+   abi@tag = "NCL: venn2_intersection"
+   return(abi(0:k))                   
+end
+;
+;---------------------------------------------------------------------
+; The DIFFERENCE of two sets is the set of elements which are unique to each set.
+; For example: let A = (1,2,3) and B = (3,4,5). 
+; The DIFFERENCE of A and B, written A difference B = (1,2,4,5).
+;---------------------------------------------------------------------
+undef("venn2_difference")   
+function venn2_difference( a, b )
+local atype, btype, abi, nabi, au, bu, abd, AB, nAB, n
+begin
+   atype = typeof(a)
+   btype = typeof(b)
+   if (atype.ne.btype) then
+       print("venn2_difference: arguments a and b must be the same type")
+       print("                  typeof(a)="+atype)
+       print("                  typeof(b)="+btype)
+       exit
+   end if
+                                          ; 'get_unique_values' sorts the elements
+                                          ;  and returns a one-dimensional arry
+   abi  = venn2_intersection(a, b)   ; intersect (common) values
+   if (ismissing(abi(0))) then            ; NO intersect
+                                          ; 'get_unique_values' sorts the elements
+       au  = get_unique_values(a)         ; unique 'a' [au]
+       bu  = get_unique_values(b)         ; unique 'b' [bu]
+       abd = array_append_record(au,bu, 0); all unique valuesl [d] difference
+       delete( [/au, bu /] )
+       if (atype.eq."string") then        ; must sort again cuz 'ab' may not be in order
+           sqsort(abd)
+       else
+           qsort(abd)
+       end if
+       abd@tag = "NCL: venn2_difference; arrays are DISJOINT; no intersection"
+       return(abd)
+   end if
+   nabi = dimsizes(abi)
+
+   au   = get_unique_values(a)   ; 'a' [u]nique entries
+   bu   = get_unique_values(b)   ; 'b' [u]nique entries
+   nau  = dimsizes(au)
+   nbu  = dimsizes(bu)
+                                 ; reserve space
+   abd  = new ( nau+nbu,  typeof(a), default_fillvalue(atype))
+   ABu  = array_append_record(au,bu,0)    ; unique AB
+   delete( [/au, bu /] )
+   nABu = dimsizes(ABu)
+
+   abd  = new ( nABu, typeof(a), default_fillvalue(atype))
+   k    = -1
+   do n=0,nABu-1
+      if (.not.any(abi.eq.ABu(n))) then
+          k = k+1
+          abd(k) = ABu(n)
+      end if
+   end do
+
+   if (atype.eq."string") then        ; must sort again cuz 'ab' may not be in order
+       sqsort(abd(0:k))
+   else
+       qsort(abd(0:k))
+   end if
+   abd@tag = "NCL: venn2_difference has created the result"
+   return(abd(0:k))
+end
+;------------------------------------------------------
+undef("satvpr_water_bolton")
+function satvpr_water_bolton(t:numeric, iounit[2]:integer)
+;
+; Saturation vapor pressure over liquid water given a temperature
+; 
+; Reference:
+;   Bolton, David, 1980: 
+;   The computation of equivalent potential temperature 
+;   Monthly Weather Review, vol. 108, no. 7 (july),  p. 1047, eq.(10) 
+;   http://dx.doi.org/10.1175/1520-0493(1980)108<1046:TCOEPT>2.0.CO;2
+;
+;   The quoted accuracy is 0.3% or better for -35 < t < 35c.
+
+local tk0, es0, es, tdc
+begin
+  tk0  = 273.15
+  es0  = 6.1121 
+  warn = False
+
+  if (iounit(0).eq.0) then                  ; input C
+      es  = es0*exp(17.67*t/(t+243.5))
+      if (any(abs(t).gt.35)) then
+          warn = True
+      end if
+  else if (iounit(0).eq.1) then             ; input K
+      tc  = t-tk0
+      es  = es0*exp(17.67*tc/(tc+243.5))
+      if (any(abs(tc).gt.35)) then
+          warn = True
+      end if
+  else if (iounit(0).eq.2) then             ; input F
+      tc  = 0.555556*(t-32)
+      es  = es0*exp(17.67*tc/(tc+243.5))
+      if (any(abs(tc).gt.35)) then
+          warn = True
+      end if
+  end if   ; F
+  end if   ; K
+  end if   ; C
+
+  es@long_name = "saturation vapor pressure over liquid water"
+
+  if (iounit(1).eq.0) then
+      es@units     = "hPa"   ; "mb"
+  else if (iounit(1).eq.1) then
+      es           = 100*es
+      es@units     = "Pa"  
+  else if (iounit(1).eq.2) then
+      es           = 0.1*es
+      es@units     = "kPa"   
+
+  end if           ; hPa=>Pa
+  end if           ; hPa=>kPa
+  end if           ; hPa     
+
+  es@NCL       = "satvpr_water_bolton"
+  es@doi       = "http://dx.doi.org/10.1175/1520-0493(1980)108<1046:TCOEPT>2.0.CO;2"
+  es@info      = "Equation 10 of reference"
+  if (warn) then
+      es@warning = "one or more temperatures outside of valid range: -35C to +35C"
+  end if
+
+  copy_VarCoords(t, es)
+  return(es)
+end
+;------------------------------------------------------
+undef("satvpr_water_stipanuk")
+function satvpr_water_stipanuk(t:numeric, iounit[2]:integer)
+;
+; Saturation vapor pressure over liquid water given a temperature
+; 
+; Reference:  g.s. stipanuk     1973            original version.
+;            "algorithms for generating a skew-t, log p diagram
+;             and computing selected meteorological quantities"
+;             atmospheric sciences laboratory
+;             U.S. army electronics command
+;             white sands missile range, new mexico 88002
+;
+local tk0, tk, p1, p2, c1, esat
+begin
+  tk0  = 273.15
+
+  if (iounit(0).eq.0) then                  ; input C
+      tk   = t + tk0
+      p1   = 11.344-0.0303998*tk
+      p2   = 3.49149-1302.8844/tk
+      c1   = 23.832241-5.02808*log10(tk)
+      es   = 10.^(c1-1.3816e-7*10.^p1+8.1328e-3*10.^p2-2949.076/tk)
+  else if (iounit(0).eq.1) then             ; input K
+      p1   = 11.344-0.0303998*t 
+      p2   = 3.49149-1302.8844/t 
+      c1   = 23.832241-5.02808*log10(t)
+      es   = 10.^(c1-1.3816e-7*10.^p1+8.1328e-3*10.^p2-2949.076/t)
+  else if (iounit(0).eq.2) then             ; input F
+      tk  = 0.555556*(t-32) + tk0
+      p1   = 11.344-0.0303998*tk
+      p2   = 3.49149-1302.8844/tk
+      c1   = 23.832241-5.02808*log10(tk)
+      es   = 10.^(c1-1.3816e-7*10.^p1+8.1328e-3*10.^p2-2949.076/tk)
+  end if   ; F
+  end if   ; K
+  end if   ; C
+
+  es@long_name = "saturation vapor pressure over liquid water"
+
+  if (iounit(1).eq.0) then
+      es@units     = "hPa"   ; "mb"
+  else if (iounit(1).eq.1) then
+      es           = 100*es
+      es@units     = "Pa"  
+  else if (iounit(1).eq.2) then
+      es           = 0.1*es
+      es@units     = "kPa"   
+  end if           ; hPa=>Pa
+  end if           ; hPa=>kPa
+  end if           ; hPa     
+
+  es@NCL       = "satvpr_water_stipanuk"
+
+  copy_VarCoords(t, es)
+  return(es)
+end
+;------------------------------------------------------
+undef("grad_latlon_cfd")
+function grad_latlon_cfd(z:numeric, lat[*]:numeric, lon[*]:numeric, rCyclic[1]:logical, opt[1]:logical)
+local dimz, rankz, nlat, mlon, rad, re, con, dlon, dx, cgx, cgy, gradLatLon, dlon_re, lon_re, lonx
+begin
+  dimz  = dimsizes(z)
+  rankz = dimsizes(dimz)
+
+  if (rankz.lt.2 .or. rankz.gt.4) then
+      print("grad_latlon_cfd: illegal rank: rankz="+rankz)
+      exit
+  end if
+
+  mlon  = dimz(rankz-1)  
+  nlat  = dimz(rankz-2) 
+;************************************************
+; Miscellaneous
+;************************************************
+  rad   = 4.0*atan(1.0)/180.0
+  re    = 6.37122e6  
+  con   = re*rad                 ; one deg lat = 111198.8 meters
+
+;************************************************
+; Use 'center_finite_diff_n for meridional (Y) gradient
+; .    the 'lat' may be unequally spaced (eg: gaussian latitudes)
+;************************************************
+
+  cgy  = center_finite_diff_n( z, lat, False ,0,rankz-2) 
+  cgy  = cgy/con
+  copy_VarCoords( z, cgy)                         ; add mets 
+  cgy@long_name = "cfd: meridional gradient"
+  cgy@units     = "?/m"
+
+;************************************************
+; Use cfd for zonal (X) gradients
+; Generally, these are much smaller than the meridional (Y) gradients
+; This assumes that the longitudes are equally spaced
+; Pre-allocate space for gradients
+;************************************************
+
+  dlon_re = re*(lon(2)-lon(1))*rad    ; meters at 're' radius 
+  lon_re  = ispan(0,mlon-1,1)*dlon_re ; lon(mlon)
+
+  cgx  = new( dimz, typeof(z), getFillValue(z) )  ; lon=>X
+
+  if (rankz.eq.2) then
+      do nl=0,nlat-1                              ; loop over each latitude (y)
+          lonx          = lon_re*cos(lat(nl)*rad) ; longitude spacing (x) function(latitude)
+          cgx(nl,:)     = totype( center_finite_diff_n (z(nl,:)    , lonx, rCyclic,0,0), typeof(cgx))
+      end do
+  else if (rankz.eq.3) then
+      do nl=0,nlat-1                              ; loop over each latitude (y)
+          lonx          = lon_re*cos(lat(nl)*rad) ; longitude spacing (x) function(latitude)
+          cgx(:,nl,:)   = totype( center_finite_diff_n (z(:,nl,:)  , lonx, rCyclic,0,1), typeof(cgx))
+      end do
+  else if (rankz.eq.4) then
+      do nl=0,nlat-1                              ; loop over each latitude (y)
+          lonx          = lon_re*cos(lat(nl)*rad) ; longitude spacing (x) function(latitude)
+          cgx(:,:,nl,:) = totype( center_finite_diff_n (z(:,:,nl,:), lonx, rCyclic,0,2), typeof(cgx))
+      end do
+    end if      ; rankz=4
+   end if       ; rankz=3
+  end if        ; rankz=2
+
+  copy_VarCoords( z, cgx)            
+  cgx@long_name = "cfd: zonal gradient"
+  cgx@units     = "?/m"
+
+  gradLatLon = [/ cgy, cgx /]   ; return two variables as a type 'list'
+  return( gradLatLon )
+end

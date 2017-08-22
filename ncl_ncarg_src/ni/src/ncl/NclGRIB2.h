@@ -1,3 +1,4 @@
+#include <grib2.h>
 #include "NclMultiDValData.h"
 #include "NclOneDValCoordData.h"
 
@@ -5,6 +6,8 @@
 # define GRIB2EOF    0
 # define GRIB2ERROR -1
 # define GRIB2OK     1
+
+#define        GBUFSZ_T        1024
 
 typedef struct _git2{
 	short year;
@@ -407,6 +410,18 @@ typedef struct _g2prodParams {
     int scaled_value_lower_limit;
     int scale_factor_upper_limit;
     int scaled_value_upper_limit;
+    /* aerosols */
+    int aerosol_type;
+    int size_interval_type;
+    int size_first_scale_factor;
+    int size_first_scale_value;
+    int size_second_scale_factor;
+    int size_second_scale_value;
+    int wavelength_interval_type;
+    int wavelength_first_scale_factor;
+    int wavelength_first_scale_value;
+    int wavelength_second_scale_factor;
+    int wavelength_second_scale_value;
 } G2prodParams;
 
 /* Product Def Template (PDS) */
@@ -569,6 +584,9 @@ typedef struct _Grib2VarTraits {
 	int stat_proc_type;
 	int first_level_type;
 	int second_level_type;
+	int aerosol_type;
+	int aerosol_size_interval_type;
+	int aerosol_wavelength_interval_type;
 } Grib2VarTraits;
 
 struct _Grib2ParamList {
@@ -827,3 +845,4 @@ typedef struct codeTable {
 # define    G2_DEFAULT_MISSING_INT \
         ((NclTypeClass) nclTypeintClass)->type_class.default_mis.intval
 
+extern void _g2_seekgb(FILE *lugb, size_t iseek, size_t mseek, size_t *lskip, g2int *lgrib);

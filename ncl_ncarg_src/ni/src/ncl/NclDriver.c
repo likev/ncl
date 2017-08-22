@@ -11,12 +11,15 @@ int quark_comp(const void *q1, const void *q2)
 	return(strcmp((const char*)NrmQuarkToString(*(NrmQuark *)q1),(const char*)NrmQuarkToString(*(NrmQuark *) q2)));
 }
 
-static int numberOfPreloadedScripts = 5;
+static int numberOfPreloadedScripts = 8;
 
-char *preload_scripts[5] = {"$NCARG_ROOT/lib/ncarg/nclscripts/csm/gsn_code.ncl",
+char *preload_scripts[8] = {"$NCARG_ROOT/lib/ncarg/nclscripts/utilities.ncl",
+                            "$NCARG_ROOT/lib/ncarg/nclscripts/csm/gsn_code.ncl",
                             "$NCARG_ROOT/lib/ncarg/nclscripts/csm/gsn_csm.ncl",
-                            "$NCARG_ROOT/lib/ncarg/nclscripts/utilities.ncl",
                             "$NCARG_ROOT/lib/ncarg/nclscripts/csm/contributed.ncl",
+                            "$NCARG_ROOT/lib/ncarg/nclscripts/csm/shea_util.ncl",
+                            "$NCARG_ROOT/lib/ncarg/nclscripts/csm/bootstrap.ncl",
+                            "$NCARG_ROOT/lib/ncarg/nclscripts/csm/extval.ncl",
                             "$NCARG_ROOT/lib/ncarg/nclscripts/wrf/WRFUserARW.ncl"};
 
 int NclDriver(int argc, char **argv)
@@ -25,6 +28,7 @@ int NclDriver(int argc, char **argv)
     int appid;
     int i, k = 0;
     int reset = 1;
+    short echoUserScript = 0;
     DIR *d;
     struct dirent   *ent;
 #if defined(HPUX)
@@ -81,9 +85,7 @@ int NclDriver(int argc, char **argv)
 		      buffer);
     }
 
-    error_fp = stderr;
-    stdout_fp = stdout;
-    stdin_fp = stdin;
+    InitStdStreams(stdin, stdout, stderr);
 	
     ncopts = NC_VERBOSE;
 
@@ -109,16 +111,18 @@ int NclDriver(int argc, char **argv)
      *
      *  -n      element print: don't enumerate elements in print()
      *  -x      echo: turns on command echo
+     *  -Q      turn off echo of copyright and version information
      *  -V      version: output NCARG/NCL version, exit
      *  -m      turns on memory debug
      *  -o      old behavior: retain former behavior for backwards incompatible changes
      *  -h      help: output options and exit
+     *  -s      disable pre-loading of default script files
      *
      *  -X      override: echo every stmt regardless (unannounced option)
      *  -Q      override: don't echo copyright notice (unannounced option)
      */
     opterr = 0;     /* turn off getopt() msgs */
-    while ((c = getopt (argc, argv, "fhnodgmxVXQp")) != -1) {
+    while ((c = getopt (argc, argv, "fhnodgmxVXQps")) != -1) {
         switch (c) {
             case 'p':
                 NCLnoSysPager = 1;
@@ -133,23 +137,27 @@ int NclDriver(int argc, char **argv)
                 break;
 
             case 'x':
-                NCLecho = 1;
+                echoUserScript = 1;
+                break;
+
+            case 's':
+		NCLnoPreload = 1;
                 break;
 
 #ifdef NCLDEBUG
             case 'm':
                 NCLdebug_on = 1;
                 break;
-#endif
 
             case 'd':
                 NCLdebug_on = 2;
                 break;
 
             case 'g':
-                NCLdebug_on = 2;
+                NCLdebug_on = 3;
                 break;
 
+#endif
             /* NOT ADVERTISED!  Will override "no echo" and print EVERYTHING! */
             case 'X':
                 NCLoverrideEcho = 1;
@@ -170,19 +178,21 @@ int NclDriver(int argc, char **argv)
                 break;
 
             case 'h':
-                (void) fprintf(stdout, "Usage: ncl -fhnpxV <args> <file.ncl>\n");
-                (void) fprintf(stdout, "\t -f: Use New File Structure, and NetCDF4 features\n");
+                (void) fprintf(stdout, "Usage: ncl -fhnopxQV <args> <file.ncl>\n");
+	        (void) fprintf(stdout, "\t -f: use new file structure and NetCDF4 features when possible\n");
+                (void) fprintf(stdout, "\t -h: print this message and exit\n");
                 (void) fprintf(stdout, "\t -n: don't enumerate values in print()\n");
+                (void) fprintf(stdout, "\t -o: retain former behavior for certain backwards-incompatible changes\n");
+                (void) fprintf(stdout, "\t -p: don't page output from the system() command\n");
+                (void) fprintf(stdout, "\t -x: echo NCL commands\n");
+                (void) fprintf(stdout, "\t -s: disable pre-loading of default script files\n");
+                (void) fprintf(stdout, "\t -Q: turn off echo of NCL version and copyright info\n");
+                (void) fprintf(stdout, "\t -V: print NCL version and exit\n");
 #ifdef NCLDEBUG
                 (void) fprintf(stdout, "\t -m: turns on memory debug.\n");
-#endif
                 (void) fprintf(stdout, "\t -d: turns on detailed memory debug.\n");
                 (void) fprintf(stdout, "\t -g: turns on deep detailed memory debug.\n");
-                (void) fprintf(stdout, "\t -p: don't page output from the system() command\n");
-                (void) fprintf(stdout, "\t -o: retain former behavior for certain backwards-incompatible changes\n");
-                (void) fprintf(stdout, "\t -x: echo NCL commands\n");
-                (void) fprintf(stdout, "\t -V: print NCL version and exit\n");
-                (void) fprintf(stdout, "\t -h: print this message and exit\n");
+#endif
                 exit(0);
                 break;
 
@@ -203,7 +213,11 @@ int NclDriver(int argc, char **argv)
      */
     if (!NCLnoCopyright) 
         (void) fprintf(stdout,
-            " Copyright (C) 1995-2014 - All Rights Reserved\n University Corporation for Atmospheric Research\n NCAR Command Language Version %s\n The use of this software is governed by a License Agreement.\n See http://www.ncl.ucar.edu/ for more details.\n", GetNCLVersion());
+            " Copyright (C) 1995-2017 - All Rights Reserved\n University Corporation for Atmospheric Research\n NCAR Command Language Version %s\n The use of this software is governed by a License Agreement.\n See http://www.ncl.ucar.edu/ for more details.\n", GetNCLVersion());
+
+    if (NCLnoPreload) {
+	    numberOfPreloadedScripts = 0;
+    }
 
     /* Process any user-defined arguments */
     for (i = optind; i < argc; i++) {
@@ -252,9 +266,6 @@ int NclDriver(int argc, char **argv)
 		NCL_PROF_INIT("cmdline");
 	}
 
-    error_fp = stderr;
-    stdout_fp = stdout;
-    stdin_fp = stdin;
     cur_line_text = NclMalloc((unsigned int) 512);
     cur_line_maxsize = 512;
     cur_line_text_pos = &(cur_line_text[0]);
@@ -474,6 +485,7 @@ int NclDriver(int argc, char **argv)
 #endif
 
     /* Load any provided script */
+    NCLecho = echoUserScript;
     if (nclf != (char *) NULL) {
         (void) strcpy(buffer, _NGResolvePath(nclf));
         if (_NclPreLoadScript(buffer, 0) == NhlFATAL)

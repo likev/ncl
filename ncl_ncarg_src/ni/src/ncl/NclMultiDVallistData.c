@@ -21,9 +21,15 @@
  *	Description:	
  */
 
-#include <stdio.h>
+#ifdef NIO_LIB_ONLY
+#include "niohlu.h"
+#include "nioNresDB.h"
+#else
 #include <ncarg/hlu/hlu.h>
 #include <ncarg/hlu/NresDB.h>
+#endif
+
+#include <stdio.h>
 #include "defs.h"
 #include <errno.h>
 #include "NclVar.h"
@@ -33,6 +39,7 @@
 #include "DataSupport.h"
 #include <math.h>
 #include "NclTypelist.h"
+#include "VarSupport.h"
 #include "ListSupport.h"
 
 static NhlErrorTypes MultiDValListPrintSummary(NclObj self, FILE *fp)
@@ -154,11 +161,11 @@ FILE *fp;
 
 	    switch(cur_obj->obj.obj_type)
 	    {
-	        NclObj obj;
+	        NclObj tmpobj;
 	        case Ncl_Var:
 	        case Ncl_FileVar:
-			obj = _NclGetObj(cur_obj->obj.id);
-			_NclPrintVarSummary((NclVar)obj);
+			tmpobj = _NclGetObj(cur_obj->obj.id);
+			_NclPrintVarSummary((NclVar)tmpobj);
 			break;
 	        default:
 		    fprintf(stderr, "\tin file: %s, line: %d\n", __FILE__, __LINE__);
@@ -252,10 +259,8 @@ static struct _NclDataRec *MultiDVal_list_ReadSection
                                         sel_ptr->u.sub.stride = 1;
                                 }
 
-				n_elem = (long)(((double)
-					(sel_ptr->u.sub.start 
-					- sel_ptr->u.sub.finish))
-					/(double)fabs(((double)sel_ptr->u.sub.stride))) + 1;
+                                n_elem = (ng_size_t) labs((sel_ptr->u.sub.start - sel_ptr->u.sub.finish)
+					 	          / sel_ptr->u.sub.stride) + 1L;
 
 /*
 * Need to be able to determine which type of comparision < or > is needed to
@@ -282,10 +287,8 @@ static struct _NclDataRec *MultiDVal_list_ReadSection
                                 }
 
 
-				n_elem = (long)(((double)
-					(sel_ptr->u.sub.finish 
-					- sel_ptr->u.sub.start))
-					/((double)sel_ptr->u.sub.stride)) + 1;
+                                n_elem = (ng_size_t) labs((sel_ptr->u.sub.start - sel_ptr->u.sub.finish)
+					 	          / sel_ptr->u.sub.stride) + 1L;
 
 				
 				if(sel_ptr->u.sub.stride < 0){
@@ -356,7 +359,7 @@ static struct _NclDataRec *MultiDVal_list_ReadSection
 * index >= 0 into the integer vector array.
 */
 
-	val = (int*)NclMalloc(total_elements * sizeof(int));
+	val = (obj*)NclMalloc(total_elements * sizeof(obj));
 	to = 0;
 	while(!done) {
 		from = 0;
@@ -364,9 +367,9 @@ static struct _NclDataRec *MultiDVal_list_ReadSection
 			from = from + (current_index[i] * multiplier[i]);
 		}
 		if(!chckmiss) {
-			val[to] = ((ng_size_t*)self_md->multidval.val)[from];
+			val[to] = ((obj*)self_md->multidval.val)[from];
 		} else {
-			val[to] = (((ng_size_t*)self_md->multidval.val)[from] == missing->intval) ? missing->intval:((ng_size_t*)self_md->multidval.val)[from];
+			val[to] = (((obj*)self_md->multidval.val)[from] == missing->intval) ? missing->intval:((obj*)self_md->multidval.val)[from];
 		}
 		if(compare_sel[n_dims_input-1] <0) {
 			current_index[n_dims_input -1 ] += strider[n_dims_input-1];
@@ -514,7 +517,7 @@ static NhlErrorTypes MultiDVal_list_md_WriteSection
 	int n_dims_sel = 0;
 	ng_size_t total_elements = 1;
 	int n_dims_target = target_md->multidval.n_dims;
-	long n_elem=0;
+	ng_size_t n_elem=0;
 	int done = 0;
 	int inc_done = 0;
 	int chckmiss = 0;
@@ -545,9 +548,9 @@ static NhlErrorTypes MultiDVal_list_md_WriteSection
 	} else {
 		if(target_md->multidval.totalsize == value_md->multidval.totalsize) {
 			if(chckmiss) {
-				val = (int*)value_md->multidval.val;
+				val = (obj*)value_md->multidval.val;
 				for(i = 0; i< target_md->multidval.totalelements; i++) {
-					((ng_size_t*)target_md->multidval.val)[i] = 
+					((obj*)target_md->multidval.val)[i] = 
 						((val[i] == value_md->multidval.missing_value.value.intval) ? 
 						target_md->multidval.missing_value.value.intval 
 						: val[i]);
@@ -581,10 +584,8 @@ static NhlErrorTypes MultiDVal_list_md_WriteSection
                                         sel_ptr->u.sub.stride = 1;
                                 }
 
-				n_elem = (long)(((double)
-					(sel_ptr->u.sub.start 
-					- sel_ptr->u.sub.finish))
-					/(double)fabs(((double)sel_ptr->u.sub.stride))) + 1;
+                                n_elem = (ng_size_t) labs((sel_ptr->u.sub.start - sel_ptr->u.sub.finish)
+					 	          / sel_ptr->u.sub.stride) + 1L;
 
 /*
 * Need to be able to determine which type of comparision < or > is needed to
@@ -607,10 +608,8 @@ static NhlErrorTypes MultiDVal_list_md_WriteSection
                                         sel_ptr->u.sub.stride = 1;
                                 }
 
-				n_elem = (long)(((double)
-					(sel_ptr->u.sub.finish 
-					- sel_ptr->u.sub.start))
-					/((double)sel_ptr->u.sub.stride)) + 1;
+                                n_elem = (ng_size_t) labs((sel_ptr->u.sub.start - sel_ptr->u.sub.finish)
+					 	          / sel_ptr->u.sub.stride) + 1L;
 
 				if(sel_ptr->u.sub.stride < 0){
                                         compare_sel[i] = -1;
@@ -701,7 +700,7 @@ static NhlErrorTypes MultiDVal_list_md_WriteSection
 * index >= 0 into the integer vector array.
 */
 
-	val = (int*)value_md->multidval.val;
+	val = (obj*)value_md->multidval.val;
 	from = 0;
 	while(!done) {
 		to = 0;
@@ -709,7 +708,7 @@ static NhlErrorTypes MultiDVal_list_md_WriteSection
 			to = to + (current_index[i] * multiplier[i]);
 		}
 		if(chckmiss) {
-			((ng_size_t*)target_md->multidval.val)[to] = 
+			((obj*)target_md->multidval.val)[to] = 
 				((val[from] == value_md->multidval.missing_value.value.intval) ? 
 				target_md->multidval.missing_value.value.intval 
 				: val[from]);
@@ -718,7 +717,7 @@ static NhlErrorTypes MultiDVal_list_md_WriteSection
 				_NclSetStatus((NclObj)_NclGetObj(*val),PERMANENT);
 			}
 		} else {
-			((ng_size_t*)target_md->multidval.val)[to] = val[from];
+			((obj*)target_md->multidval.val)[to] = val[from];
 			(void)_NclAddParent((NclObj)_NclGetObj(val[from]),(NclObj)target_md);
 			_NclSetStatus((NclObj)_NclGetObj(*val),PERMANENT);
 
@@ -827,9 +826,9 @@ static NhlErrorTypes MultiDVal_list_s_WriteSection
 	int strider[NCL_MAX_DIMENSIONS];
 	int output_dim_sizes[NCL_MAX_DIMENSIONS];
 
-	int total_elements = 1;
+	ng_size_t total_elements = 1;
 	int n_dims_target = target_md->multidval.n_dims;
-	long n_elem=0;
+	ng_size_t n_elem=0;
 	int done = 0;
 	int inc_done = 0;
 	int chckmiss = 0;
@@ -882,10 +881,8 @@ static NhlErrorTypes MultiDVal_list_s_WriteSection
 
                                 }
 
-				n_elem = (long)(((double)
-					(sel_ptr->u.sub.start 
-					- sel_ptr->u.sub.finish))
-					/(double)fabs(((double)sel_ptr->u.sub.stride))) + 1;
+                                n_elem = (ng_size_t) labs((sel_ptr->u.sub.start - sel_ptr->u.sub.finish)
+					 	          / sel_ptr->u.sub.stride) + 1L;
 
 /*
 * Need to be able to determine which type of comparision < or > is needed to
@@ -909,10 +906,8 @@ static NhlErrorTypes MultiDVal_list_s_WriteSection
 
                                 }
 
-				n_elem = (long)(((double)
-					(sel_ptr->u.sub.finish 
-					- sel_ptr->u.sub.start))
-					/((double)sel_ptr->u.sub.stride)) + 1;
+                                n_elem = (ng_size_t) labs((sel_ptr->u.sub.start - sel_ptr->u.sub.finish)
+					 	          / sel_ptr->u.sub.stride) + 1L;
 
 				if(sel_ptr->u.sub.stride < 0){
                                         compare_sel[i] = -1;
@@ -1001,21 +996,21 @@ static NhlErrorTypes MultiDVal_list_s_WriteSection
 		for(i = 0; i < n_dims_target;i++) {
 			to = to + (current_index[i] * multiplier[i]);
 		}
-		if((target_md->multidval.missing_value.has_missing)&&(target_md->multidval.missing_value.value.objval != ((ng_size_t*)target_md->multidval.val)[to])) {
-			_NclDelParent((NclObj)_NclGetObj(((ng_size_t*)target_md->multidval.val)[to]),(NclObj)target_md);
+		if((target_md->multidval.missing_value.has_missing)&&(target_md->multidval.missing_value.value.objval != ((obj*)target_md->multidval.val)[to])) {
+			_NclDelParent((NclObj)_NclGetObj(((obj*)target_md->multidval.val)[to]),(NclObj)target_md);
 		} else {
-			_NclDelParent((NclObj)_NclGetObj(((ng_size_t*)target_md->multidval.val)[to]),(NclObj)target_md);
+			_NclDelParent((NclObj)_NclGetObj(((obj*)target_md->multidval.val)[to]),(NclObj)target_md);
 		}
 
 		if((value_md->multidval.missing_value.has_missing)&&(value_md->multidval.missing_value.value.objval == *val)) {
 			if(target_md->multidval.missing_value.has_missing) {
-				((ng_size_t*)target_md->multidval.val)[to] = target_md->multidval.missing_value.value.objval;
+				((obj*)target_md->multidval.val)[to] = target_md->multidval.missing_value.value.objval;
 			} else {
 				_NclResetMissingValue(target_md,&value_md->multidval.missing_value.value);
-				((ng_size_t*)target_md->multidval.val)[to] = *val;
+				((obj*)target_md->multidval.val)[to] = *val;
 			}
 		} else {
-			((ng_size_t*)target_md->multidval.val)[to] = *val;
+			((obj*)target_md->multidval.val)[to] = *val;
 			(void)_NclAddParent((NclObj)_NclGetObj(*val),(NclObj)target_md);
 			_NclSetStatus((NclObj)_NclGetObj(*val),PERMANENT);
 		}
@@ -1162,9 +1157,9 @@ NclSelectionRecord *from_selection;
 	int i,k;
 	long from,to;
 	NclSelection *to_sel_ptr = NULL;
-	ng_size_t *to_val;
+	obj *to_val;
 	NclSelection *from_sel_ptr = NULL;
-	ng_size_t *from_val;
+	obj *from_val;
 
 	long to_current_index[NCL_MAX_DIMENSIONS];
 	long to_multiplier[NCL_MAX_DIMENSIONS];
@@ -1179,11 +1174,11 @@ NclSelectionRecord *from_selection;
 	ng_size_t from_output_dim_sizes[NCL_MAX_DIMENSIONS];
 
 	int n_dims_value = 0;
-	int total_elements_value = 1;
-	int total_elements_target = 1;
+	ng_size_t total_elements_value = 1;
+	ng_size_t total_elements_target = 1;
 	int n_dims_target = 0;
-	long n_elem_target=0;
-	long n_elem_value=0;
+	ng_size_t n_elem_target=0;
+	ng_size_t n_elem_value=0;
 
 	int done = 0;
 	int inc_done = 0;
@@ -1252,10 +1247,8 @@ NclSelectionRecord *from_selection;
 
                                 }
 
-				n_elem_target = (long)(((double)
-					(to_sel_ptr->u.sub.start 
-					- to_sel_ptr->u.sub.finish))
-					/(double)fabs(((double)to_sel_ptr->u.sub.stride))) + 1;
+                                n_elem_target = (ng_size_t) labs((to_sel_ptr->u.sub.start - to_sel_ptr->u.sub.finish)
+					 	          / to_sel_ptr->u.sub.stride) + 1L;
 
 /*
 * Need to be able to determine which type of comparision < or > is needed to
@@ -1278,10 +1271,8 @@ NclSelectionRecord *from_selection;
                                         to_sel_ptr->u.sub.stride = 1;
                                 }
 
-				n_elem_target = (long)(((double)
-					(to_sel_ptr->u.sub.finish 
-					- to_sel_ptr->u.sub.start))
-					/((double)to_sel_ptr->u.sub.stride)) + 1;
+                                n_elem_target = (ng_size_t) labs((to_sel_ptr->u.sub.start - to_sel_ptr->u.sub.finish)
+					 	          / to_sel_ptr->u.sub.stride) + 1L;
 
 				if(to_sel_ptr->u.sub.stride < 0){
                                         to_compare_sel[i] = -1;
@@ -1365,10 +1356,8 @@ NclSelectionRecord *from_selection;
 
                                 }
 
-				n_elem_value = (long)(((double)
-					(from_sel_ptr->u.sub.start 
-					- from_sel_ptr->u.sub.finish))
-					/(double)fabs(((double)from_sel_ptr->u.sub.stride))) + 1;
+                                n_elem_value = (ng_size_t) labs((from_sel_ptr->u.sub.start - from_sel_ptr->u.sub.finish)
+					 	          / from_sel_ptr->u.sub.stride) + 1L;
 
 /*
 * Need from be able from determine which type of comparision < or > is needed from
@@ -1387,16 +1376,26 @@ NclSelectionRecord *from_selection;
                                 }
 
 			} else {
-				if(from_sel_ptr->u.sub.stride <= 0 ) {
+				if(from_sel_ptr->u.sub.stride == 0 ) {
 					NhlPError(NhlFATAL,NhlEUNKNOWN,"Invalid stride: start is less than end and stride is negative, error in subscript #%d",i);
 					return(NhlFATAL);
 				}
 
-				n_elem_value = (long)(((double)
-					(from_sel_ptr->u.sub.finish 
-					- from_sel_ptr->u.sub.start))
-					/((double)from_sel_ptr->u.sub.stride)) + 1;
-				from_compare_sel[i] = -2;
+                                n_elem_value = (ng_size_t) labs((from_sel_ptr->u.sub.start - from_sel_ptr->u.sub.finish)
+					 	          / from_sel_ptr->u.sub.stride) + 1L;
+                                
+				if(from_sel_ptr->u.sub.stride < 0) {
+                                        from_compare_sel[i] = -1;
+                                        from_current_index[i] = from_sel_ptr->u.sub.finish - (from_sel_ptr->u.sub.finish - from_sel_ptr->u.sub.start) % abs(from_sel_ptr->u.sub.stride);
+                                        from_sel_ptr->u.sub.finish = from_sel_ptr->u.sub.start;
+                                        from_sel_ptr->u.sub.start = from_current_index[i];
+                                        from_strider[i] = from_sel_ptr->u.sub.stride;
+
+                                } else {
+                                        from_compare_sel[i] = -2;
+                                        from_current_index[i] = from_sel_ptr->u.sub.start;
+                                        from_strider[i] = from_sel_ptr->u.sub.stride;
+                                }
 			}
 			if((from_sel_ptr->u.sub.start > value_md->multidval.dim_sizes[from_sel_ptr->dim_num] - 1)||(from_sel_ptr->u.sub.start < 0)) {
 				NhlPError(NhlFATAL,NhlEUNKNOWN,"Subscript out of range, error in subscript #%d",i);
@@ -1456,8 +1455,8 @@ NclSelectionRecord *from_selection;
 
 	to_sel_ptr = to_selection->selection;
 	from_sel_ptr = from_selection->selection;
-	to_val = (ng_size_t*)target_md->multidval.val;
-	from_val = (ng_size_t*)value_md->multidval.val;
+	to_val = (obj*)target_md->multidval.val;
+	from_val = (obj*)value_md->multidval.val;
 	while(!done) {
 		to = 0;
 		from = 0;

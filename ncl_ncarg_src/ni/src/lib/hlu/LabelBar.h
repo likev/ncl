@@ -40,6 +40,12 @@ typedef enum _NhllbBoxSizingMode {
 
 #define NhlTlbBoxSizingMode "lbBoxSizingMode"
 
+typedef enum _NhllbBoxEndCapStyle {
+    NhlRECTANGLEENDS = 0, NhlTRIANGLELOWEND, NhlTRIANGLEHIGHEND, NhlTRIANGLEBOTHENDS
+} NhllbBoxEndCapStyle;
+
+#define NhlTlbBoxEndCapStyle "lbBoxEndCapStyle"
+
 /* Instance resources */
 
 #define NhlNlbLabelBarOn		"lbLabelBarOn"
@@ -116,6 +122,7 @@ typedef enum _NhllbBoxSizingMode {
 #define NhlNlbBoxLineDashPattern	"lbBoxLineDashPattern"
 #define NhlNlbBoxLineDashSegLenF	"lbBoxLineDashSegLenF"
 #define NhlNlbBoxSeparatorLinesOn	"lbBoxSeparatorLinesOn"
+#define NhlNlbBoxEndCapStyle            "lbBoxEndCapStyle"
 
 #define NhlNlbPerimOn			"lbPerimOn"
 #define NhlNlbPerimColor		"lbPerimColor"
@@ -128,6 +135,8 @@ typedef enum _NhllbBoxSizingMode {
 #define NhlNlbFillBackground		"lbFillBackground"
 #define NhlNlbFillLineThicknessF	"lbFillLineThicknessF"
 #define NhlNlbRasterFillOn		"lbRasterFillOn"
+#define NhlNlbFillOpacityF              "lbFillOpacityF"
+#define NhlNlbOverrideFillOpacity       "lbOverrideFillOpacity"
 
 /* Class resources */
 
@@ -176,6 +185,9 @@ typedef enum _NhllbBoxSizingMode {
 #define NhlClbBoxLinesOn		"LbBoxLinesOn"
 #define NhlClbRasterFillOn		"LbRasterFillOn"
 #define NhlClbBoxSeparatorLinesOn	"LbBoxSeparatorLinesOn"
+#define NhlClbBoxEndCapStyle            "LbBoxEndCapStyle"
+#define NhlClbFillOpacityF              "lbFillOpacityF"
+#define NhlClbOverrideFillOpacity       "lbOverrideFillOpacity"
 
 
 

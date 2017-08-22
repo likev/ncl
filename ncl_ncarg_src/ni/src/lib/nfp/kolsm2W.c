@@ -5,14 +5,6 @@
 extern void NGCALLF(kolm2,KOLM2)(double *, double *, int *, int *,
                                  int *, double *, double *, double *);
 
-/* For the qsort procedure */
-int cmpdouble (const void * a, const void * b)
-{
-  if (*(double*)a > *(double*)b) return 1;
-  else if (*(double*)a < *(double*)b) return -1;
-  else return 0;  
-}
-
 NhlErrorTypes kolsm2_n_W( void )
 {
 
@@ -58,7 +50,7 @@ NhlErrorTypes kolsm2_n_W( void )
  */
   ng_size_t i, j, nx, ny, np;
   ng_size_t size_leftmost, size_rightmost;
-  ng_size_t index_x, index_y, nrnx, nrny;
+  ng_size_t index_nrx, index_nry, index_x, index_y, nrnx, nrny;
   int inx, iny, iflag=1;
 
 /*
@@ -70,7 +62,6 @@ NhlErrorTypes kolsm2_n_W( void )
   NclMultiDValData att_md, return_md;
   NclVar tmp_var;
   NclStackEntry return_data;
-  extern int cmpdouble (const void * a, const void * b);
 
 /*
  * Retrieve parameters.
@@ -271,9 +262,11 @@ NhlErrorTypes kolsm2_n_W( void )
 
   np = 0;
   for(i = 0; i < size_leftmost; i++) {
-    index_x = i*nrnx;
-    index_y = i*nrny;
+    index_nrx = i*nrnx;
+    index_nry = i*nrny;
     for( j = 0; j < size_rightmost; j++ ) {
+      index_x = index_nrx + j;
+      index_y = index_nry + j;
 /*
  * Coerce subsection of x (tmp_x) to double if necessary.
  */
@@ -283,20 +276,17 @@ NhlErrorTypes kolsm2_n_W( void )
       coerce_subset_input_double_step(y,tmp_y,index_y,
                                       size_rightmost,type_y,
                                       ny,0,NULL,NULL);
-
 /* 
  * Always sort x and y no matter what.
  */
       qsort((void*)tmp_x,nx,sizeof(double),cmpdouble);
       qsort((void*)tmp_y,ny,sizeof(double),cmpdouble);
-
 /*
  * Call the Fortran routine.
  */
       
       NGCALLF(kolm2,KOLM2)(tmp_x, tmp_y, &inx, &iny, &iflag, 
                            &tmp_zstat, &tmp_prob, &tmp_dstat);
-
 /*
  * Coerce output back to float if necessary.
  */

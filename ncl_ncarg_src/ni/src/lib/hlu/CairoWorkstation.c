@@ -1,5 +1,5 @@
 /*
- *      $Id: CairoWorkstation.c 15708 2014-08-21 01:35:43Z dbrown $
+ *      $Id$
  */
 
 #include   <stdio.h>
@@ -7,6 +7,7 @@
 #include   <ncarg/hlu/CairoWorkstationP.h>
 #include   <ncarg/hlu/ConvertersP.h>
 #include   <ncarg/hlu/pageutil.h>
+#include   <ncarg/hlu/color.h>
 #include "hlu.h"
 #include "CairoWorkstation.h"
 
@@ -25,9 +26,6 @@ static NhlResource resourcesDocumentWS[] = {
     {NhlNwkOrientation, NhlCwkOrientation, NhlTWorkOrientation,
         sizeof (NhlWorkOrientation), Oset(orientation), NhlTImmediate,
         _NhlUSET((NhlPointer) NhlPORTRAIT), _NhlRES_DEFAULT, NULL},
-    {NhlNwkPDFResolution, NhlCwkPDFResolution, NhlTInteger,
-        sizeof (int), Oset(dpi), NhlTImmediate,
-        _NhlUSET((NhlPointer) 1800), _NhlRES_NOSACCESS, NULL},
 
     /* these page size and margins are initialized as "-1" here, and are given appropriate
      * values when the workstation is opened, depending upon which resources are actually
@@ -139,10 +137,10 @@ static NhlResource resourcesWindowWS[] = {
         NhlTImmediate, _NhlUSET((NhlPointer) 0), _NhlRES_NOSACCESS, NULL},
     {NhlNwkWidth, NhlCwkWidth, NhlTInteger, sizeof (int),
         Oset(xwinconfig.width),
-        NhlTImmediate, _NhlUSET((NhlPointer) 512), _NhlRES_NOSACCESS, NULL},
+        NhlTImmediate, _NhlUSET((NhlPointer) 1000), _NhlRES_NOSACCESS, NULL},
     {NhlNwkHeight, NhlCwkHeight, NhlTInteger, sizeof (int),
         Oset(xwinconfig.height), NhlTImmediate,
-        _NhlUSET((NhlPointer) 512), _NhlRES_NOSACCESS, NULL},
+        _NhlUSET((NhlPointer) 1000), _NhlRES_NOSACCESS, NULL},
     {NhlNwkTitle, NhlCwkTitle, NhlTString, sizeof (NhlString),
         Oset(xwinconfig.title), NhlTImmediate, _NhlUSET((NhlPointer) NULL),
         _NhlRES_NOSACCESS, (NhlFreeFunc) NhlFree},
@@ -210,6 +208,7 @@ static NhlResource resourcesQtWS[] = {
 static NhlErrorTypes fixupFilename(NhlCairoWorkstationLayer layer, char* filenameSuffix, char* callingFunc);
 static NhlErrorTypes checkUlLRBounds(NhlCairoWorkstationLayerPart*, char*);
 static void setCairoFillHackValue(NhlLayer layer);
+static void setGeoreferenceData(NhlCairoWorkstationLayer wksLayer, NhlLayer mapLayer);
 
 /*
  * CairoWorkstation base_class method declarations
@@ -254,6 +253,7 @@ static NhlErrorTypes CairoWindowWorkstationActivate(NhlLayer instance);
 static NhlErrorTypes CairoQtWorkstationActivate(NhlLayer instance);
 #endif
 
+static NhlErrorTypes CairoImageWorkstationClear(NhlLayer instance);
 static NhlErrorTypes CairoWindowWorkstationClear(NhlLayer instance);
 #ifdef BuildQtEnabled
 static NhlErrorTypes CairoQtWorkstationClear(NhlLayer instance);
@@ -375,7 +375,7 @@ NhlCairoWorkstationClassRec NhlcairoImageWorkstationClassRec = {
         /* deactivate_work   */ NhlInheritDeactivate,
         /* alloc_colors      */ NhlInheritAllocateColors,
         /* update_work       */ NhlInheritUpdate,
-        /* clear_work        */ NhlInheritClear,
+        /* clear_work        */ /*** CairoImageWorkstationClear, ****/ NhlInheritClear,
         /* lineto_work       */ NhlInheritLineTo,
         /* fill_work         */ NhlInheritFill,
         /* marker_work       */ NhlInheritMarker,
@@ -1105,7 +1105,6 @@ CairoDocumentWorkstationOpen(NhlLayer l) {
     c_ngsetc("me", cairo->filename);
     c_ngseti("pw", pageInfo.pageWidthPts);
     c_ngseti("ph", pageInfo.pageHeightPts);
-    c_ngseti("co", (cairo->dpi / 72 + 1));
     c_ngseti("lx", cairo->lower_x);
     c_ngseti("ux", cairo->upper_x);
     c_ngseti("ly", cairo->lower_y);
@@ -1120,7 +1119,6 @@ CairoDocumentWorkstationOpen(NhlLayer l) {
     w = cairo->upper_x - cairo->lower_x;
     h = cairo->upper_y - cairo->lower_y;
     d = MAX(w, h);
-    work->work.vswidth_dev_units = d / 72 * cairo->dpi;
     
     setCairoFillHackValue(l);
 
@@ -1149,13 +1147,12 @@ CairoImageWorkstationOpen(NhlLayer l) {
     c_ngseti("ux", cairo->upper_x);
     c_ngseti("ly", cairo->lower_y);
     c_ngseti("uy", cairo->upper_y);
-
+    
     /* image width/height must be set before opening workstation */
     cairo->pixconfig.work_id = -1; /* part of the escape mechanism; -1 means "apply to *next* workstation */
     gesc_in_pixconf.escape_r1.data = &cairo->pixconfig;
     gesc_in_pixconf.escape_r1.size = sizeof (cairo->pixconfig);
     gescape(NGESC_CNATIVE, &gesc_in_pixconf, NULL, NULL);
-    work->work.vswidth_dev_units = minRange;
 
     ret = (*NhlworkstationClassRec.work_class.open_work)(l);
 
@@ -1169,26 +1166,6 @@ CairoWindowWorkstationOpen(NhlLayer l) {
     NhlCairoWorkstationLayerPart *cairo = &((NhlCairoWorkstationLayer) l)->cairo;
     Gescape_in_data gesc_in_xwconf;
     NhlErrorTypes ret;
-    /*****
-            NhlXWorkstationLayer		xl = (NhlXWorkstationLayer)l;
-            NhlXWorkstationLayerPart	*xp = &xl->xwork;
-            NhlWorkstationClassPart	*wcp =
-                    &((NhlWorkstationClass)xl->base.layer_class)->work_class;
-            _NGCXGetSizeChg			xgsc;
-            Gescape_in_data			gesc_in_xgsc;
-            Gescape_in_data			gesc_in_xwconf;
-
-            if(xl->work.gkswkstype == NhlFATAL) {
-                    NhlPError(NhlFATAL,NhlEUNKNOWN,"Unknown workstation type");
-                    return(NhlFATAL);
-
-            }
-            if(xl->work.gkswksconid == NhlFATAL) {
-                    NhlPError(NhlFATAL,NhlEUNKNOWN,
-                            "Unknown workstation connection id");
-                    return(NhlFATAL);
-            }
-     *****/
 
     /* we need to calculate the NDC frame within the image... */
     int minRange = (cairo->xwinconfig.width < cairo->xwinconfig.height) ? cairo->xwinconfig.width : cairo->xwinconfig.height;
@@ -1210,33 +1187,10 @@ CairoWindowWorkstationOpen(NhlLayer l) {
     gesc_in_xwconf.escape_r1.data = &cairo->xwinconfig;
     gesc_in_xwconf.escape_r1.size = sizeof(cairo->xwinconfig);
     gescape(NGESC_CNATIVE, &gesc_in_xwconf, NULL, NULL);
-    work->work.vswidth_dev_units = minRange;
 
     ret = (*NhlworkstationClassRec.work_class.open_work)(l);
 
     return ret;
-    /****
-    _NhlUpdateGksWksRecs(l,True,&xl->work.gkswksid);
-     *wcp->hlu_wks_flag = True;
-    _NHLCALLF(gopwk,GOPWK)(&(xl->work.gkswksid),&(xl->work.gkswksconid),
-            &(xl->work.gkswkstype));
-    if(_NhlLLErrCheckPrnt(NhlFATAL,func))
-            return NhlFATAL;
-    gset_clip_ind(GIND_NO_CLIP);
-    if(_NhlLLErrCheckPrnt(NhlWARNING,func)){
-            return NhlFATAL;
-    }
-    gesc_in_xgsc.escape_r1.data = &xgsc;
-    gesc_in_xgsc.escape_r1.size = 0;
-    xgsc.type = NGC_XSIZECHG;
-    xgsc.work_id = xl->work.gkswksid;
-    xgsc.xget_size = GetSizeProc;
-    xgsc.closure = &xl->work.vswidth_dev_units;
-    gescape(NGESC_CNATIVE,&gesc_in_xgsc,NULL,NULL);
-
-    return _NhlAllocateColors((NhlWorkstationLayer)l);
-
-*****/
 }
 
 #ifdef BuildQtEnabled
@@ -1268,7 +1222,6 @@ CairoQtWorkstationOpen(NhlLayer l) {
     gesc_in_xwconf.escape_r1.data = &cairo->xwinconfig;
     gesc_in_xwconf.escape_r1.size = sizeof(cairo->xwinconfig);
     gescape(NGESC_CNATIVE, &gesc_in_xwconf, NULL, NULL);
-    work->work.vswidth_dev_units = minRange;
 
     ret = (*NhlworkstationClassRec.work_class.open_work)(l);
 
@@ -1311,7 +1264,6 @@ CairoDocumentWorkstationActivate(NhlLayer l) {
     w = pp->upper_x - pp->lower_x;
     h = pp->upper_y - pp->lower_y;
     d = MAX(w, h);
-    wp->vswidth_dev_units = d / 72 * pp->dpi;
 
     return (*(lc->work_class.activate_work))(l);
 }
@@ -1335,6 +1287,53 @@ CairoQtWorkstationActivate(NhlLayer l) {
     return (*(lc->work_class.activate_work))(l);
 }
 #endif
+
+/*
+ * Function:	CairoImageWorkstationClear
+ *
+ */
+static NhlErrorTypes
+CairoImageWorkstationClear(NhlLayer layer) {
+#if 0   /******* THE GEOTIFF IMPLEMENTATION IS INCOMPLETE, AND NEEDS REFACTORING;  MAKE THIS DO NOTHING FOR NOW --RLB 5/2015 ****/    
+    NhlWorkstationClass wksClass = (NhlWorkstationClass) NhlworkstationClass;
+    NhlCairoWorkstationLayer cairoLayer  = (NhlCairoWorkstationLayer) layer;
+    Gescape_in_data indat;
+    Gescape_out_data *outdat;
+    char wkid[15];
+
+#if 0    
+    if (cairoLayer->cairo.pause) {
+        sprintf(wkid, "%d", _NhlWorkstationId(layer));
+        indat.escape_r1.size = strlen(wkid);
+        indat.escape_r1.data = wkid;
+        gescape(-1396, &indat, NULL, &outdat);
+    }
+#endif
+    int i;
+    int pid = layer->base.id;
+    int* views;
+    ng_size_t count;
+    NhlLayer instance;
+    NhlErrorTypes ret, subret;
+    int grlist = NhlRLCreate(NhlGETRL);
+    NhlRLClear(grlist);
+    NhlRLGetIntegerArray(grlist, NhlNwkTopLevelViews, &views, &count);
+    NhlGetValues(pid, grlist);
+    for (i = 0; i < count; i++) {
+        instance = _NhlGetLayer(views[i]);
+        if (instance->base.layer_class != NhlmapPlotClass)
+            continue;
+
+        setGeoreferenceData(cairoLayer, instance);
+    }
+    
+    NhlFree(views);
+    NhlRLDestroy(grlist);
+
+    
+    return (*(wksClass->work_class.clear_work))(layer);
+#endif    
+}
 
 /*
  * Function:	CairoWindowWorkstationClear
@@ -1476,3 +1475,235 @@ void setCairoFillHackValue(NhlLayer layer)
     gesc.escape_r1.size = sizeof(fillHackRec);
     gescape(NGESC_CNATIVE, &gesc, NULL, NULL);                                
 }       
+
+#if 0    /* NEED TO REFACTOR WHERE WE GET THIS INFO */
+#include "MapPlot.h"
+#endif
+static void setGeoreferenceData(NhlCairoWorkstationLayer wksLayer, NhlLayer mapLayer) {
+#if 0  /*********** THIS CODE IS IN AN INTERMEDIATE STATE; PRESERVE IT, BUT MAKE THE FUNCTION DO NOTHING FOR NOW --RLB 5/2015  *******/
+    _NGCGeoReference georefRec;
+    Gescape_in_data gesc;
+
+    NhlProjection projection;
+    NhlMapLimitMode limit_mode;
+    float center_lat, rotation;
+    float min_lat, max_lat, min_lon, max_lon;
+    NhlBoolean rel_center_lat, rel_center_lon;
+    float center_lon = 0.0;
+    NhlBoundingBox bbox;
+
+/******** ALL THIS IS TEMPORARY FOR DETERMINING BEHAVIOR UNDER DIFFERENT LIMIT_MODES */
+    NhlVAGetValues(mapLayer->base.id,
+            NhlNmpLeftNDCF, &bbox.l,
+            NhlNmpRightNDCF, &bbox.r,
+            NhlNmpBottomNDCF, &bbox.b,
+            NhlNmpTopNDCF, &bbox.t,
+            NhlNmpProjection, &projection,
+            NhlNmpLimitMode, &limit_mode,
+            NhlNmpMinLatF, &min_lat,
+            NhlNmpMaxLatF, &max_lat,
+            NhlNmpMinLonF, &min_lon,
+            NhlNmpMaxLonF, &max_lon,
+            NhlNmpRelativeCenterLat, &rel_center_lat,
+            NhlNmpCenterLatF, &center_lat,
+            NhlNmpCenterLonF, &center_lon,
+            NhlNmpRelativeCenterLon, &rel_center_lon,
+            NhlNmpCenterRotF, &rotation,
+            NULL);
+    printf("projection:  %d,  limitMode: %d\n", projection, limit_mode);
+    printf("  lon: %f .. %f,  lat: %f .. %f\n", min_lon, max_lon, min_lat, max_lat);
+    printf("  center lon/lat: %f, %f\n", center_lon, center_lat);
+    printf("  relcen lon/lat: %f, %f\n", rel_center_lon, rel_center_lat);
+    printf("  rotation: %f\n", rotation);
+    printf("  NDC (lrbt):  %f, %f, %f, %f\n", bbox.l, bbox.r, bbox.b, bbox.t);
+    NhlVAGetValues(mapLayer->base.id,
+            NhlNmpLeftCornerLonF, &bbox.l,
+            NhlNmpRightCornerLonF, &bbox.r,
+            NhlNmpLeftCornerLatF, &bbox.b,
+            NhlNmpRightCornerLatF, &bbox.t,
+            NULL);
+    printf("  Corner (lrbt):  %f, %f, %f, %f\n", bbox.l, bbox.r, bbox.b, bbox.t);
+    NhlVAGetValues(mapLayer->base.id,
+            NhlNmpLeftPointLonF, &bbox.l,
+            NhlNmpRightPointLonF, &bbox.r,
+            NhlNmpBottomPointLatF, &bbox.b,
+            NhlNmpTopPointLatF, &bbox.t,
+            NULL);
+    printf("  Point (lrbt):  %f, %f, %f, %f\n", bbox.l, bbox.r, bbox.b, bbox.t);
+    NhlVAGetValues(mapLayer->base.id,
+            NhlNmpLeftAngleF, &bbox.l,
+            NhlNmpRightAngleF, &bbox.r,
+            NhlNmpBottomAngleF, &bbox.b,
+            NhlNmpTopAngleF, &bbox.t,
+            NULL);
+    printf("  Angle (lrbt):  %f, %f, %f, %f\n", bbox.l, bbox.r, bbox.b, bbox.t);
+    NhlVAGetValues(mapLayer->base.id,
+            NhlNmpLeftMapPosF, &bbox.l,
+            NhlNmpRightMapPosF, &bbox.r,
+            NhlNmpBottomMapPosF, &bbox.b,
+            NhlNmpTopMapPosF, &bbox.t,
+            NULL);
+    printf("  MapPos (lrbt):  %f, %f, %f, %f\n", bbox.l, bbox.r, bbox.b, bbox.t);
+    NhlVAGetValues(mapLayer->base.id,
+            NhlNmpLeftWindowF, &bbox.l,
+            NhlNmpRightWindowF, &bbox.r,
+            NhlNmpBottomWindowF, &bbox.b,
+            NhlNmpTopWindowF, &bbox.t,
+            NULL);
+    printf("  Window (lrbt):  %f, %f, %f, %f\n", bbox.l, bbox.r, bbox.b, bbox.t);
+
+    float meridian, par1, par2, sat1, sat2, dist;
+    NhlVAGetValues(mapLayer->base.id,
+            NhlNmpLambertMeridianF, &meridian,
+            NhlNmpLambertParallel1F, &par1,
+            NhlNmpLambertParallel2F, &par2,
+            NhlNmpSatelliteAngle1F, &sat1,
+            NhlNmpSatelliteAngle2F, &sat2,
+            NhlNmpSatelliteDistF, &dist,
+            NULL);
+    printf("Lambert meridian: %f,  stdpar1: %f,  stdpar2: %f\n", meridian, par1, par2);
+    printf("Satellite dist: %f,  angle1: %f, angle2: %f\n", dist, sat1, sat2);
+/****** END TEMPORARY CODE */
+
+
+    
+    georefRec.type = NGC_GEOREFERENCE;
+    georefRec.work_id = wksLayer->work.gkswksid;
+
+
+    /* get projection, limit_mode, and location of map corners in NDC space */
+    NhlVAGetValues(mapLayer->base.id,
+        NhlNmpProjection,    &projection,
+        NhlNmpLimitMode,     &limit_mode,
+        NhlNmpLeftMapPosF, &bbox.l,
+        NhlNmpRightMapPosF, &bbox.r,
+        NhlNmpBottomMapPosF, &bbox.b,
+        NhlNmpTopMapPosF, &bbox.t,
+        NULL);
+    
+    georefRec.ndcX[0] = bbox.l;  georefRec.ndcY[0] = bbox.b;
+    georefRec.ndcX[1] = bbox.r;  georefRec.ndcY[1] = bbox.b;
+    georefRec.ndcX[2] = bbox.r;  georefRec.ndcY[2] = bbox.t;
+    georefRec.ndcX[3] = bbox.l;  georefRec.ndcY[3] = bbox.t;
+    
+    float oor;
+    int status;
+    NhlNDCToData(mapLayer->base.id, georefRec.ndcX, georefRec.ndcY, 4, 
+            georefRec.worldX, georefRec.worldY, NULL, NULL, &status, &oor);
+    
+    printf("status = %d, oor = %f\n", status, oor);
+    int i;
+    for (i=0; i<4; i++) 
+        printf("%f,%f   %f,%f\n", georefRec.ndcX[i], georefRec.ndcY[i], georefRec.worldX[i], georefRec.worldY[i]);
+    
+    /* Implementation Note:
+     * The HLU's notation of map projections is defined in MapTransObj.h.  We somehow have to communicate that to 
+     * the graphics subsystem. One approach would be to create yet another enumeration, presumably in gksP.h, that maps
+     * the HLU's notion of projection onto a graphics-level notion. At the graphics-level, that in turn ultimately 
+     * has to be mapped onto GeoTiff's notion.  Rather than create such a clunky mechanism, we'll just map HLU codes
+     * straight to Geotiff codes here and be done with it.  Admittedly this bleeds knowledge of Geotiff into the 
+     * CairoWorkstation, rather than encapsulating it all in the low-level graphics driver. But heck, this whole function
+     * is intended to do one-and-only-one thing -- facilitate the writing a geotiff;  there is no higher abstraction
+     * going on here.     --RLB 
+     */
+    switch (projection) {
+	case NhlORTHOGRAPHIC:            georefRec.projCode = 21; break;
+        case NhlSTEREOGRAPHIC:           georefRec.projCode = 14; break;
+        case NhlLAMBERTEQUALAREA:        georefRec.projCode = 10; break;
+	case NhlGNOMONIC:                georefRec.projCode = 19; break;
+        case NhlAZIMUTHALEQUIDISTANT:    georefRec.projCode = 12; break;
+        case NhlSATELLITE:               georefRec.projCode =  0; break;   /* no mapping onto Geotiff */
+	case NhlPSEUDOMOLLWEIDE:         georefRec.projCode =  0; break;
+        case NhlMERCATOR:                georefRec.projCode =  7; break;
+        case NhlCYLINDRICALEQUIDISTANT:  georefRec.projCode = 13; break;   /* Equidistantconic in Geotiff */
+	case NhlLAMBERTCONFORMAL:        georefRec.projCode =  8; break;
+        case NhlROBINSON:                georefRec.projCode = 23; break;
+        case NhlCYLINDRICALEQUALAREA:    georefRec.projCode = 17; break;   /* Equirectangular in Geotiff */
+        case NhlROTATEDMERCATOR:         georefRec.projCode =  0; break;
+        case NhlAITOFF:                  georefRec.projCode =  0; break;
+        case NhlHAMMER:                  georefRec.projCode =  0; break;
+        case NhlMOLLWEIDE:               georefRec.projCode =  0; break;
+        case NhlWINKELTRIPEL:            georefRec.projCode =  0; break;
+        default:                         georefRec.projCode =  0;                          
+    }
+    
+    if (georefRec.projCode == 0) {  /* bail if true -- we don't have a valid mapping */
+        return;
+    }
+        
+#if 0    
+    georefRec.ndcLLX = bbox.l;
+    georefRec.ndcLLY = bbox.b;
+    georefRec.ndcURX = bbox.r;
+    georefRec.ndcURY = bbox.t;
+    
+    /* the value of limit_mode determines how we find the geo-space coordinates of the map corners */
+    bbox.l = bbox.r = bbox.b = bbox.t = 0.;
+    if (limit_mode == NhlMAXIMALAREA || limit_mode == NhlLATLON) {
+        NhlVAGetValues(mapLayer->base.id,
+            NhlNmpMinLonF, &bbox.l,
+            NhlNmpMaxLonF, &bbox.r,
+            NhlNmpMinLatF, &bbox.b,
+            NhlNmpMaxLatF, &bbox.t,
+            NULL);        
+    }
+    else if (limit_mode == NhlCORNERS) {
+        NhlVAGetValues(mapLayer->base.id,
+            NhlNmpLeftCornerLonF,  &bbox.l,
+            NhlNmpRightCornerLonF, &bbox.r,
+            NhlNmpLeftCornerLatF,  &bbox.b,
+            NhlNmpRightCornerLatF, &bbox.t,
+            NULL);
+    }
+    
+    /* just speculating on these -- have not found an instance to verify the behavior */
+    else if (limit_mode == NhlANGLES) {
+        NhlVAGetValues(mapLayer->base.id,
+            NhlNmpLeftAngleF,   &bbox.l,
+            NhlNmpRightAngleF,  &bbox.r,
+            NhlNmpBottomAngleF, &bbox.b,
+            NhlNmpTopAngleF,    &bbox.t,
+            NULL);
+    }
+    else if (limit_mode == NhlPOINTS) {
+        NhlVAGetValues(mapLayer->base.id,
+            NhlNmpLeftPointLonF,   &bbox.l,
+            NhlNmpRightPointLonF,  &bbox.r,
+            NhlNmpBottomPointLatF, &bbox.b,
+            NhlNmpTopPointLatF,    &bbox.t,
+            NULL);
+    }
+    else if (limit_mode == NhlWINDOW) {
+        NhlVAGetValues(mapLayer->base.id,
+            NhlNmpLeftWindowF,   &bbox.l,
+            NhlNmpRightWindowF,  &bbox.r,
+            NhlNmpBottomWindowF, &bbox.b,
+            NhlNmpTopWindowF,    &bbox.t,
+            NULL);
+    }
+    
+    georefRec.lonLL = bbox.l;
+    georefRec.latLL = bbox.b;
+    georefRec.lonUR = bbox.r;
+    georefRec.latUR = bbox.t;
+#endif
+    
+    /* These projections have additional parameters */
+    if (projection == NhlLAMBERTCONFORMAL) {
+        float meridian, par1, par2;
+        NhlVAGetValues(mapLayer->base.id,
+            NhlNmpLambertMeridianF,  &meridian,
+            NhlNmpLambertParallel1F, &par1,
+            NhlNmpLambertParallel2F, &par2,
+            NULL);
+        georefRec.meridianOrDist = meridian;
+        georefRec.parOrAngle1 = par1;
+        georefRec.parOrAngle2 = par2;
+    }
+    
+    /* send it all down the pike... */
+    gesc.escape_r1.data = &georefRec;
+    gesc.escape_r1.size = sizeof (georefRec);
+    gescape(NGESC_CNATIVE, &gesc, NULL, NULL);
+#endif    
+}

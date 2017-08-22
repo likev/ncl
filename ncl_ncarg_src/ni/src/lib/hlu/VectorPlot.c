@@ -1853,6 +1853,7 @@ VectorPlotInitialize
 	NhlVectorPlotLayerPart	*vcp = &(vcnew->vectorplot);
 	NhlSArg			sargs[64];
 	int			nargs = 0;
+	NhlGridType             grid_type;
 
 	vcp->refvec_anno_id = NhlNULLOBJID;
 	vcp->minvec_anno_id = NhlNULLOBJID;
@@ -2012,7 +2013,11 @@ VectorPlotInitialize
 	subret = InitCoordBounds(vcnew,NULL,entry_name);
 	if ((ret = MIN(ret,subret)) < NhlWARNING) return(ret);
 
-	switch (vcnew->trans.grid_type) {
+	grid_type = vcnew->trans.grid_type;
+	if (! vcp->data_init) {  /* grid type known to work with no data */
+		grid_type = NhltrLOGLIN; 
+	}
+	switch (grid_type) {
 	case NhltrLOGLIN:
 	default:
 		subret = SetUpLLTransObj(vcnew,(NhlVectorPlotLayer) req,True);
@@ -2289,6 +2294,9 @@ CurlyVectorSetValues
 	float			afr;
 	int			rlist;
 
+        if (! vcp->data_init) {
+		return NhlNOERROR;
+	}
 /*
  * we're forced to use the RL interface because it is the only one that
  * allows a data object to be set.
@@ -2440,6 +2448,7 @@ static NhlErrorTypes VectorPlotSetValues
  	NhlVectorPlotLayerPart	*vcp = &(vcnew->vectorplot);
 	NhlVectorPlotLayer		vcold = (NhlVectorPlotLayer) old;
  	NhlVectorPlotLayerPart	*ovcp = &(vcold->vectorplot);
+	NhlGridType             grid_type;
 	/* Note that ManageLabelBar add to sargs */
 	NhlSArg			sargs[128];
 	int			nargs = 0;
@@ -2604,7 +2613,11 @@ static NhlErrorTypes VectorPlotSetValues
 	subret = InitCoordBounds(vcnew,(NhlVectorPlotLayer)old,entry_name);
 	if ((ret = MIN(ret,subret)) < NhlWARNING) return(ret);
 
-	switch (vcnew->trans.grid_type) {
+	grid_type = vcnew->trans.grid_type;
+	if (! vcp->data_init) {  /* grid type known to work with no data */
+		grid_type = NhltrLOGLIN; 
+	}
+	switch (grid_type) {
 	case NhltrLOGLIN:
 	default:
 		subret = SetUpLLTransObj(vcnew,(NhlVectorPlotLayer)old,False);
@@ -4717,7 +4730,7 @@ static NhlErrorTypes SetUpCrvTransObj
 
 	/*
 	 * By now the grid_type should only be spherical or curvilinear 
-	 * Otherwise fatal error.
+	 * Otherwise fatal error. 
 	 */ 
 
 	switch (tfp->grid_type) {
@@ -4725,7 +4738,14 @@ static NhlErrorTypes SetUpCrvTransObj
 		trans_class =  NhlcurvilinearTransObjClass;
 		break;
 	case NhltrSPHERICAL:
-		trans_class =  NhlsphericalTransObjClass;
+		if (tfp->overlay_status == _tfCurrentOverlayMember &&
+		    tfp->overlay_trans_obj->base.layer_class->base_class.class_name == NhlmapTransObjClass->base_class.class_name) {
+			/* the spherical trans object only works over a map */
+			trans_class =  NhlsphericalTransObjClass;
+		}
+		else {
+			trans_class =  NhlcurvilinearTransObjClass;
+		}
 		break;
 	default:
 		e_text = "%s:internal error determinining trans type";
@@ -4735,7 +4755,7 @@ static NhlErrorTypes SetUpCrvTransObj
 
 	if (init)
 		tfp->trans_obj = NULL;
-	if (tfp->trans_obj && 
+	if (! vcnew->base.being_destroyed && tfp->trans_obj && 
             tfp->trans_obj->base.layer_class->base_class.class_name !=
 	    trans_class->base_class.class_name) {
 		subret = NhlDestroy(tfp->trans_obj->base.id);

@@ -1982,7 +1982,14 @@ NhlErrorTypes _NhlArpram
 
 	do {
 
-		c_arpram(wsrp->ws_ptr,flag1,flag2,flag3);
+		/* if flag1 is set to 999 call the hlu version of the ARPRAM; otherwise
+		   call the version in libncarg/areas; they are almost identical */
+		if (flag1 == 999) {
+			_NHLCALLF(hluarpram,HLUARPRAM)(wsrp->ws_ptr,&flag1,&flag2,&flag3);
+		}
+		else {
+			c_arpram(wsrp->ws_ptr,flag1,flag2,flag3);
+		}
 
 		if (c_nerro(&err_num) == 0) {
 			done = True;
@@ -2457,7 +2464,6 @@ NhlErrorTypes _NhlCpclam
 
 	do {
 		c_cpclam(zdat,fwsrp->ws_ptr,iwsrp->ws_ptr,awsrp->ws_ptr);
-
 		if (c_nerro(&err_num) == 0) {
 			done = True;
 		}

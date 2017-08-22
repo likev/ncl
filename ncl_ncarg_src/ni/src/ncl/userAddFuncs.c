@@ -24,6 +24,7 @@ extern "C" {
 #endif
 #include <stdio.h>
 #include <stdlib.h>
+#include <regex.h>
 #include <ncarg/c.h>
 #include <ncarg/hlu/hluP.h>
 #include <ncarg/hlu/Error.h>
@@ -628,7 +629,7 @@ NhlErrorTypes _Nclstr_split_csv(void)
         int len_str = 1 + strlen((char *) NrmQuarkToString(strs[0]));
         int max_str_len = len_str;
         int pre_pos = -1;
-        char prt_str[4096];
+        char prt_str[NCL_INITIAL_STRING_LENGTH];
 
         int in_dq = 0;
         int in_sq = 0;
@@ -4350,6 +4351,7 @@ NhlErrorTypes process_list(FILE *fp, obj *list_id, char *fmtstr, int *ndvdl, int
     size_t maxlen = 0;
 
     char  name[MAX_LIST_ELEMENT][MAX_PRINT_NAME_LENGTH];
+    char *tmp_sp = NULL;
     char *tmp = NULL;
     char *result = NULL;
 
@@ -4359,14 +4361,16 @@ NhlErrorTypes process_list(FILE *fp, obj *list_id, char *fmtstr, int *ndvdl, int
 
     char prntln[NCL_INITIAL_STRING_LENGTH];
     char buffer[NCL_INITIAL_STRING_LENGTH];
-    char seperator[MAX_LIST_ELEMENT][MAX_PRINT_NAME_LENGTH];
+    char separator[MAX_LIST_ELEMENT][MAX_PRINT_NAME_LENGTH];
 
     int nstart, length, remain;
-    int has_seperator[MAX_LIST_ELEMENT];
+    int has_separator[MAX_LIST_ELEMENT];
 
     length = 1 + strlen(fmtstr);
-    tmp = (char*)NclMalloc(length*sizeof(char));
+    tmp = (char*)NclCalloc(length, sizeof(char));
     strcpy(tmp, fmtstr);
+
+    tmp_sp = tmp;
 
     if('%' != fmtstr[0])
     {
@@ -4382,11 +4386,6 @@ NhlErrorTypes process_list(FILE *fp, obj *list_id, char *fmtstr, int *ndvdl, int
     thevar = (NclVar)theobj;
     thelist = (NclList) theobj;
 
-  /*
-   *fprintf(stderr, "\tfile: %s, line: %d\n", __FILE__, __LINE__);
-   *fprintf(stderr, "\tprefix = <%s>\n", prefix);
-   */
-
     nelems = 0;
     memset(format, 0, MAX_LIST_ELEMENT * MAX_PRINT_NAME_LENGTH);
     result = strtok(tmp, "%");
@@ -4396,9 +4395,6 @@ NhlErrorTypes process_list(FILE *fp, obj *list_id, char *fmtstr, int *ndvdl, int
         {
             strcpy(format[nelems], "%");
             strcat(format[nelems], result);
-          /*
-           *fprintf(stderr, "\tformat[%d] = <%s>\n", nelems, format[nelems]);
-           */
         }
         else
         {
@@ -4433,10 +4429,6 @@ NhlErrorTypes process_list(FILE *fp, obj *list_id, char *fmtstr, int *ndvdl, int
                  else
                      strcpy(name[nelems], "unnamed");
 
-               /*
-                *fprintf(stderr,"\tVariable name: <%s>\n",name[nelems]);
-                */
-
                  thevalue = (NclMultiDValData)_NclGetObj(thevar->var.thevalue_id);
                  if(thevalue->obj.obj_type_mask & Ncl_MultiDValnclfileData)
                  {
@@ -4457,10 +4449,6 @@ NhlErrorTypes process_list(FILE *fp, obj *list_id, char *fmtstr, int *ndvdl, int
                  }
                  else if(thevalue->obj.obj_type_mask & Ncl_MultiDVallistData)
                  {
-                   /*
-                    *ret = _PrintListVarSummary((NclObj)thevalue,fp);
-                    */
-         
                      NhlPError(NhlFATAL,NhlEUNKNOWN,"%s: can not print list in list yet.\n", "process_list");
                      return(NhlFATAL);
                  }
@@ -4471,35 +4459,26 @@ NhlErrorTypes process_list(FILE *fp, obj *list_id, char *fmtstr, int *ndvdl, int
                      if(thevalue != NULL)
                      {
                          type[nelems] = thevalue->multidval.data_type;
-                       /*
-                        *fprintf(stderr, "Type: %s\n",_NclBasicDataTypeToName(thevalue->multidval.data_type));
-                        *fprintf(stderr, "Total Size: %lld bytes\n",(long long)thevalue->multidval.totalsize);
-                        *fprintf(stderr, "            %lld values\n",(long long)thevalue->multidval.totalelements);
-                        */
                          if(thevalue->multidval.totalelements > maxlen)
                              maxlen = thevalue->multidval.totalelements;
                          size[nelems] = thevalue->multidval.totalelements;
          
-                       /*
-                        *fprintf(stderr, "\ttype[%d]: %s\n", nelems, _NclBasicDataTypeToName(type[nelems]));
-                        *fprintf(stderr, "\tsize[%d]: %d\n", nelems, size[nelems]);
-                        */
                      }
                  }
 
                  break;
             default:
                  fprintf(stderr, "\tin file: %s, line: %d\n", __FILE__, __LINE__);
-                 fprintf(stderr, "\tUNRECOGANIZED cur_obj->obj.obj_type %d: %o\n", nelems, cur_obj->obj.obj_type);
+                 fprintf(stderr, "\tUNRECOGNIZED cur_obj->obj.obj_type %d: %o\n", nelems, cur_obj->obj.obj_type);
         }
 
-        has_seperator[nelems] = 0;
+        has_separator[nelems] = 0;
         length = strlen(format[nelems]) - 1;
 
         if(! isalpha(format[nelems][length]))
         {
-            has_seperator[nelems] = 1;
-            strcpy(seperator[nelems], format[nelems] + length);
+            has_separator[nelems] = 1;
+            strcpy(separator[nelems], format[nelems] + length);
         }
 
         step = step->next;
@@ -4509,10 +4488,10 @@ NhlErrorTypes process_list(FILE *fp, obj *list_id, char *fmtstr, int *ndvdl, int
     if(maxelems > 1)
     {
         nelems = maxelems - 2;
-        if(has_seperator[nelems])
+        if(has_separator[nelems])
         {
-            has_seperator[nelems + 1] = 1;
-            strcpy(seperator[nelems + 1], " ");
+            has_separator[nelems + 1] = 1;
+            strcpy(separator[nelems + 1], " ");
         }
     }
 
@@ -4522,11 +4501,8 @@ NhlErrorTypes process_list(FILE *fp, obj *list_id, char *fmtstr, int *ndvdl, int
 
     if(maxelems > truelems)
        maxelems = truelems;
-  /*
-   *fprintf(stderr, "\n\tmaxlen = %d\n", maxlen);
-   */
 
-  /*Print value of elements*/
+    /*Print value of elements*/
     if(! output)
     {
         for(nelems = 0; nelems < maxelems; ++nelems)
@@ -4642,12 +4618,18 @@ NhlErrorTypes process_list(FILE *fp, obj *list_id, char *fmtstr, int *ndvdl, int
                                  sprintf(buffer, format[nelems], *(cp + i));
                              }
                              break;
+                        case NCL_logical:
+                             {
+                                 logical *lp = (logical *) thevalue->multidval.val;
+                                 sprintf(buffer, format[nelems], (*(lp + i) ? "True" : "False"));
+                             }
+                             break;
                         default:
                              memset(buffer, ' ', ndvdl[nelems]);
                              buffer[ndvdl[nelems]] = '\0';
 
                              fprintf(stderr, "\tin file: %s, line: %d\n", __FILE__, __LINE__);
-                             fprintf(stderr, "\tUNRECOGANIZED thevalue->multidval.data_type 0x%o\n", thevalue->multidval.data_type);
+                             fprintf(stderr, "\tUNRECOGNIZED thevalue->multidval.data_type 0x%o\n", thevalue->multidval.data_type);
                     }
                 }
 
@@ -4656,7 +4638,7 @@ NhlErrorTypes process_list(FILE *fp, obj *list_id, char *fmtstr, int *ndvdl, int
                 if(length > ndvdl[nelems])
                     ndvdl[nelems] = length;
 
-                if(has_seperator[nelems])
+                if(has_separator[nelems])
                 {
                     strcat(prntln, buffer);
                     nstart += length;
@@ -4708,10 +4690,10 @@ NhlErrorTypes process_list(FILE *fp, obj *list_id, char *fmtstr, int *ndvdl, int
                 memset(buffer, ' ', ndvdl[nelems] + 1);
                 buffer[ndvdl[nelems]] = '\0';
 
-                if(has_seperator[nelems])
+                if(has_separator[nelems])
                 {
-                    buffer[ndvdl[nelems] - strlen(seperator[nelems])] = '\0';
-                    strcat(buffer, seperator[nelems]);
+                    buffer[ndvdl[nelems] - strlen(separator[nelems])] = '\0';
+                    strcat(buffer, separator[nelems]);
                 }
                 else
                     if(nelems)
@@ -4728,8 +4710,9 @@ NhlErrorTypes process_list(FILE *fp, obj *list_id, char *fmtstr, int *ndvdl, int
     }
 
   /*
-   *NclFree(tmp);
    */
+    if(NULL != tmp_sp)
+        NclFree(tmp_sp);
 
     return(NhlNOERROR);
 }
@@ -5011,6 +4994,723 @@ NhlErrorTypes _NclgetNbitsFromUint64()
 
     return NclReturnValue(newui64, ndim_ui64, dimsz_ui64, (has_missing_ret ? &ret_missing : NULL), NCL_uint64, 0);
 
+}
+
+NhlErrorTypes _Nclstr_match_regex(void)
+{
+    NclQuark *input_strs;
+    NclQuark *input_expr;
+
+    int ndim_input_strs;
+    ng_size_t dimsz_input_strs[NCL_MAX_DIMENSIONS];
+    int has_missing_input_strs;
+    int has_missing_input_expr;
+    int has_missing = 0;
+    NclScalar missing_input_strs;
+    NclScalar missing_input_expr;
+    NclScalar ret_missing;
+
+    NclBasicDataTypes type;
+
+    char *tmp_str;
+    NclQuark *output_strs;
+    ng_size_t i;
+    ng_size_t str_size;
+    ng_size_t output_str_size = 0;
+
+    regex_t expr;
+    regmatch_t rm;
+
+  /*
+   *fprintf(stderr, "in file: %s, line: %d\n", __FILE__, __LINE__);
+   */
+
+    input_strs = (NclQuark *) NclGetArgValue(
+                        0,
+                        2,
+                        &ndim_input_strs,
+                        dimsz_input_strs,
+                        &missing_input_strs,
+                        &has_missing_input_strs,
+                        &type,
+                        0);
+
+    if (input_strs == NULL)
+    {
+        NhlPError(NhlFATAL, NhlEUNKNOWN, "str_match_regex: input string is null.");
+        return NhlFATAL;
+    }
+
+    if(type != NCL_string)
+    {
+        NhlPError(NhlFATAL, NhlEUNKNOWN, "str_match_regex: Invalid input string.");
+        return NhlFATAL;
+    }
+
+    if(has_missing_input_strs)
+    {
+        ret_missing.stringval = missing_input_strs.stringval;
+        has_missing = 1;
+    }
+    else
+    {
+        ret_missing.stringval = (NclQuark) ((NclTypeClass) nclTypestringClass)->type_class.default_mis.stringval;
+    }
+
+    input_expr = (NclQuark *) NclGetArgValue(
+                        1,
+                        2,
+                        NULL,
+                        NULL,
+                        &missing_input_expr,
+                        &has_missing_input_expr,
+                        &type,
+                        0);
+
+    if (input_expr == NULL)
+    {
+        NhlPError(NhlFATAL, NhlEUNKNOWN, "str_match_regex: input expression is null.");
+        return NhlFATAL;
+    }
+
+    if(type == NCL_string)
+    {
+        char *reg_exp = NrmQuarkToString(input_expr[0]);
+      /*
+       *fprintf(stderr, "\tfile: %s, line: %d\n", __FILE__, __LINE__);
+       *fprintf(stderr, "\treg_exp: <%s>\n", reg_exp);
+       *fprintf(stderr, "\tstrlen(reg_exp) = %d\n", strlen(reg_exp));
+       */
+
+        if(strlen(reg_exp) > 0)
+        {
+            if(regcomp(&expr,reg_exp,REG_EXTENDED) != 0)
+            {
+                NhlPError(NhlWARNING,NhlEUNKNOWN,"str_match_regex: Invalid expression");
+                return NhlFATAL;
+            }
+        }
+        else
+        {
+            str_size = 1;
+
+            output_strs = (NclQuark *) NclMalloc(str_size*sizeof(NclQuark));
+            if (! output_strs)
+            {
+                NHLPERROR((NhlFATAL,ENOMEM,NULL));
+                return NhlFATAL;
+            }
+            
+            output_str_size = 1;
+            output_strs[0] = ret_missing.stringval;
+            return NclReturnValue(output_strs, 1, &output_str_size,
+                                  &ret_missing, NCL_string, 0);
+        }
+    }
+    else
+    {
+        NhlPError(NhlFATAL, NhlEUNKNOWN, "str_match_regex: input expression is not a string.");
+        return NhlFATAL;
+    }
+
+    str_size = 1;
+    for(i=0; i<ndim_input_strs; i++)
+        str_size *= dimsz_input_strs[i];
+
+    output_strs = (NclQuark *) NclMalloc(str_size*sizeof(NclQuark));
+    if (! output_strs)
+    {
+        NHLPERROR((NhlFATAL,ENOMEM,NULL));
+        return NhlFATAL;
+    }
+
+    for(i=0; i<str_size; i++)
+    {
+        if(has_missing_input_strs && input_strs[i] == missing_input_strs.stringval)
+        {
+            has_missing = 1;
+            continue;
+        }
+
+        if(has_missing_input_expr && (input_expr[i] == missing_input_expr.stringval))
+        {
+            continue;
+        }
+
+        tmp_str = (char *) NrmQuarkToString(input_strs[i]);
+      /*
+       *fprintf(stderr, "\tinput_strs[%d]: <%s>\n", i, tmp_str);
+       */
+
+        if(regexec(&expr,tmp_str,1,&rm,0) == 0)
+        {
+            output_strs[output_str_size] = input_strs[i];
+          /*
+           *fprintf(stderr, "\toutput_strs[%d]: <%s>\n",
+           *        output_str_size, NrmQuarkToString(output_strs[output_str_size]));
+           */
+            output_str_size ++;
+        }
+    }
+
+    if(output_str_size)
+        output_strs = (NclQuark *) NclRealloc(output_strs, output_str_size*sizeof(NclQuark));
+    else
+    {
+        has_missing = 1;
+        output_strs = (NclQuark *) NclRealloc(output_strs, sizeof(NclQuark));
+        output_strs[output_str_size] = ret_missing.stringval;
+      /*
+       *output_strs[output_str_size] = NrmStringToQuark("NO MATCH");
+       */
+        output_str_size = 1;
+    }
+
+    return NclReturnValue(output_strs, 1, &output_str_size, ( has_missing ? &ret_missing : NULL ), NCL_string, 0);
+}
+
+NhlErrorTypes _Nclstr_match_ic_regex(void)
+{
+    NclQuark *input_strs;
+    NclQuark *input_expr;
+
+    int ndim_input_strs;
+    ng_size_t dimsz_input_strs[NCL_MAX_DIMENSIONS];
+    int has_missing_input_strs;
+    int has_missing_input_expr;
+    int has_missing = 0;
+    NclScalar missing_input_strs;
+    NclScalar missing_input_expr;
+    NclScalar ret_missing;
+
+    NclBasicDataTypes type;
+
+    char *tmp_str;
+    NclQuark *output_strs;
+    ng_size_t i;
+    ng_size_t str_size;
+    ng_size_t output_str_size = 0;
+
+    regex_t expr;
+    regmatch_t rm;
+
+  /*
+   *fprintf(stderr, "in file: %s, line: %d\n", __FILE__, __LINE__);
+   */
+
+    input_strs = (NclQuark *) NclGetArgValue(
+                        0,
+                        2,
+                        &ndim_input_strs,
+                        dimsz_input_strs,
+                        &missing_input_strs,
+                        &has_missing_input_strs,
+                        &type,
+                        0);
+
+    if (input_strs == NULL)
+    {
+        NhlPError(NhlFATAL, NhlEUNKNOWN, "str_match_ic_regex: input string is null.");
+        return NhlFATAL;
+    }
+
+    if(type != NCL_string)
+    {
+        NhlPError(NhlFATAL, NhlEUNKNOWN, "str_match_ic_regex: Invalid input string.");
+        return NhlFATAL;
+    }
+
+    if(has_missing_input_strs)
+    {
+        ret_missing.stringval = missing_input_strs.stringval;
+        has_missing = 1;
+    }
+    else
+    {
+        ret_missing.stringval = (NclQuark) ((NclTypeClass) nclTypestringClass)->type_class.default_mis.stringval;
+    }
+
+    input_expr = (NclQuark *) NclGetArgValue(
+                        1,
+                        2,
+                        NULL,
+                        NULL,
+                        &missing_input_expr,
+                        &has_missing_input_expr,
+                        &type,
+                        0);
+
+    if (input_expr == NULL)
+    {
+        NhlPError(NhlFATAL, NhlEUNKNOWN, "str_match_ic_regex: input expression is null.");
+        return NhlFATAL;
+    }
+
+    if(type == NCL_string)
+    {
+        char *reg_exp = NrmQuarkToString(input_expr[0]);
+      /*
+       *fprintf(stderr, "\tfile: %s, line: %d\n", __FILE__, __LINE__);
+       *fprintf(stderr, "\treg_exp: <%s>\n", reg_exp);
+       */
+        if(strlen(reg_exp) > 0)
+        {
+            if(regcomp(&expr,reg_exp,REG_ICASE|REG_EXTENDED) != 0)
+            {
+                NhlPError(NhlWARNING,NhlEUNKNOWN,"str_match_ic_regex: Invalid expression");
+                return NhlFATAL;
+            }
+        }
+    }
+    else
+    {
+        NhlPError(NhlFATAL, NhlEUNKNOWN, "str_match_ic_regex: input expression is not a string.");
+        return NhlFATAL;
+    }
+
+    str_size = 1;
+    for(i=0; i<ndim_input_strs; i++)
+        str_size *= dimsz_input_strs[i];
+
+    output_strs = (NclQuark *) NclMalloc(str_size*sizeof(NclQuark));
+    if (! output_strs)
+    {
+        NHLPERROR((NhlFATAL,ENOMEM,NULL));
+        return NhlFATAL;
+    }
+
+    for(i=0; i<str_size; i++)
+    {
+        if(has_missing_input_strs && input_strs[i] == missing_input_strs.stringval)
+        {
+            has_missing = 1;
+            continue;
+        }
+
+        if(has_missing_input_expr && (input_expr[i] == missing_input_expr.stringval))
+        {
+            continue;
+        }
+
+        tmp_str = (char *) NrmQuarkToString(input_strs[i]);
+      /*
+       *fprintf(stderr, "\tinput_strs[%d]: <%s>\n", i, tmp_str);
+       */
+
+        if(regexec(&expr,tmp_str,1,&rm,0) == 0)
+        {
+            output_strs[output_str_size] = input_strs[i];
+          /*
+           *fprintf(stderr, "\toutput_strs[%d]: <%s>\n",
+           *        output_str_size, NrmQuarkToString(output_strs[output_str_size]));
+           */
+            output_str_size ++;
+        }
+    }
+
+    if(output_str_size)
+        output_strs = (NclQuark *) NclRealloc(output_strs, output_str_size*sizeof(NclQuark));
+    else
+    {
+        has_missing = 1;
+        output_strs = (NclQuark *) NclRealloc(output_strs, sizeof(NclQuark));
+        output_strs[output_str_size] = ret_missing.stringval;
+      /*
+       *output_strs[output_str_size] = NrmStringToQuark("NO MATCH");
+       */
+        output_str_size = 1;
+    }
+
+    return NclReturnValue(output_strs, 1, &output_str_size, ( has_missing ? &ret_missing : NULL ), NCL_string, 0);
+}
+
+NhlErrorTypes _Nclstr_match_ind_regex(void)
+{
+    NclQuark *input_strs;
+    NclQuark *input_expr;
+
+    int ndim_input_strs;
+    ng_size_t dimsz_input_strs[NCL_MAX_DIMENSIONS];
+    int has_missing_input_strs;
+    int has_missing_input_expr;
+    int has_missing = 0;
+    NclScalar missing_input_strs;
+    NclScalar missing_input_expr;
+    NclScalar ret_missing;
+
+    NclBasicDataTypes type;
+
+    char *tmp_str;
+    int *output_inds;
+    ng_size_t i;
+    ng_size_t str_size;
+    ng_size_t output_ind_size = 0;
+
+    regex_t expr;
+    regmatch_t rm;
+
+  /*
+   *fprintf(stderr, "in file: %s, line: %d\n", __FILE__, __LINE__);
+   */
+
+    input_strs = (NclQuark *) NclGetArgValue(
+                        0,
+                        2,
+                        &ndim_input_strs,
+                        dimsz_input_strs,
+                        &missing_input_strs,
+                        &has_missing_input_strs,
+                        &type,
+                        0);
+
+    if (input_strs == NULL)
+    {
+        NhlPError(NhlFATAL, NhlEUNKNOWN, "str_match_ind_regex: input string is null.");
+        return NhlFATAL;
+    }
+
+    if(has_missing_input_strs)
+    {
+        has_missing = 1;
+    }
+    ret_missing.intval =  (int) ((NclTypeClass) nclTypeintClass)->type_class.default_mis.intval;
+
+    input_expr = (NclQuark *) NclGetArgValue(
+                        1,
+                        2,
+                        NULL,
+                        NULL,
+                        &missing_input_expr,
+                        &has_missing_input_expr,
+                        &type,
+                        0);
+
+    if (input_expr == NULL)
+    {
+        NhlPError(NhlFATAL, NhlEUNKNOWN, "str_match_ind_regex: input expression is null.");
+        return NhlFATAL;
+    }
+
+    if(type == NCL_string)
+    {
+        char *reg_exp = NrmQuarkToString(input_expr[0]);
+        if(strlen(reg_exp) > 0)
+        {
+            if(regcomp(&expr,reg_exp,REG_EXTENDED) != 0)
+            {
+                NhlPError(NhlWARNING,NhlEUNKNOWN,"str_match_ind_regex: Invalid expression");
+                return NhlFATAL;
+            }
+        }
+    }
+    else
+    {
+        NhlPError(NhlFATAL, NhlEUNKNOWN, "str_match_ind_regex: input expression is not a string.");
+        return NhlFATAL;
+    }
+
+    str_size = 1;
+    for(i=0; i<ndim_input_strs; i++)
+        str_size *= dimsz_input_strs[i];
+
+    output_inds = (int *) NclMalloc(str_size*sizeof(int));
+    if (! output_inds)
+    {
+        NHLPERROR((NhlFATAL,ENOMEM,NULL));
+        return NhlFATAL;
+    }
+
+    for(i=0; i<str_size; i++)
+    {
+        if(has_missing_input_strs && input_strs[i] == missing_input_strs.stringval)
+        {
+            has_missing = 1;
+            continue;
+        }
+
+        if(has_missing_input_expr && (input_expr[i] == missing_input_expr.stringval))
+        {
+            continue;
+        }
+
+        tmp_str = (char *) NrmQuarkToString(input_strs[i]);
+      /*
+       *fprintf(stderr, "\tinput_strs[%d]: <%s>\n", i, tmp_str);
+       */
+
+        if(regexec(&expr,tmp_str,1,&rm,0) == 0)
+        {
+            output_inds[output_ind_size] = i;
+            output_ind_size ++;
+        }
+    }
+
+    if(output_ind_size)
+        output_inds = (int *) NclRealloc(output_inds, output_ind_size*sizeof(int));
+    else
+    {
+        has_missing = 1;
+        output_inds = (int *) NclRealloc(output_inds, sizeof(int));
+        output_inds[output_ind_size] = ret_missing.intval;
+      /*
+       *output_inds[output_ind_size] = NrmStringToQuark("NO MATCH");
+       */
+        output_ind_size = 1;
+    }
+
+    return NclReturnValue(output_inds, 1, &output_ind_size, ( has_missing ? &ret_missing : NULL ), NCL_int, 0);
+}
+
+NhlErrorTypes _Nclstr_match_ind_ic_regex(void)
+{
+    NclQuark *input_strs;
+    NclQuark *input_expr;
+
+    int ndim_input_strs;
+    ng_size_t dimsz_input_strs[NCL_MAX_DIMENSIONS];
+    int has_missing_input_strs;
+    int has_missing_input_expr;
+    int has_missing = 0;
+    NclScalar missing_input_strs;
+    NclScalar missing_input_expr;
+    NclScalar ret_missing;
+
+    NclBasicDataTypes type;
+
+    char *tmp_str;
+    int *output_inds;
+    ng_size_t i;
+    ng_size_t str_size;
+    ng_size_t output_ind_size = 0;
+
+    regex_t expr;
+    regmatch_t rm;
+
+  /*
+   *fprintf(stderr, "in file: %s, line: %d\n", __FILE__, __LINE__);
+   */
+
+    input_strs = (NclQuark *) NclGetArgValue(
+                        0,
+                        2,
+                        &ndim_input_strs,
+                        dimsz_input_strs,
+                        &missing_input_strs,
+                        &has_missing_input_strs,
+                        &type,
+                        0);
+
+    if (input_strs == NULL)
+    {
+        NhlPError(NhlFATAL, NhlEUNKNOWN, "str_match_ind_ic_regex: input string is null.");
+        return NhlFATAL;
+    }
+
+    if(has_missing_input_strs)
+    {
+        has_missing = 1;
+    }
+    ret_missing.intval =  (int) ((NclTypeClass) nclTypeintClass)->type_class.default_mis.intval;
+
+    input_expr = (NclQuark *) NclGetArgValue(
+                        1,
+                        2,
+                        NULL,
+                        NULL,
+                        &missing_input_expr,
+                        &has_missing_input_expr,
+                        &type,
+                        0);
+
+    if (input_expr == NULL)
+    {
+        NhlPError(NhlFATAL, NhlEUNKNOWN, "str_match_ind_ic_regex: input expression is null.");
+        return NhlFATAL;
+    }
+
+    if(type == NCL_string)
+    {
+        char *reg_exp = NrmQuarkToString(input_expr[0]);
+        if(strlen(reg_exp) > 0)
+        {
+            if(regcomp(&expr,reg_exp,REG_ICASE|REG_EXTENDED) != 0)
+            {
+                NhlPError(NhlWARNING,NhlEUNKNOWN,"str_match_ind_ic_regex: Invalid expression");
+                return NhlFATAL;
+            }
+        }
+    }
+    else
+    {
+        NhlPError(NhlFATAL, NhlEUNKNOWN, "str_match_ind_ic_regex: input expression is not a string.");
+        return NhlFATAL;
+    }
+
+    str_size = 1;
+    for(i=0; i<ndim_input_strs; i++)
+        str_size *= dimsz_input_strs[i];
+
+    output_inds = (int *) NclMalloc(str_size*sizeof(int));
+    if (! output_inds)
+    {
+        NHLPERROR((NhlFATAL,ENOMEM,NULL));
+        return NhlFATAL;
+    }
+
+    for(i=0; i<str_size; i++)
+    {
+        if(has_missing_input_strs && input_strs[i] == missing_input_strs.stringval)
+        {
+            has_missing = 1;
+            continue;
+        }
+
+        if(has_missing_input_expr && (input_expr[i] == missing_input_expr.stringval))
+        {
+            continue;
+        }
+
+        tmp_str = (char *) NrmQuarkToString(input_strs[i]);
+      /*
+       *fprintf(stderr, "\tinput_strs[%d]: <%s>\n", i, tmp_str);
+       */
+
+        if(regexec(&expr,tmp_str,1,&rm,0) == 0)
+        {
+            output_inds[output_ind_size] = i;
+            output_ind_size ++;
+        }
+    }
+
+    if(output_ind_size)
+        output_inds = (int *) NclRealloc(output_inds, output_ind_size*sizeof(int));
+    else
+    {
+        has_missing = 1;
+        output_inds = (int *) NclRealloc(output_inds, sizeof(int));
+        output_inds[output_ind_size] = ret_missing.intval;
+      /*
+       *output_inds[output_ind_size] = NrmStringToQuark("NO MATCH");
+       */
+        output_ind_size = 1;
+    }
+
+    return NclReturnValue(output_inds, 1, &output_ind_size, ( has_missing ? &ret_missing : NULL ), NCL_int, 0);
+}
+
+NhlErrorTypes _Nclstr_remove_leading_str(void)
+{
+    NclQuark *input_strs;
+    NclQuark *input_lead;
+
+    int ndim_input_strs;
+    ng_size_t dimsz_input_strs[NCL_MAX_DIMENSIONS];
+    int has_missing_input_strs;
+    int has_missing_input_lead;
+    int has_missing = 0;
+    NclScalar missing_input_strs;
+    NclScalar missing_input_lead;
+    NclScalar ret_missing;
+
+    NclBasicDataTypes type;
+
+    char *lead_str;
+    char *tmp_str;
+    NclQuark *output_strs;
+    ng_size_t i;
+    ng_size_t str_size;
+    int lead_len = 0;
+    int new_len = 0;
+
+  /*
+   *fprintf(stderr, "in file: %s, line: %d\n", __FILE__, __LINE__);
+   */
+
+    input_strs = (NclQuark *) NclGetArgValue(
+                        0,
+                        2,
+                        &ndim_input_strs,
+                        dimsz_input_strs,
+                        &missing_input_strs,
+                        &has_missing_input_strs,
+                        &type,
+                        0);
+
+    if (input_strs == NULL)
+    {
+        NhlPError(NhlFATAL, NhlEUNKNOWN, "str_match_ind_ic_regex: input string is null.");
+        return NhlFATAL;
+    }
+
+    if(has_missing_input_strs)
+    {
+        has_missing = 1;
+    }
+    ret_missing.intval =  (int) ((NclTypeClass) nclTypeintClass)->type_class.default_mis.intval;
+
+    input_lead = (NclQuark *) NclGetArgValue(
+                        1,
+                        2,
+                        NULL,
+                        NULL,
+                        &missing_input_lead,
+                        &has_missing_input_lead,
+                        &type,
+                        0);
+
+    if (input_lead == NULL)
+    {
+        NhlPError(NhlFATAL, NhlEUNKNOWN, "str_remove_leading_str: input leading string is null.");
+        return NhlFATAL;
+    }
+
+    lead_str = NrmQuarkToString(input_lead[0]);
+    lead_len = strlen(lead_str);
+
+    str_size = 1;
+    for(i = 0; i < ndim_input_strs; ++i)
+        str_size *= dimsz_input_strs[i];
+
+    output_strs = (NclQuark *) NclMalloc(str_size*sizeof(NclQuark));
+    if (! output_strs)
+    {
+        NHLPERROR((NhlFATAL,ENOMEM,NULL));
+        return NhlFATAL;
+    }
+
+    for(i=0; i<str_size; i++)
+    {
+        if(has_missing_input_strs && input_strs[i] == missing_input_strs.stringval)
+        {
+            has_missing = 1;
+            continue;
+        }
+
+        if(has_missing_input_lead && (input_lead[i] == missing_input_lead.stringval))
+        {
+            continue;
+        }
+
+        tmp_str = (char *) NrmQuarkToString(input_strs[i]);
+
+        new_len = strlen(tmp_str);
+      
+        if(new_len <= lead_len)
+            output_strs[i] = NrmStringToQuark("");
+        else
+        {
+            if(strncmp(tmp_str, lead_str, lead_len-1))
+                output_strs[i] = input_strs[i];
+            else
+                output_strs[i] = NrmStringToQuark(tmp_str+lead_len);
+        }
+      /*
+       *fprintf(stderr, "\tinput_strs[%ld]: <%s>, lead-str: <%s>\n", i, tmp_str, lead_str);
+       *fprintf(stderr, "\toutput_strs[%ld]: <%s>\n", i, NrmQuarkToString(output_strs[i]));
+       */
+    }
+
+    return NclReturnValue(output_strs, ndim_input_strs, dimsz_input_strs, ( has_missing ? &ret_missing : NULL ), NCL_string, 0);
 }
 
 #ifdef __cplusplus

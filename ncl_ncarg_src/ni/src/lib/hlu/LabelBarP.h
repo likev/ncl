@@ -68,6 +68,7 @@ typedef struct _NhlLabelBarLayerPart {
 	NhlBoolean	mono_fill_color;
 	NhlColorIndex	fill_color;
 	NhlGenArray	fill_colors;
+        NhlBoolean      override_fill_opacity;
 	NhlBoolean	mono_fill_pattern;
 	NhlFillIndex	fill_pattern;
 	NhlGenArray	fill_patterns;
@@ -122,6 +123,7 @@ typedef struct _NhlLabelBarLayerPart {
 	float	box_line_thickness;
 	int	box_line_dash_pattern;
 	float	box_line_dash_seglen;
+        NhllbBoxEndCapStyle box_end_cap_style;
 	
 	int	perim_on;
 	int	perim_color;
@@ -172,6 +174,8 @@ typedef struct _NhlLabelBarLayerPart {
 	NhlBoolean	new_draw_req;	
         NhlTransDat	*trans_dat;	/* segment transform data */
 	float		actual_label_height;
+        float           fill_opacity;
+
 
 }NhlLabelBarLayerPart;
 

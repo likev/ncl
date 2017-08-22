@@ -26,6 +26,18 @@
 extern void coerce_missing(NclBasicDataTypes,int,NclScalar *,
                            NclScalar *,NclScalar *);
 
+extern void coerce_missing_long(NclBasicDataTypes,long,NclScalar *,
+                                NclScalar *);
+
+extern void coerce_missing_int(NclBasicDataTypes,int,NclScalar *,
+                               NclScalar *);
+
+extern void coerce_missing_short(NclBasicDataTypes,short,NclScalar *,
+                                 NclScalar *);
+
+extern void coerce_missing_more_types(NclBasicDataTypes,int,NclScalar *,
+				      NclScalar *,NclScalar *);
+
 extern double *coerce_input_double(void*,NclBasicDataTypes,ng_size_t,int,
                                    NclScalar*,NclScalar*);
 
@@ -42,6 +54,8 @@ extern float *coerce_output_float(double *, void *, ng_size_t, int);
 
 extern void coerce_output_float_only(void *,double *,ng_size_t, ng_size_t);
 
+extern void coerce_output_long_only(void *,double *,ng_size_t, ng_size_t);
+
 extern void coerce_output_int_only(void *,double *,ng_size_t, ng_size_t);
 
 extern void coerce_output_float_or_double(void *,double *,
@@ -55,11 +69,27 @@ extern void coerce_output_float_or_double_ind(void *,double *,
 extern void coerce_output_float_or_double_step(void *,double *,
 					       NclBasicDataTypes,ng_size_t,ng_size_t,ng_size_t);
 
+extern void coerce_output_step(void *,double *,NclBasicDataTypes,
+			       ng_size_t,ng_size_t,ng_size_t);
+
 extern float *coerce_input_float(void*,NclBasicDataTypes,ng_size_t,int,
                                    NclScalar*,NclScalar*);
 
+extern int *coerce_input_int(void*,NclBasicDataTypes,ng_size_t,int,
+                             NclScalar*,NclScalar*);
+
+extern unsigned int *coerce_input_uint(void*,NclBasicDataTypes,ng_size_t,int,
+				      NclScalar*,NclScalar*);
+
+extern unsigned long *coerce_input_ulong(void*,NclBasicDataTypes,ng_size_t,int,
+					 NclScalar*,NclScalar*);
+
 extern void coerce_subset_input_float(void *,float *,ng_size_t,NclBasicDataTypes,
                                        ng_size_t,int,NclScalar*,NclScalar*);
+
+extern void force_subset_input_int(void *,int *,ng_size_t,NclBasicDataTypes,ng_size_t);
+extern void force_subset_input_long(void *,long *,ng_size_t,NclBasicDataTypes,ng_size_t);
+extern void force_subset_input_short(void *,short *,ng_size_t,NclBasicDataTypes,ng_size_t);
 
 extern double *coerce_output_double(void*,NclBasicDataTypes,ng_size_t);
 
@@ -71,7 +101,8 @@ extern void set_subset_output_missing(void *,ng_size_t,NclBasicDataTypes,ng_size
 extern void set_subset_output_missing_step(void *,ng_size_t,ng_size_t,NclBasicDataTypes,
 					   ng_size_t,double);
 
-extern int is_scalar(int,ng_size_t*);
+extern logical is_scalar(int,ng_size_t*);
+extern logical is_scalar_array(int,ng_size_t*);
 
 
 extern void compute_nlatnlon(ng_size_t *, int, ng_size_t *, ng_size_t *,
@@ -92,3 +123,5 @@ extern ng_size_t *get_dimensions(void *tmp_dimensions,int n_dimensions,
 
 extern int *get_dims_for_n_funcs(int arg_num,  int num_args, NclStackEntry tmpdata,
 				  const char *name, int *ndims);
+
+extern int cmpdouble (const void * a, const void * b);

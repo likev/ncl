@@ -1,5 +1,5 @@
 /*
- *      $Id: NclAdvancedGroup.h 14070 2013-01-15 19:25:13Z huangwei $
+ *      $Id$
  */
 /************************************************************************
 *									*
@@ -25,7 +25,7 @@
 #include "NclAdvancedFile.h"
 #include "NclFileInterfaces.h"
 
-extern NclGroup *_NclAdvancedGroupCreate(NclObj       inst,
+extern NclAdvancedFile _NclAdvancedGroupCreate(NclObj       inst,
                                     NclObjClass  theclass,
                                     NclObjTypes  obj_type,
                                     unsigned int obj_type_mask,

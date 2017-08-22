@@ -72,7 +72,7 @@ static NhlResource resources[] = {
 	{NhlNmpDataBaseVersion,NhlCmpDataBaseVersion,
 		NhlTMapDataBaseVersion,sizeof(NhlMapDataBaseVersion),
 	 	Oset(database_version),NhlTImmediate, 
-	 	_NhlUSET((NhlPointer)NhlNCARG4_0),0,NULL},
+	 	_NhlUSET((NhlPointer)NhlDYNAMIC_MAPS),0,NULL},
 	{NhlNmpDataSetName,NhlCmpDataSetName,NhlTString,
 		 sizeof(NhlString),Oset(data_set_name),NhlTImmediate,
 		 _NhlUSET((NhlPointer) NULL),0,NULL},
@@ -558,13 +558,13 @@ static NhlResource resources[] = {
 	{ "no.res","No.res",NhlTBoolean,sizeof(NhlBoolean),
 		 NhlOffset(NhlMapPlotLayerRec,trans.y_reverse),NhlTImmediate,
 		 _NhlUSET((NhlPointer)False),_NhlRES_PRIVATE,NULL},
-	{ "no.res","No.res",NhlTBoolean,sizeof(NhlBoolean),
-		  NhlOffset(NhlMapPlotLayerRec,trans.line_interpolation_on),
-	  	  NhlTImmediate,
-	  	  _NhlUSET((NhlPointer)False),_NhlRES_PRIVATE,NULL},
 
 /* Intercepted resources */
 
+	{ NhlNtrLineInterpolationOn, NhlCtrLineInterpolationOn,NhlTBoolean,sizeof(NhlBoolean),
+		  NhlOffset(NhlMapPlotLayerRec,trans.line_interpolation_on),
+	  	  NhlTImmediate,
+	  	  _NhlUSET((NhlPointer)True),_NhlRES_INTERCEPTED,NULL},
 	{NhlNpmTickMarkDisplayMode,NhlCpmTickMarkDisplayMode,
 	 NhlTAnnotationDisplayMode,sizeof(NhlAnnotationDisplayMode),
 	 Oset(display_tickmarks),NhlTImmediate,
@@ -1075,6 +1075,7 @@ MapPlotClassInitialize
 	};
 
 	_NhlEnumVals mapdatabaseversionlist[] =  {
+        {NhlDYNAMIC_MAPS,       "Dynamic"},
 	{NhlNCARG4_0,		"LowRes"},
 	{NhlNCARG4_0,		"Ncarg4_0"},
 	{NhlNCARG4_1,		"MediumRes"},
@@ -3395,11 +3396,9 @@ static NhlErrorTypes    mpManageDynamicArrays
                 mpp->spec_fill_color_count
                         = mpp->spec_fill_colors->num_elements;
 		if (mpp->spec_fill_direct) {
-                        max_val = INT_MAX;
                         min_val = NhlUNSPECIFIEDCOLOR;
                 }
 		else {
-			max_val = mpp->area_group_count - 1;
                         min_val = 0;
                 }
                 ip = (int *) mpp->spec_fill_colors->data; 
@@ -3487,7 +3486,7 @@ static NhlErrorTypes    mpManageDynamicArrays
                 ompp->spec_fill_scales = (NhlGenArray)0xdeadbeef;
         }
 	else if (ga != mpp->spec_fill_scales) {
-		float max_val,min_val;
+		float max_val;
                 NhlFreeGenArray(ga);
                 ga = _NhlCopyGenArray(mpp->spec_fill_scales,True);
                 if (ga == NULL) {
@@ -3503,11 +3502,9 @@ static NhlErrorTypes    mpManageDynamicArrays
 		fp = (float *) mpp->spec_fill_scales->data; 
 		if (! mpp->spec_fill_direct) {
 			max_val = mpp->area_group_count - 1;
-                        min_val = 0.0;
                 }
 		else {
 			max_val = FLT_MAX;
-                        min_val = 0.0;
                 }
                 
 		for (i = 0; i < mpp->spec_fill_scale_count; i++) {
@@ -3800,17 +3797,41 @@ static NhlErrorTypes mpSetUpDataHandler
 	if (! init && mpp->database_version != ompp->database_version) {
                 NhlDestroy(mpp->map_data_handler->base.id);
                 mpp->map_data_handler = NULL;
+        }        
+        else if (! init && mpp->database_version == NhlDYNAMIC_MAPS &&
+                mpp->map_data_handler->base.layer_class == NhlmapV40DataHandlerClass &&
+                mpp->outline_specs == NULL  && mpp->fill_area_specs == NULL && 
+                mpp->mask_outline_specs == NULL && mpp->mask_area_specs == NULL &&
+                (mpp->outline_boundaries != NhlGEOPHYSICAL || mpp->fill_boundaries != NhlGEOPHYSICAL))
+        {
+                /* "Dynamic" maps in effect, and we've previously defaulted to V40 database. But user 
+                 * has specified something other than geophysical features, so we need to switch to 
+                 * V41 database.
+                 */
+                NhlDestroy(mpp->map_data_handler->base.id);
+                mpp->map_data_handler = NULL;            
         }
+        
 	if (! mpp->map_data_handler) {
-
-                if (mpp->database_version == NhlNCARG4_0) {
+                if (mpp->database_version == NhlDYNAMIC_MAPS) {
+                    if ((mpp->outline_boundaries == NhlGEOPHYSICAL && mpp->fill_boundaries == NhlGEOPHYSICAL) ||
+                        mpp->outline_specs != NULL || mpp->fill_area_specs != NULL || 
+                        mpp->mask_outline_specs != NULL || mpp->mask_area_specs != NULL)
+                        /* NCL-2126 */
                         mapdh_class = NhlmapV40DataHandlerClass;
-                }
-		else if (mpp->database_version == NhlNCARG4_1) {
+                    else {
 			mapdh_class = NhlmapV41DataHandlerClass;
 			if (mpp->data_set_name)
-				NhlSetSArg(&sargs[nargs++],
-					   NhlNmpDataSetName,mpp->data_set_name);
+				NhlSetSArg(&sargs[nargs++], NhlNmpDataSetName, mpp->data_set_name);
+                    }
+                }
+                else if (mpp->database_version == NhlNCARG4_0) {
+                    mapdh_class = NhlmapV40DataHandlerClass;
+                }
+		else if (mpp->database_version == NhlNCARG4_1) {
+                    mapdh_class = NhlmapV41DataHandlerClass;
+                    if (mpp->data_set_name)
+			NhlSetSArg(&sargs[nargs++], NhlNmpDataSetName, mpp->data_set_name);
                 }		
 		else if (mpp->database_version == NhlRANGS_GSHHS) {
 			mapdh_class = NhlmapRGDataHandlerClass;
@@ -3914,6 +3935,7 @@ static NhlErrorTypes mpSetUpTransObj
                                            NhlNtrDataYEndF,tfp->data_yend,
 					   NhlNmpPreserveAspectRatio,
 					   preserve_aspect,
+					   NhlNtrLineInterpolationOn, tfp->line_interpolation_on,
 					   NULL);
 
 		ret = MIN(subret,ret);
@@ -3941,6 +3963,10 @@ static NhlErrorTypes mpSetUpTransObj
 			NhlSetSArg(&sargs[nargs++],
 				   NhlNmpPreserveAspectRatio,preserve_aspect);
 		}
+		if (tfp->line_interpolation_on != mpold->trans.line_interpolation_on)
+			NhlSetSArg(&sargs[nargs++],NhlNtrLineInterpolationOn,
+				   tfp->line_interpolation_on);
+
 		subret = _NhlALSetValuesChild(tfp->trans_obj->base.id,
 					      (NhlLayer) mpnew,sargs,nargs);
 
@@ -4030,7 +4056,6 @@ static NhlErrorTypes GetXAxisTicks
 	NhlErrorTypes		ret = NhlNOERROR;
 	double lon[101],lat[101],xw[101];
 	double minlon,maxlon,minlat,maxlat;
-	double xspan;
 	tickStatus ts[32];
 	double seg_nice[32];
 	coordStatus status,cstatus[32];
@@ -4059,7 +4084,6 @@ static NhlErrorTypes GetXAxisTicks
 	drx = (double) rx;
 	dy = (double) y;
 
-	xspan = drx - dlx;
 	xw[0] = dlx;
 	c_mdptri(xw[0],dy,&lat[0],&lon[0]);
 	ts[0].index = 0;
@@ -4298,13 +4322,6 @@ static NhlErrorTypes GetXAxisTicks
 						 &(lat[eix[i]]),&(lon[eix[i]]),
 						 &(xw[eix[i]]),&dy,
 						 &rlat,&xwin,&ywin);
-#if 0
-					if (*count > 0) {
-						if (fabs(xwin - (*values)
-						    [*count - 1]) < xspan / 10)
-							continue;
-					}
-#endif
 					NGCALLF(mdlach,MDLACH)
 						(&rlat,label,&nchr,128);
 					label[nchr] = '\0';
@@ -4341,13 +4358,6 @@ static NhlErrorTypes GetXAxisTicks
 					 &(lat[eix[i]]),&(lon[eix[i]]),
 					 &(xw[eix[i]]),&dy,
 					 &rlon,&xwin,&ywin);
-#if 0
-				if (*count > 0) {
-					if (fabs(xwin - (*values)[*count - 1])
-					    < xspan / 10)
-						continue;
-				}
-#endif
 				NGCALLF(mdloch,MDLOCH)
 					(&rlon,label,&nchr,128);
 				label[nchr] = '\0';
@@ -4400,7 +4410,6 @@ static NhlErrorTypes GetYAxisTicks
 	NhlErrorTypes		ret = NhlNOERROR;
 	double lon[101],lat[101],yw[101];
 	double minlon,maxlon,minlat,maxlat;
-	double yspan;
 	tickStatus ts[32];
 	double seg_nice[32];
 	coordStatus status,cstatus[32];
@@ -4429,7 +4438,6 @@ static NhlErrorTypes GetYAxisTicks
 	dty = (double) ty;
 	dx = (double) x;
 
-	yspan = dty - dby;
 	yw[0] = dby;
 	c_mdptri(dx,yw[0],&lat[0],&lon[0]);
 	ts[0].index = 0;
@@ -4668,13 +4676,6 @@ static NhlErrorTypes GetYAxisTicks
 						 &(lat[eix[i]]),&(lon[eix[i]]),
 						 &dx,&(yw[eix[i]]),
 						 &rlon,&xwin,&ywin);
-#if 0
-					if (*count > 0) {
-						if (fabs(ywin - (*values)
-						    [*count - 1]) < yspan / 10)
-							continue;
-					}
-#endif
 					NGCALLF(mdloch,MDLOCH)
 						(&rlon,label,&nchr,128);
 					label[nchr] = '\0';
@@ -4711,13 +4712,6 @@ static NhlErrorTypes GetYAxisTicks
 					 &(lat[eix[i]]),&(lon[eix[i]]),
 					 &dx,&(yw[eix[i]]),
 					 &rlat,&xwin,&ywin);
-#if 0
-				if (*count > 0) {
-					if (fabs(ywin - (*values)[*count - 1])
-					    < yspan / 10)
-						continue;
-				}
-#endif
 				NGCALLF(mdlach,MDLACH)
 					(&rlat,label,&nchr,128);
 				label[nchr] = '\0';

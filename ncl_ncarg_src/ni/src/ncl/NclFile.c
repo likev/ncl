@@ -30,7 +30,7 @@
 #include "NclCoordVar.h"
 #include "NclCallBacksI.h"
 
-short NCLadvancedFileStructure[_NclNumberOfFileFormats];
+short NCLadvancedFileStructure[_NioNumberOfFileStructOptions];
 
 NclQuark FileGetDimName(
 #if	NhlNeedProto
@@ -429,7 +429,7 @@ NclQuark *dimnames;
 					dim_sizes
 					);
 				if(ret == NhlFATAL) {
-					NHLPERROR((NhlFATAL,NhlEUNKNOWN,"FileAddVar: an error occurred while adding a variable to a file, check to make sure data type is supported by the output format"));
+					NhlPError(NhlFATAL,NhlEUNKNOWN,"FileAddVar: an error occurred while adding variable <%s> to file <%s>, check to make sure data type is supported by the output format",NrmQuarkToString(varname),NrmQuarkToString(thefile->file.fname));
 				}
 			} else {
 				NHLPERROR((NhlFATAL,NhlEUNKNOWN,"FileAddVar Incorrect type specified, can't add variable (%s)",NrmQuarkToString(varname)));
@@ -806,6 +806,7 @@ NhlErrorTypes _NclFilePrintSummary(NclObj self, FILE *fp)
 	NclFile thefile = (NclFile)self;
 	int ret = 0;
 
+	ret = nclfprintf(fp,"Type: file\n");
 	ret = nclfprintf(fp,"File path:\t%s\n",NrmQuarkToString(thefile->file.fpath));
 	if(ret < 0) {	
 		return(NhlWARNING);
@@ -845,7 +846,7 @@ FILE    *fp;
 	NhlErrorTypes ret1 = NhlNOERROR;
 	char *tmp_str;
 	
-
+	ret = nclfprintf(fp,"Type: file\n");
 	ret = nclfprintf(fp,"filename:\t%s\n",NrmQuarkToString(thefile->file.fname));
 	if(ret < 0) {	
 		return(NhlWARNING);
@@ -2273,6 +2274,12 @@ int vtype;
 * Take care of simplest case here
 */
 	if((vtype == FILE_VAR_ACCESS? thefile->file.format_funcs->read_var != NULL:thefile->file.format_funcs->read_coord != NULL)) {
+		if (thefile->file.var_info[index]->data_type == NCL_none) {
+			NhlPError(NhlFATAL,NhlEUNKNOWN,"Variable <%s> in file <%s> does not have a recognized type: cannot get value",
+				  NrmQuarkToString(thefile->file.var_info[index]->var_name_quark),
+				  NrmQuarkToString(thefile->file.fname));
+			return(NULL);
+		}
 		if((!has_vectors)&&(!has_reverse)&&(!has_reorder)) {
 			val = (void*)NclMalloc(total_elements*_NclSizeOf(thefile->file.var_info[index]->data_type));
 			if (! val) {
@@ -4065,9 +4072,8 @@ NclFile _NclFileCreate(NclObj inst, NclObjClass theclass, NclObjTypes obj_type,
 	 * case-less comparison of all possible variants of the the extension.
 	 * Note we also need to check here for extensions added to the real path.
      	 */
-	if (_NclFormatEqual(NrmStringToQuark("grb"),NrmStringToQuark(end_of_name))) {
-	    if (! is_http)
-	    {
+	if (_NclFormatEqual(NrmStringToQuark("grb"),NrmStringToQuark(end_of_name)) ||
+	    _NclFormatEqual(NrmStringToQuark("grb"),file_ext_q)) {
 		the_real_path = path;
 		if(stat(_NGResolvePath(NrmQuarkToString(path)),&buf) == -1) {
 			tmp_path = NclMalloc(len_path+1);
@@ -4085,7 +4091,6 @@ NclFile _NclFileCreate(NclObj inst, NclObjClass theclass, NclObjTypes obj_type,
 			}
 		}
                 grib_version = _NclGribVersion(NrmStringToQuark(_NGResolvePath(NrmQuarkToString(the_real_path))));
-	    }
         }
 
 	if(inst == NULL) {
@@ -4104,7 +4109,11 @@ NclFile _NclFileCreate(NclObj inst, NclObjClass theclass, NclObjTypes obj_type,
 
 	file_out->file.format_funcs = _NclGetFormatFuncs(file_ext_q);
 	if (! file_out->file.format_funcs) {
-		NhlPError(NhlFATAL,NhlEUNKNOWN,"An internal error has occurred. The file format requested does not appear to be supported, could not open (%s)",NrmQuarkToString(path));
+#if 1
+		NhlPError(NhlWARNING,NhlEUNKNOWN,"The file format requested does not appear to be supported, could not open (%s)",NrmQuarkToString(path));
+#else
+		NhlPError(NhlFATAL,NhlEUNKNOWN,"The file format requested does not appear to be supported, could not open (%s)",NrmQuarkToString(path));
+#endif
 		if(file_out_free) 
 			NclFree((void*)file_out);
 		return(NULL);
@@ -4187,7 +4196,9 @@ NclFile _NclFileCreate(NclObj inst, NclObjClass theclass, NclObjTypes obj_type,
 					 NrmStringToQuark(_NGResolvePath(NrmQuarkToString(the_real_path))),rw_status);	
 				if(NULL == file_out->file.private_rec)
 				{
+					/*
 					NhlPError(NhlFATAL,NhlEUNKNOWN,"Could not open (%s)",NrmQuarkToString(the_real_path));
+					*/
 					if(file_out_free) 
 						NclFree((void*)file_out);
 					return(NULL);

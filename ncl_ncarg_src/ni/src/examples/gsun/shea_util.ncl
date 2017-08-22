@@ -10,17 +10,9 @@
 ; I will try to help people out but these routines are NOT
 ; meant to be general purpose.
 ; ********************************************************
-; ********************************************************
-; Function/Procedures included here can call built-in functions
-; and functions contained within the gsn*.ncl and contributed.ncl
-; libraries. Hence, they must be loaded prior to shea_util.ncl 
-; shea_util.ncl must be loaded last.
-;;EG:
-;;load "$NCARG_ROOT/lib/ncarg/nclscripts/csm/gsn_code.ncl"
-;;load "$NCARG_ROOT/lib/ncarg/nclscripts/csm/gsn_csm.ncl"
-;;load "$NCARG_ROOT/lib/ncarg/nclscripts/csm/contributed.ncl"
+;; Users must load shea_util.ncl
 ;;load "$NCARG_ROOT/lib/ncarg/nclscripts/csm/shea_util.ncl"
-
+; ********************************************************
 ; ------------------------------------------------------------
 undef("printVarInfo")
 procedure printVarInfo (x, xInfo:string)
@@ -2490,7 +2482,7 @@ begin
      numbox = dimquery(0)
      boxWidths = new((/numbox/),float)
      if (numbox.ne.dimsizes(x)) then
-        print("boxplot: Fatal: X must be one-dimensional and both X and Y must have the same rightmost dimension")
+        print("boxplot: Fatal: X must be one-dimensional and both X and Y must have the same leftmost dimension")
         exit
      end if
      if (any(ismissing(x))) then
@@ -2684,6 +2676,9 @@ end
 ; ---------------------------------
 undef("SPECX_ANAL")
 function SPECX_ANAL(X[*]:numeric, iopt[1]:integer, jave[1]:integer, pct[1]:numeric)
+;
+; created to illustrate the various steps used by the builtin function: specx_anal
+;
 local x, N, xVari, xVaro, cf, cr, ci, px, spcx, total_area, df, frq
     , wgts, sclVar, sdof, acr, tapcf
 begin
@@ -2748,6 +2743,9 @@ end
 undef("SPECXY_ANAL")
 function SPECXY_ANAL(X[*]:numeric, Y[*]:numeric   \
                     ,iopt[1]:integer, jave[1]:integer, pct[1]:numeric)
+;
+; created to illustrate the various steps used by the builtin function: specxy_anal
+;
 local  x, y, N, xVari, xVaro, yVari, yVaro, wgts, sclVarx, sclVary \
     ,  cf, cr, ci, px, spcx, py, spcy, total_area, df, frq, tapcf  \
     ,  xr, xi, yr, yi, cospc, quspc, coher, phase, sclCQ, acr, sdof
@@ -3082,10 +3080,11 @@ begin
  end do    ; sigma loop
 end
 ; -------------------------------
-; produce a nice plot for the output from 'pdfxy'
-;
 undef("plt_pdfxy")
 function plt_pdfxy(wks[1]:graphic, p[*][*], res[1])
+;
+; produce a nice plot for the output from 'pdfxy'
+;
 local plt, dimp, ny,mx, ny2,mx2, PDFXY, yAxis, xAxis
 begin
   if (all(ismissing(p))) then
@@ -3175,6 +3174,8 @@ end
 ;----------------------- Unsupported: DJS -----------------------------------
 ;----------------------------------------------------------------------------
 undef("advect_gradient")
+;+++ advect gradient was 'promoted' tp contributed.ncl under 'advect_variable'
+;+++ http://www.ncl.ucar.edu/Document/Functions/Contributed/advect_variable.shtml
 function advect_gradient (u:numeric, v:numeric, x:numeric \
                          ,gridType[1]:integer, con[1]:numeric \
                          ,long_name:string, units:string, iopt[1]:integer)
@@ -3213,6 +3214,12 @@ function advect_gradient (u:numeric, v:numeric, x:numeric \
 local dimu, dimv, dimx, ranku, rankv, rankx, ier \
     , x_grad_lon, x_grad_lat, advect
 begin
+  print("============================================================")
+  print("advect_gradient is not supported")
+  print("Use advect_variable")
+  print("http://www.ncl.ucar.edu/Document/Functions/Contributed/advect_variable.shtml")
+  exit
+  print("============================================================")
                              ; ERROR CHECKING
   dimu  = dimsizes(u)
   dimv  = dimsizes(v)
@@ -3314,6 +3321,59 @@ function AdvectGradient (u:numeric, v:numeric, x:numeric \
                         ,long_name:string, units:string, iopt[1]:integer)
 begin
   return(advect_gradient(u , v, x, gridType, con, long_name, units, iopt) )
+end
+;----------------------------------------------------------------------------
+;----------------------- Unsupported: DJS -----------------------------------
+;----------------------------------------------------------------------------
+undef("thornthwaite_driver")
+function thornthwaite_driver(t:numeric, lat:numeric, opt[1]:logical, dim[1]:integer, iounit[2]:integer)
+local pet, dymo, dimt, ntim, DYMO
+;
+; Driver for the 'thornthwaite' (6.3.1) function.
+; The 1st 4 arguments are the same as 'thornthwaite'. The additional argument
+; is an option that allows assorted input units for the input  't' and the
+; return 'pet'. 
+; 
+; Use of this may result in cleaner more concise code.
+begin
+   if (any(iounit.lt.0) .or. any(iounit.gt.2)) then               ; iounit error check
+       print("thornthwaite_driver: unrecognized iounit argument: iounit="+iounit)
+       exit
+   end if
+
+   if (iounit(0).eq.0) then                               ; degC
+       pet = thornthwaite(t, lat, False, dim)
+   else if (iounit(0).eq.1) then                          ; degK
+       pet = thornthwaite((t-273.16), lat, False, dim)
+   else if (iounit(0).eq.2) then                          ; F
+       pet = thornthwaite(((t-32)*0.5555556), lat, False, dim)
+   end if        ; F
+   end if        ; K 
+   end if        ; C  
+
+   pet@long_name = "PET: Thornthwaite"
+
+   if (iounit(1).eq.0) then     
+        pet@units = "mm/month"
+   else if (iounit(1).eq.1) then
+        dymo      = (/31,28,31,30,31,30,31,31,30,31,30,31/)
+        dimt      = dimsizes(t)
+        ntim      = dimt(dim)
+        DYMO      = new( ntim, integer) 
+        do nt=0,ntim-1,12
+           DYMO(nt:nt+11) = dymo
+        end do
+        pet       = pet/conform(t,DYMO,dim)
+        pet@units = "mm/day"
+   else if (iounit(1).eq.2) then
+        pet       = pet*0.03937008
+        pet@units = "inches/month"
+   end if        ; mm/month
+   end if        ; mm/day
+   end if        ; inches/month
+
+   copy_VarCoords(t, pet)
+   return(pet)
 end
 ;----------------------------------------------------------------------------
 ;----------------------- Unsupported: DJS -----------------------------------
@@ -3475,6 +3535,8 @@ end
 ;----------------------- Unsupported: DJS -----------------------------------
 ;----------------------------------------------------------------------------
 undef("PotTemp")
+; +++ PotTemp was promoted to contributed.ncl
+; +++ http://www.ncl.ucar.edu/Document/Functions/Contributed/pot_temp.shtml
 function PotTemp (p:numeric, t:numeric, opt:integer)
 ;
 ; Compute potential temperature on constant pressure levels
@@ -3530,6 +3592,8 @@ end
 ;----------------------- Unsupported: DJS -----------------------------------
 ;----------------------------------------------------------------------------
 undef("StaticStability") 
+; +++ StaticStability was promoted to contributed.ncl
+; +++ http://www.ncl.ucar.edu/Document/Functions/Contributed/static_stability.shtml
 function StaticStability (p:numeric, t:numeric, sopt)
 ;
 ; Compute Static Stability on constant pressure levels
@@ -3624,6 +3688,8 @@ end
 ;----------------------- Unsupported: DJS -----------------------------------
 ;----------------------------------------------------------------------------
 undef("PotVortHybrid")
+; +++ PotVortHybrid was promoted to contributed.ncl
+; +++ http://www.ncl.ucar.edu/Document/Functions/Contributed/pot_vort_hybrid.shtml
 function PotVortHybrid\
             (p:numeric, u:numeric, v:numeric, t:numeric
             ,lat[*]:numeric, gridType[1]:integer, opt:integer)
@@ -3753,20 +3819,13 @@ begin
 
   return(pv)
 end
-;--new interface
-undef("pot_vort_hybrid")
-function pot_vort_hybrid\
-            (p:numeric, u:numeric, v:numeric, t:numeric
-            ,lat[*]:numeric, gridType[1]:integer, opt:integer)
-begin
-        ; PotVortHybrid is the original function name
-  return( PotVortHybrid (p, u, v, t, lat, gridType, opt) )
-end
 
 ;----------------------------------------------------------------------------
 ;----------------------- Unsupported: DJS -----------------------------------
 ;----------------------------------------------------------------------------
 undef("PotVortIsobaric")
+; +++ PotVortHybrid was promoted to contributed.ncl
+; +++ http://www.ncl.ucar.edu/Document/Functions/Contributed/pot_vort_isobaric.shtml
 function PotVortIsobaric\
             (p[*]:numeric, u:numeric, v:numeric, t:numeric
             ,lat[*]:numeric, gridType[1]:integer, opt:integer)
@@ -3899,15 +3958,6 @@ begin
 
   return( pv )
 end
-;-- new interface
-undef("pot_vort_isobaric")
-function pot_vort_isobaric\
-            (p[*]:numeric, u:numeric, v:numeric, t:numeric
-            ,lat[*]:numeric, gridType[1]:integer, opt:integer)
-begin
-        ; PotVortIsobaric is the original function name
-  return(PotVortIsobaric (p, u, v, t, lat, gridType, opt) )
-end
 ; ******************************************************************
 ; *******  THERE IS NO SUPPORT FOR THE PIE CHART FUNCTION **********
 ; ******************************************************************
@@ -4017,7 +4067,9 @@ function pie_chart(wks:graphic, percent[*]:numeric, name[*]:string        \
 
   do n=0,nSections-1
                                                ; create nodes for section
-     npts  = max( (/round(pcPie(n),3), 1/) )
+   ;;npts  = round(pcPie(n), 3)                ; pre 6.4.0
+     npts  = max( (/round(pcPie(n),3),2/) )    ; accommodate 6.3.0 fspan change
+
      npts2 = npts+2
      xx    = new (npts2, "double", "No_FillValue")
      yy    = new (npts2, "double", "No_FillValue")
@@ -4257,76 +4309,11 @@ end
 ;-------------------------------
 undef("grad_rich_num_atm")
 function grad_rich_num_atm(th:numeric, u:numeric, v:numeric ,z:numeric, ndim[1]:integer)
-;
-; Calculate atmospheric Gradient Richardson Number
-;      A dimensionless ratio, Ri, related to the buoyant production or 
-;      consumption of turbulence divided by the shear production of turbulence.
-;      It is used to indicate dynamic stability and the formation of turbulence.
-;
-; AMS Glossary:  
-;    http://amsglossary.allenpress.com/glossary/search?id=gradient-richardson-number1
-;           Uses Tv and not THETAv in denominator. ?Erro?
-;
-; th   - virtual potential temperature (K)
-; u,v  - wind components (m/s) ; same dimensionality as 'th' and 't'
-; z    - height (m)
-; ndim - dimension of 'th' for which vertical gradient is to be calculated
-;        th(:), wspd(:), z(:) ..... ndim=0
-;        th(:,:,:)  , z(:) or z(:,:,:)   and the left is the vertical dim, ndim=0
-;        th(:,:,:,:), z(:) or z(:,:,:,:) and the left is the time dimension 
-;                                        and the next is height,  ndim=1 
-local dimth, dimu, dimv, dimz, rankth, ranku, rankv, rankz \
-    , g, dthdz, brunt, dudz, dvdz, Ri
 begin
-                                ; dimension checking
-  dimu    = dimsizes(u)
-  dimv    = dimsizes(v)
-  dimz    = dimsizes(z)
-  dimth   = dimsizes(th)
-
-  rankth  = dimsizes(dimth)
-  ranku   = dimsizes(dimu)   
-  rankv   = dimsizes(dimv)   
-  rankz   = dimsizes(dimz)   
-                                ; no need to check all of them!
-  if (rankth.ne.ranku .or. .not.all(dimth.eq.dimu)) then
-      print("rich_num_atm: th, u, v must have the same rank & dimensionality")
-      print(dimth)
-      print(dimu) 
-      exit
-  end if
-
-  dthdz  = center_finite_diff_n(th, z, False, 0, ndim) 
-  copy_VarCoords(t, dthdz)
-  dthdz@long_name = "Vertical Gradient of theta"
-  dthdz@units     = "degK/m"
- ;print("rich_num_atm: dthdz: min="+min(dthdz)+"   max="+max(dthdz))
-
-  g      = 9.8
-  brunt  = dthdz*(g/th)     
-  copy_VarCoords(u, brunt)
-  brunt@long_name = "Brunt–Vaisala (bouyancy) frequency"
-  brunt@units     = "1/s"
- ;print("rich_num_atm: brunt: min="+min(brunt)+"   max="+max(brunt))
-  
-  dudz   = center_finite_diff_n(u , z, False, 0, ndim) 
-  copy_VarCoords(u, dudz)
-  dudz@long_name  = "vertical gradient of the zonal wind"
-  dudz@units      = "1/s"
- ;print("rich_num_atm: dudz: min="+min(dudz)+"   max="+max(dudz))
-
-  dvdz   = center_finite_diff_n(v , z, False, 0, ndim) 
-  copy_VarCoords(v, dvdz)
-  dvdz@long_name  = "vertical gradient of the meridional wind"
-  dvdz@units      = "1/s"
- ;print("rich_num_atm: dvdz: min="+min(dvdz)+"   max="+max(dvdz))
-
-  Ri     = brunt/(dudz^2 + dvdz^2)
-  copy_VarCoords(u, Ri)
-  Ri@long_name   = "Gradient Richardson Number"
-  Ri@description = Ri@long_name
-  
-  return(Ri)
+ print("shea_util: function grad_rich_num_atm has been replaced")
+ print("Use rigrad_bruntv_atm located in contributed.ncl: 6.3.1")
+ exit 
+ return("error")
 end
 ;-------------------------------
 undef("area_global_rectilinear_grid")
@@ -4534,94 +4521,553 @@ begin
  delete(res1)
 
 end
-;-------------------------------------
-undef("calc_day_values")
-function calc_day_values(x, arith[1]:string, nDim[1]:integer, opt[1]:logical)  
-;;function calculate_daily_values (x:numeric, arith:string, nDim[1]:integer, opt[1]:logical)
-local tstep, tspan, tunits, tbase, TIME, tuchar, tbchar, ntu, ntb, newunits \
-     ,utc_date, year, month, day, hour, minute, second       \
-     ,dimx, rankx, ntim, nstep, n   
+;---------------------------------------------
+; 22 Oct 2014
+; in respose to an ncl-talk question:
+; Hopefully the following is helpful.  It returns both partial and 
+; part correlations, but if you want you can ask for only one of them 
+; to be returned using the optional argument "opt"
+;
+; e.g opt=True
+;     opt@partialcorrelation=True
+; Saji Hameed saji.nh@gmail.com
+;-------------------
+
+undef("mreg_part_corr")
+function mreg_part_corr(x1,x2,y,opt)
+local opt
 begin
-    tstep = opt@tstep
-    tspan = opt@tspan
+  x1x2 = escorc(x1,x2)
+  tol = sqrt(1-x1x2^2)
 
-    tunits  = x&time@units
-    tbase   = str_get_field(tunits, 1, " ")      ; seconds, hours, days
-    if (tbase.eq."hours") then
-        TIME = x&time
-    else
-        tuchar = tochar(tunits)
-        tbchar = tochar(tbase)
-        ntu    = dimsizes(tuchar)
-        ntb    = dimsizes(tbchar)
-        newunits = "hours "+ tostring(tuchar(ntb:ntu-2))
+  nx1 = dimsizes(x1)
+  X = new( (/3,nx1/), float)
+  X(0,:) = 1.0
+  X(1,:) = x1
+  X(2,:) = x2
 
-        utc_date = cd_calendar(x&time, 0)
-        year     = floattointeger(utc_date(:,0))
-        month    = floattointeger(utc_date(:,1))
-        day      = floattointeger(utc_date(:,2))
-        hour     = floattointeger(utc_date(:,3))
-        minute   = floattointeger(utc_date(:,4))
-        second   = utc_date(:,5)
+  beta = reg_multlin(y, X, False)
+  dreg = beta(1)
+  nreg = beta(2)
 
-        TIME   = cd_inv_calendar(year,month,day,hour,minute,second,newunits, 0)
+  Xstd = dim_stddev(X)
+  Ystd = stddev(y)
+  XstdYstd = Xstd/Ystd
+  B = beta*XstdYstd
+  B(0) = 0.0
+  part_corr_x1 = B(1)*tol
+  part_corr_x2 = B(2)*tol
+  partial_corr_x1 = part_corr_x1/sqrt((1-(escorc(y,x2))^2))
+  partial_corr_x2 = part_corr_x2/sqrt((1-(escorc(y,x1))^2))
+  if opt .and. isatt(opt,"part_correlation")
+    if opt@part_correlation
+    return((/part_corr_x1, part_corr_x2/))
+    end if 
+end if
+  if opt .and. isatt(opt,"partal_correlation")
+    if opt@partial_correlation
+      return((/partial_corr_x1, partial_corr_x2/))
     end if
+  end if
+  res=(/partial_corr_x1,partial_corr_x2,part_corr_x1,part_corr_x2/)
+  return(res)
+end
 
-    dimx  = dimsizes(x)
-    rankx = dimsizes(dimx)
-    ntim  = dimx(0)
+;----------
+; The following was posted as part of an ncl-talk question
+; http://mailman.ucar.edu/pipermail/ncl-talk/2014-August/000231.html
+; 
+undef("eta2isop_wrf")
+function eta2isop_wrf(fwrf, varName[1]:string, prs_iso[*]:numeric \
+                     ,itime:integer, linlog[1]:integer, opt[1]:logical)
+;
+; interpolate a WRF variable on eta levels onto user specified isobaric levels
+; Usage:
+;        f = addfile(...)    , or,   f = addfiles(...)
+;
+;        plev = (/ 1000,925,850,700,600,500,400,300,250 \   ; integer, float, double
+;                ,  200,150,100,70,50/)                               
+;        plev!0     = "plev"
+;        plev@units = "hPa"
+;
+;        linlog = 0
+;        itime  = -1
+;        z_iso = eta2isop_wrf(f, "geopotential", plev, itime, linlog, False)
+;        printVarSummary(z_iso)
 
-    nstep = toint(tspan/tstep)
-    NTIM  = ntim/nstep
+begin
 
-    if (rankx.eq.2) then
-        xStat  = new ( (/NTIM,dimx(1)/), typeof(x), getFillValue(x))
-        if (arith.eq."avg" .or. arith.eq."ave") then
-            do n=0,ntim-1,nstep
-               xStat(n/nstep,:) = dim_avg_n( x(n:n+nstep-1,:), nDim)
-            end do
+  prs_eta  = wrf_user_getvar(fwrf, "pressure", itime)
+  if (prs_eta@units.ne.p_iso@units) then
+      print("eta2isop_wrf: pressure unit mismatch")
+      print("eta2isop_wrf: prs_eta@units="+prs_eta@units)
+      print("eta2isop_wrf: prs_iso@units="+prs_iso@units)
+      exit
+  end if
+
+  var_eta  = wrf_user_getvar(fwrf,  varName  , itime)
+
+  var_rank = dimsizes(dimsizes(var_eta))
+  if (var_rank.eq.4) then         ;  (Time, bottom_top, south_north, west_east) => (0,1,2,3)
+      var_iso = int2p_n_Wrap (prs_eta,var_eta,prs_iso,linlog,1)
+  else if (var_rank.eq.3) then    ;  (bottom_top, south_north, west_east)       => (0,1,2)
+           var_iso = int2p_n_Wrap (prs_eta,var_eta,prs_iso,linlog,0)
+       else
+           print("eta2isop_wrf: unexpected rank; rank="+var_rank+"; code expects rank=3 or 4 only")
+           exit
+       end if 
+  end if
+
+  var_iso@tag = "NCL: Simple interpolation to isobaric levels via int2p_n_Wrap"
+
+  return(var_iso)
+end
+;--------------
+undef("wgt_vertical_int")
+function wgt_vertical_int (X:numeric, dp:numeric, lev_dim[1]:integer, iopt:integer)
+; 
+; Perform weighted vertical average (integral) or sum
+; 
+; Requirement: X must be in the following order: ([time,],lev,lat,lon)
+;
+; Nomenclature:
+; X         - array to be integrated. No missing data allowed
+; dp        - pressure thickness computed by "dpres_hybrid_ccm" or "dpres_plevel"
+;             Must be the same size/shape as X
+;             No missing data allowed.
+; iopt      - =0 weighted vertical average
+;             =1 weighted vertical sum
+;             =2 weighted vertical sum, vertical avg
+; lev_dim   - level dimension
+;             lev_dim = 0                            ; (lev), (0); (time,lev),  (0,1) 
+;                                                    ; (lev,lat,lon),  (0,1,2) 
+;             lev_dim = 1                            ; (time,lev,lat,lon), (0,1,2,3)
+;             lev_dim = 2                            ; (case,time,lev,lat,lon), (01,2,3,4)
+;+++++++++++++++++++++++
+; Usage for hybrid levels
+;        f = addfile("....", "r")
+;        hyai = f->hyai
+;        hybi = f->hybi
+;        p0   = f->P0                               ; p0=1000 or p0=100000
+;        ps   = f->PS
+;    
+;        dp   = dpres_hybrid_ccm (ps,p0,hyai,hybi)  ; Pa [kg/(m s2)]
+;--------------------
+; Usage for pressure levels
+;        f   = addfile("....", "r")
+;        lev = f->lev  ; (/  1,  2,  3,  5,   7, 10, 20, 30, \   ; hPa 
+;                           50, 70,100,150, 200,250,300,400, \
+;                          500,600,700,775, 850,925,1000 /)
+;                      ; uniys of lev and psfc must match
+;        psfc= f->PS   ; PA         (time,lat,lon)
+;        lev = lev*100 ; make PA to match psfc       
+;        lev@units = "PA"
+;
+;        ptop= 0       ; integrate 0==>psfc at each grid point
+;
+;                      ; dp(klev,nlat,mlon) or dp(ntim,klev,nlat,mlon)
+;        dp  = dpres_plevel(lev, psfc, ptop, 0)     ; Pa [kg/(m s2)]
+;--------------------
+; Use the 'dp' from above
+;        t    = f->T                                ; (time,lev,lat,lon)
+;        xvi  = wgt_vert_n(t, dp,  0, 1)
+
+local dimX, dimDP, rankX, Xdp, vsum, wsum, vavg
+begin
+
+  dimX  = dimsizes( X )
+  dimDP = dimsizes( dp )
+  rankX = dimsizes( dimX )
+
+  if (.not.all(dimDP.eq.dimX) ) then  ; error check
+      print("wgt_vertical_int: dimension sizes are not equal")
+      print("wgt_vertical_int:  dimX="+dimX)
+      print("wgt_vertical_int: dimDP="+dimsizes(dp) )
+      exit
+  end if
+
+  if (isatt(X,"_FillValue") .and. any(ismissing(X)) ) then  ; error check
+      print("wgt_vertical_int: No _FillValue allowed")
+      print("wgt_vertical_int: X: nFill="+num(ismissing(X)))
+      exit
+  end if
+
+  if (isatt(dp,"_FillValue") .and. any(ismissing(dp)) ) then  ; error check
+      print("wgt_vertical_int: No _FillValue allowed")
+      print("wgt_vertical_int: dp: nFill="+num(ismissing(dp)))
+      exit
+  end if
+
+  Xdp  = X*dp                                ; [? kg/(m s2)]   (temporary variable)
+  copy_VarCoords(X, Xdp)
+
+  vsum = dim_sum_n_Wrap( Xdp, lev_dim )      ; sum vertically [ie integrate]
+  if (iopt.eq.1) then
+      return(vsum)
+  end if
+
+  wsum = dim_sum_n_Wrap( dp , lev_dim )      ;  "      " 
+  if (any(wsum.eq.0)) then
+      if (.not.isatt(wsum,"_FillValue")) then
+          wsum@_FillValue = default_fillvalue(typeof(wsum))
+      end if
+      wsum = where(wsum.eq.0, wsum@_FillValue, wsum)   ; avoid division by 0
+  end if
+      
+  vavg = vsum/wsum                           ; one less dimension (no vertical dim)
+  copy_VarMeta(vsum, vavg) 
+  vavg@NCL_op = "Weighted Vertical Average"
+
+  vsum@NCL_op = "Weighted Vertical Sum"
+  wsum@NCL_op = "Summed Weights"
+
+  if (iopt.eq.0) then
+      return(vavg)
+  end if
+
+  return([/ vavg, vsum, wsum /] )    ; iopt=2
+end
+;--------------
+undef ("get_nearest_grid_pts")
+function get_nearest_grid_pts(obslat[*]:numeric, obslon[*]:numeric        \
+                             ,ygrid:numeric, xgrid:numeric, opt[1]:logical)
+; 
+; Based upon great circle distance; find nearest grid point
+; Input grid: ygrid and xgrid  could be [*] or [*][*]
+; Can handle rectilinear, curvilinear, unstructured grids
+;
+local Nx, Ny, Nxg, Nyg, N, rankx, ranky, ylat2d, xlon2d, nm, dist, dmin, imin
+begin
+
+; error checks 
+
+   Nx = dimsizes(obslon)           ; 'observation' locations (input)
+   Ny = dimsizes(obslat)
+   if (Nx.ne.Ny) then              ; observation locations must be same size
+       print("get_nearest_grid_pts: obslon/obslat not same size: Nx="+Nx+"  Ny="+Ny)
+       exit
+   end if
+ 
+   Nxg   = dimsizes(xgrid)
+   Nyg   = dimsizes(ygrid)
+   rankx = dimsizes(Nxg)           ; grid rank 
+   ranky = dimsizes(Nxg)   
+   
+   if (rankx.ne.ranky .or. all(Nxg.ne.Nyg)) then       ; grid locations must be same size and shape
+       print("get_nearest_grid_pts: xgrid/ygrid not same size and/or shape")
+       print("xgrid="+Nxg)
+       print("ygrid="+Nyg)
+       exit
+   end if
+
+; allocate space; perform computations
+; complexity due to handling rectilinear, curvilinear and unstructured grids
+ 
+   N  = Nx                         ; number of observations
+   dd = new( N, "double")          ; allocate space for distance     
+   dd@long_name = "distance to grid point"
+   dd@units     = "km"
+ 
+   if (rankg.eq.1) then
+       if (Nxg.ne.Nyg) then        ; rectilinear
+           ylat2d = conform_dims( (/Nyg,Nxg/), ygrid, 0)  ; replicate to 2D; trick
+           xlon2d = conform_dims( (/Nyg,Nxg/), xgrid, 1)
+           ylat1d = ndtooned( ylat2d )
+           xlat1d = ndtooned( xlon2d )
+
+       else                                    ; unstructured (eg: spectral element) 
+           nm = new( N, "integer")
+           do n=0,N-1
+              dist := gc_latlon(obslat(n),obslon(n), ygrid,xgrid, 2,4)  ; any units ok; choose km 
+              dmin  = min( dist )              ; scalar
+              nm(n) = ind( dist.eq.dmin(0) )   ; may be more than one; hence, dmin(0)
+              dd(n) = (/ dmin /)               ; avoid a warning message since dd has meta data
+           end do                              ; (/.../)  means transfer value only
+
+           nm@long_name = "index to nearest grid pt"
+           if (opt .and. isatt(opt,"distance")) then
+               return( [/nm, dd/] )            ; return as list variable: index values and distances
+            else
+               return(nm)                      ; return index values as regular variable
+           end if                              ; end opt
+       end if
+    else                                       ; curvilinear
+       ylat1d = ndtooned( ygrid )
+       xlat1d = ndtooned( xgrid )
+   end if
+                                               ; must be curvilinear or rectilinear
+   nm = new( (/N,2/), "integer")
+   do n=0,N-1
+      dist := gc_latlon(obslat(n),obslon(n), lat1d,lon1d, 2,4)  ; any units ok; choose km
+      dmin  = min( dist )
+      imin  = ind(dist.eq.dmin(0))             ; may be more than one; hence, dmin(0)
+      nm(n,:) = ind_resolve(imin, Nxg)
+      dd(n) = (/ dmin /)                       ; avoid a warning message since dd has meta data
+   end do                                      ; (/.../)  means transfer value only
+ 
+   nm@long_name = "indices to nearest grid pt"
+   if (opt .and. isatt(opt,"distance")) then
+       return( [/nm, dd/] )                    ; return as list variable: index values and distance
+   else
+       return(nm)                              ; return index values as regular variable
+   end if
+end
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; 
+;; Description: Take an array of data, sort it, remove duplicates, and return 
+;; Carl Schreck
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; 
+undef ( "remove_duplicates_nd" ) 
+function remove_duplicates_nd( i_data:numeric ) 
+local data, duplicate, uniqueInd, retVal       ; djs added
+begin 
+  data = ndtooned( i_data ) 
+  qsort(data) 
+  duplicate = new( dimsizes(data), logical ) 
+  duplicate(0) = False 
+  do i = 1, dimsizes(data)-1 
+    duplicate(i) = ( data(i).eq.data(i-1) ) 
+  end do 
+  uniqueInd = ind(.not.duplicate) 
+  retVal = data(uniqueInd) 
+  return(retVal) 
+end ; remove_duplicates 
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; 
+;; Description: Take an array of data, sort it, remove duplicates, and return 
+;; slight variation of Carl Schreck's "remove_duplicates"
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; 
+undef ( "remove_duplicates_1d" ) 
+function remove_duplicates_1d( i_data[*]:numeric ) 
+local data, dim_data, duplicate, uniqueInd, retVal  
+begin 
+  data     = dim_pqsort(i_data,2)
+  dim_data = dimsizes(data) 
+
+  duplicate = new( dim_data, logical ) 
+  duplicate(0) = False 
+  do i = 1, dim_data-1 
+    duplicate(i) = ( data(i).eq.data(i-1) ) 
+  end do 
+
+  uniqueInd = ind(.not.duplicate) 
+  retVal    = data(uniqueInd) 
+  return(retVal) 
+end ; remove_duplicates 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; 
+;; Add a marker to a histogram plot
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; 
+undef("histogram_interp")
+function histogram_interp(MidBarLocs[*]:numeric, BinLocs[*]:numeric, xHstMarkVals[*]:numeric)
+local nMid, nBinLocs, MidBarVals, xHstBinLocs
+begin
+  nMid        = dimsizes(MidBarLocs)
+  nBinLocs    = dimsizes(BinLocs)
+  if (nBinLocs.ne.(nMid+1)) then
+      print("histogram_interp: size mismatch:  nMid="+nMid+" nBinLocs="+nBinLocs)
+      exit
+  end if
+  MidBarVals  = 0.5*(BinLocs(0:nBinLocs-2)+BinLocs(1:nBinLocs-1))
+
+              ; simple linear interpoaltion
+  xHstLocs    = linint1(MidBarVals,MidBarLocs, False,xHstMarkVals , 0)
+  xHstLocs@long_name = "NDC coordinates of marker location(s)"
+
+  return (xHstLocs)               
+end
+;---
+               ; USER LEVEL FUNCTION; this could also be histogram_LINE or histogram_TICKMARK
+undef("histogram_mark")      
+procedure histogram_mark(wks[1]:graphic, hst[1]:graphic, xHstMarkLocs[*]:numeric, yHstMarkLocs[*]:numeric, pmHst[1]:logical)
+local xHstLocs, pnred, nMarkX, nMarkY
+begin
+  nMarkX = dimsizes(xHstMarkLocs)
+  nMarkY = dimsizes(yHstMarkLocs)
+  if (nMarkX.ne.nMarkY) then
+      print("histogram_mark: nMarkX must equal nMarkY:  nMarkX="+nMarkX+" nMarkY="+nMarkY)
+      exit
+  end if
+           ; interpolate along the 'x' NDC coords
+  xHstLocs = histogram_interp(hst@MidBarLocs, hst@BinLocs, xHstMarkLocs)
+
+; local default resource settings
+
+  pmres                = True         ;-- local
+  pmres@gsClipOn       = False        ;-- allow to extend beyond the view port
+  pmres@gsMarkerColor  = "magenta"    ;-- default marker color
+  pmres@gsMarkerSizeF  =  0.0125      ;-- default; set size of marker
+  pmres@gsMarkerThicknessF = 3.0      ;-- default is 1.0
+ ;pmres@gsMarkerIndex  =   8          ;-- down triangle
+  pmres@gsMarkerIndex  =   0          ;-- default; asterisk
+
+; allow users to over-ride the local bootstrap
+            
+  if (pmHst .and. isatt(pmHst,"gsMarkerColor")) then
+      pmres@gsMarkerColor  = pmHst@gsMarkerColor
+  end if
+
+  if (pmHst .and. isatt(pmHst,"gsMarkerSizeF")) then
+      pmres@gsMarkerSizeF  = pmHst@gsMarkerSizeF
+  end if
+
+  if (pmHst .and. isatt(pmHst,"gsMarkerIndex")) then
+      pmres@gsMarkerIndex  = pmHst@gsMarkerIndex
+  end if
+
+  if (pmHst .and. isatt(pmHst,"gsMarkerThicknessF")) then
+      pmres@gsMarkerThicknessF  = pmHst@gsMarkerThicknessF
+  end if
+
+  if (pmHst .and. isatt(pmHst,"gsClipOn")) then   ; NCL default is True
+      pmres@gsClipOn = pmHst@gsClipOn
+  end if
+
+;-- Add the marker(s)
+  
+  do n=0,nMarkX-1
+     hst@$unique_string("hstMark_")$ = gsn_add_polymarker(wks, hst, xHstLocs(n), yHstMarkLocs(n) , pmres)  
+  end do
+
+;-- No return since this is a procedure
+
+end
+;--
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; 
+;; Description: Create a legend using calls to gsn_add_polyline/gsn_add_text. 
+;; Resources are used to set the position of upper-left corner of the legend, 
+;; the legend labels, the spacing of the legend items, and the appearance of 
+;; the lines and labels.  
+;; Adam Phillips
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+undef("simple_legend") 
+function simple_legend(wksp:graphic,xyplot:graphic,genres:logical,lineres:logical,labelres:logical)
+local wksp,xyplot,genres,lineres,labelres,XPos,YPos,numitems,xrange,yrange,incr,y_pos,x_line_start,\
+      x_line_end,x_text_start,x_text_end
+
+begin
+  getvalues xyplot
+    "trYMinF" : ymin
+    "trYMaxF" : ymax
+    "trXMinF" : xmin
+    "trXMaxF" : xmax
+  end getvalues
+  yrange = ymax - ymin
+  xrange = xmax - xmin
+
+  if (.not.isatt(genres,"ItemSpacePercent")) then
+     genres@ItemSpacePercent = 5.
+  end if
+  incr = (genres@ItemSpacePercent/100.)*yrange*-1.
+
+  if (.not.isatt(genres,"Position")) then   ; set default
+     genres@Position = "Top"
+  end if
+
+  if (isatt(labelres,"lgLabels")) then
+     numItems = dimsizes(labelres@lgLabels)
+  else
+     print("simple_legend: Fatal: Legend labels must be set using lgLabels. If empty labels are required set lgLabels resource to an empty string array dimenensioned equal to the number of legend lines.")
+     exit
+  end if
+
+  if (isatt(genres,"XPosPercent")) then
+     XPos = genres@XPosPercent/100.
+  else
+     XPos = 0.05     ; set default
+  end if
+
+  if (isatt(genres,"YPosPercent")) then
+     YPos = genres@YPosPercent/100.
+     if (genres@Position.eq."Bottom") then  ; modify YPosPercent when doing bottom label so that first label is on top
+        YPos = YPos+((numItems-1)*(genres@ItemSpacePercent/100.))
+     end if
+  else
+     if (genres@Position.eq."Bottom") then
+        YPos = 0.05   ; set default
+     else
+        YPos = 0.95   ; set default
+     end if
+  end if
+
+  txres = True
+  txres@txJust = "CenterLeft"
+  txres@txFontHeightF = 0.015
+
+  zres = True
+
+  polyres = True
+  do gg = 0,numItems-1
+     if (gg.eq.0) then
+        y_pos = (YPos*yrange)+ymin
+     else
+        y_pos = y_pos+incr
+     end if
+     x_line_start = xmin+(XPos*xrange)   ; position of start of legend line
+     if (isatt(lineres,"LineLengthPercent")) then
+        x_line_end = x_line_start+(xrange*(lineres@LineLengthPercent/100.))
+     else
+        x_line_end = x_line_start+(xrange*.07)    ; set default
+     end if
+     if (isatt(genres,"LineLabelWhiteSpacePercent")) then
+        x_text_start = x_line_end+(xrange*(genres@LineLabelWhiteSpacePercent/100.))
+     else
+        x_text_start = x_line_end+(xrange*0.03)    ; set default
+     end if
+     if (isatt(lineres,"lgLineColors")) then
+        if (dimsizes(lineres@lgLineColors).eq.1.or.dimsizes(lineres@lgLineColors).ne.dimsizes(labelres@lgLabels)) then
+           zres@gsLineColor = lineres@lgLineColors(0)
+        else
+           zres@gsLineColor = lineres@lgLineColors(gg)
         end if
-        copy_VarMeta(x(0,:), xStat(0,:))
-    end if
+     end if
+     if (isatt(lineres,"lgLineOpacity")) then
+        if (dimsizes(lineres@lgLineOpacity).eq.1.or.dimsizes(lineres@lgLineOpacity).ne.dimsizes(labelres@lgLabels)) then
+           zres@gsLineOpacityF = lineres@lgLineOpacity(0)
+        else
+           zres@gsLineOpacityF = lineres@lgLineOpacity(gg) 
+        end if
+     end if    
+     if (isatt(lineres,"lgLineThicknesses")) then 
+        if (dimsizes(lineres@lgLineThicknesses).eq.1.or.dimsizes(lineres@lgLineThicknesses).ne.dimsizes(labelres@lgLabels)) then
+           zres@gsLineThicknessF = lineres@lgLineThicknesses(0)
+        else
+           zres@gsLineThicknessF = lineres@lgLineThicknesses(gg)
+        end if
+     end if
+     if (isatt(lineres,"lgDashIndexes")) then 
+        if (dimsizes(lineres@lgDashIndexes).eq.1.or.dimsizes(lineres@lgDashIndexes).ne.dimsizes(labelres@lgLabels)) then
+           zres@gsLineDashPattern = lineres@lgDashIndexes(0)
+        else
+           zres@gsLineDashPattern = lineres@lgDashIndexes(gg)
+        end if
+     else
+        zres@gsLineDashPattern = 0
+     end if 
+     xyplot@$unique_string("lg")$ = gsn_add_polyline(wksp,xyplot,(/x_line_start,x_line_end/),(/y_pos,y_pos/),zres)
 
-    if (rankx.eq.3) then
-        xStat  = new ( (/NTIM,dimx(1),dimx(2)/), typeof(x), getFillValue(x))
-        if (arith.eq."avg" .or. arith.eq."ave") then
-            do n=0,ntim-1,nstep
-               xStat(n/nstep,:,:) = dim_avg_n( x(n:n+nstep-1,:,:), nDim)
-            end do
+     if (isatt(labelres,"lgLabelFontHeights")) then
+        if (dimsizes(labelres@lgLabelFontHeights).eq.1.or.dimsizes(labelres@lgLabelFontHeights).ne.dimsizes(labelres@lgLabels)) then
+           txres@txFontHeightF = labelres@lgLabelFontHeights(0)
+        else
+           txres@txFontHeightF = labelres@lgLabelFontHeights(gg)
         end if
-        if (arith.eq."sum") then
-            do n=0,ntim-1,nstep
-               xStat(n/nstep,:,:) = dim_sum_n( x(n:n+nstep-1,:,:), nDim)
-            end do
+     end if
+     if (isatt(labelres,"lgLabelColors")) then
+        if (dimsizes(labelres@lgLabelColors).eq.1.or.dimsizes(labelres@lgLabelColors).ne.dimsizes(labelres@lgLabels)) then
+           txres@txFontColor = labelres@lgLabelColors(0)
+        else
+           txres@txFontColor = labelres@lgLabelColors(gg)
         end if
-        if (arith.eq."min") then
-            do n=0,ntim-1,nstep
-               xStat(n/nstep,:,:) = dim_min_n( x(n:n+nstep-1,:,:), nDim)
-            end do
+     end if
+     if (isatt(labelres,"lgLabelOpacity")) then
+        if (dimsizes(labelres@lgLabelOpacity).eq.1.or.dimsizes(labelres@lgLabelOpacity).ne.dimsizes(labelres@lgLabels)) then
+           txres@txFontOpacityF = labelres@lgLabelOpacity(0)
+        else
+            txres@txFontOpacityF = labelres@lgLabelOpacity(gg)
         end if
-        if (arith.eq."max") then
-            do n=0,ntim-1,nstep
-               xStat(n/nstep,:,:) = dim_max_n( x(n:n+nstep-1,:,:), nDim)
-            end do
-        end if
-        copy_VarMeta(x(0,:,:), xStat(0,:,:))
-    end if
-
-    if (rankx.eq.4) then
-        xStat  = new ( (/NTIM,dimx(1),dimx(2),dimx(3)/), typeof(x), getFillValue(x))
-        if (arith.eq."avg" .or. arith.eq."ave") then
-            do n=0,ntim-1,nstep
-               xStat(n/nstep,:,:,:) = dim_avg_n( x(n:n+nstep-1,:,:,:), nDim)
-            end do
-        end if
-        copy_VarMeta(x(0,:,:,:), xStat(0,:,:,:))
-    end if
-
-    xStat!0 = "time"
-    xStat&time = TIME
-
-    return(xStat)
+     end if
+     xyplot@$unique_string("lg")$ = gsn_add_text(wksp,xyplot,labelres@lgLabels(gg),x_text_start,y_pos,txres)
+  end do
+  return(xyplot)
 end
 

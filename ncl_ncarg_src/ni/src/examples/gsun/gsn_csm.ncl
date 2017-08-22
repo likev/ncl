@@ -1,6 +1,3 @@
-;
-;      $Id: gsn_csm.ncl,v 1.245 2010/05/06 22:15:21 haley Exp $
-;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;                                                                      ;
 ;                Copyright (C)  1998                                   ;
@@ -27,7 +24,9 @@
 ;;               at the top of your NCL script, before the begin statement.
 ;;
 
-; Global attribute for whether to use old-style (pre V6.1.0) labebar
+; Global attribute for whether to use old-style (pre V6.4.0) labebar. 
+; We are still in the process of making a decision whether to make this
+; the default for V6.4.0
 GSN_OLD_LABELBAR = True
 
 ;***********************************************************************;
@@ -36,130 +35,228 @@ GSN_OLD_LABELBAR = True
 ;                  x2: numeric                                          ;
 ;                  y1: numeric                                          ;
 ;                  y2: numeric                                          ;
+;            reftype[1]:string                                          ;
 ;                                                                       ;
 ; Given two points, (x1,y1) and (x2,y1) and a reference value (ref),    ;
-; this function interpolates where on the X axis the line from the 1st  ;
-; point to the 2nd point crosses the line y=ref.                        ;
-; plot to the workstation "wks" (the variable returned from a previous  ;
-; call to "gsn_open_wks").  "resources" is an optional list of          ;
-; resources. The Id of the map plot is returned.                        ;
+; this function interpolates where on the X or Y axis the line from the ;
+; 1st point to the 2nd point crosses the line y=ref or x=ref.           ;
 ;***********************************************************************;
 undef("xy_ref_interp")
 function xy_ref_interp(x1:numeric,x2:numeric,y1:numeric,y2:numeric, \
-                       ref:numeric)
+                       ref:numeric,reftype[1]:string)
 begin
- return(x2-((y2-ref)*(x2-x1))/(y2-y1))
+ if(reftype.eq."y") then
+   return(x2-((y2-ref)*(x2-x1))/(y2-y1))
+ else
+   return(y2-((x2-ref)*(y2-y1))/(x2-x1))
+ end if
 end
 
 ;***********************************************************************;
 ; Function : ref_line_interp                                            ;
 ;                  x: numeric                                           ;
 ;                  y: numeric                                           ;
-;            xinterp: numeric                                           ;
-;            yinterp: numeric                                           ;
 ;           ref_line: numeric                                           ;
+;           reftype[1]: string                                          ;
 ;                                                                       ;
-; Given a set of points represented by x and y, add interpolated values ;
-; where the line crosses at y = ref_line. x and y must be the same      ;
-; length, and ref_line must either be a scalar or the same length as x  ;
-; and y. ref_line can be an array of reference values, as long as there ;
-; is only one X/Y curve.                                                ;
+; Given a two arrays X and Y and a set of reference point values,       ;
+; return new X and Y arrays that contain extra interpolated points where;
+; values where Y (or X) crosses the reference point values.             ;
 ;                                                                       ;
-; The dimension size of each interpolated set of points is returned.    ;
+; This function was updated in NCL V6.4.0 to allow different            ;
+; dimensionalities for x, y, and ref_line. The different cases that     ;
+; it can handle are:
+;                                                                       ;
+;  - X and Y are 1D arrays of length npts, and ref_line is a scalar or  ;
+;    a 1D array of values                                               ;
+;  - X and Y are 2D arrays of length ncurves x npts, and ref_line is    ;
+;    a scalar or an array of length ncurves                             ;
+;  - One of X or Y is a 1D array of length npts, and the other is       ;
+;    length ncurves x npts, and ref_line is a scalar or an array of     ;
+;    length ncurves                                                     ;
+;  - X and Y are 1D arrays of length npts, and ref_line is a scalar or  ;
+;    a 1D array of values                                               ;
+;                                                                       ;
+; The dimension size of each interpolated set of points is also         ;
+; returned.                                                             ;
 ;***********************************************************************;
 undef("ref_line_interp")
-function ref_line_interp(x,y,xinterp,yinterp,ref_line)
-local ncurves, nref_lines, nlines, i, j, location, xnew, ynew, npts
+function ref_line_interp(x:numeric,y:numeric,ref_lines[*]:numeric,\
+                         reftype[1]:string)
+local dimsx, dimsy, rankx, ranky, nlines, ncurvesxy, ncurves, \
+nref_lines, nlines, i, j, location, xnew, ynew, npts,x1d,y1d
 begin
-;
-; Convert x and y into two dimensional arrays so we don't have to
-; test for whether we have one line or multiple lines.  Convert
-; ref_line to a 1-d array (if it isn't already).
-;
-  ndimsy = dimsizes(dimsizes(y))
-  ndimsx = dimsizes(dimsizes(x))
-  nref_lines = dimsizes(ref_line)
+;---Lots of error checking here
+  dimsx  = dimsizes(x)
+  dimsy  = dimsizes(y)
+  rankx  = dimsizes(dimsx)
+  ranky  = dimsizes(dimsy)
+  nlines = dimsizes(ref_lines)
 
-  if(ndimsy.eq.1)
-    ncurves = 1
-    nptsy   = dimsizes(y)
-    ynew    = onedtond(y,(/nref_lines,nptsy/))
+  if(any((/rankx,ranky/).gt.2)) then
+    print("ref_line_interp: error: X and Y must either be 1D or 2D arrays.")
+    exit
+  end if
+;---Check X and Y array sizes
+  if(rankx.eq.2) then
+    ncurvesxy = dimsx(0)
+    npts    = dimsx(1)
+    if(ranky.eq.1) then                                   ; Y is 1D, X is 2D
+      if(dimsy(0).ne.npts) then 
+        print("ref_line_interp: error: X and Y must have the same rightmost dimension.")
+        exit
+      end if        
+    else
+      if(dimsy(0).ne.ncurvesxy.or.dimsy(1).ne.npts) then    ; Y is 2D, X is 2D
+        print("ref_line_interp: error: If X and Y are 2D, they must the same dimensionality")
+        exit
+      end if        
+    end if
   else
-    ncurves = dimsizes(y(:,0))
-    nptsy   = dimsizes(y(0,:))
-    ynew    = y
+    if(ranky.eq.2) then                                   ; Y is 2D, X is 1D
+      ncurvesxy = dimsy(0)
+      npts    = dimsy(1)
+      if(dimsx(0).ne.npts) then 
+        print("ref_line_interp: error: X and Y must have the same rightmost dimension.")
+        exit
+      end if        
+      y2d = y
+    else                                                  ; Y is 1D, X is 1D
+      ncurvesxy = 1
+      npts    = dimsy(0)
+    end if
   end if
 
-  nlines = max((/ncurves,nref_lines/))
-
-  if(ndimsx.eq.1)
-    xnew = onedtond(x,(/nlines,nptsy/))
+;---Error checking on ref_lines 
+  if(.not.(nlines.eq.1.or.nlines.eq.ncurvesxy.or.\
+          (nlines.gt.1.and.ncurvesxy.eq.1))) then
+    print("ref_line_interp: error: gsnYRefLine must be a scalar or an array of length ncurves")
+    exit
+  end if        
+;
+; Special case where X/Y are 1D, but we have multiple reference lines.
+; We will simply propagate X and Y to have nlines copies.
+;
+  if(nlines.gt.1.and.ncurvesxy.eq.1)
+    ncurves = nlines
   else
-    xnew = x
+    ncurves = ncurvesxy
   end if
 
-  refnew  = new((/nlines/),typeof(ref_line))
-  refnew  = ref_line
+;---Propagate X and Y to 2D if necessary.
+  if(rankx.eq.1) then
+    x2d = conform_dims((/ncurves,npts/),x,1)
+  else if(rankx.eq.2.and.nlines.ne.ncurvesxy) then    
+    x2d = reshape(x,(/ncurves,npts/))
+  else
+    x2d = x
+  end if
+  end if
 
-  xinterp(:,0) = xnew(:,0)
-  yinterp(:,0) = ynew(:,0)
-  npts         = new((/nlines/),integer)
+  if(ranky.eq.1) then
+    y2d = conform_dims((/ncurves,npts/),y,1)
+  else if(ranky.eq.2.and.nlines.ne.ncurvesxy) then    
+    y2d = reshape(y,(/ncurves,npts/))
+  else
+    y2d = y
+  end if
+  end if
 
+;---Propagate ref_lines to 1D array if necessary
+  if(nlines.gt.1) then
+    ref1d = ref_lines
+  else
+    ref1d = conform_dims(ncurves,ref_lines,-1)
+  end if
+
+;
+; Create new X and Y arrays to hold new data values.  Wherever the curve
+; crosses the reference line, an interpolation needs to be done to create 
+; a point *on* that reference line.
+;
+  xinterp = new((/ncurves,2*npts/),double,1e36)
+  yinterp = new((/ncurves,2*npts/),double,1e36)
+
+  copy_var_atts(x,xinterp,"")
+  copy_var_atts(y,yinterp,"")
+
+  xinterp(:,0) = x2d(:,0)
+  yinterp(:,0) = y2d(:,0)
+  num_interp_pts= new(ncurves,integer)
+;
 ; Loop through the rest of the points and find out where the curve crosses
 ; the reference line.  If it does, then do an interpolation.
-; Store the location of the previous point (-1 if it is below the reference
-; line, 0 if it is on the reference line, and 1 if it is above).
-
-  do j=0, nlines-1
+; Store the location of the previous point (-1 if it is less than the
+; reference line, 0 if it is on the reference line, and 1 if it is greater).
+;
+  do j=0, ncurves-1
     num_crosses = 0
-    do i=1, nptsy-1
-      xinterp(j,i+num_crosses) = xnew(j,i)
-      yinterp(j,i+num_crosses) = ynew(j,i)
-
-      if(.not.ismissing(ynew(j,i)).and..not.ismissing(xnew(j,i)).and.\
-         .not.ismissing(ynew(j,i-1)).and..not.ismissing(xnew(j,i-1)))
-        if((ynew(j,i-1).lt.refnew(j).and.ynew(j,i).gt.refnew(j)).or.\
-           (ynew(j,i-1).gt.refnew(j).and.ynew(j,i).lt.refnew(j)))
-          xinterp(j,i+num_crosses)   = xy_ref_interp(xnew(j,i-1),xnew(j,i),\
-                                                     ynew(j,i-1),ynew(j,i),\
-                                                     refnew(j))
-          xinterp(j,i+num_crosses+1) = xnew(j,i)
-          yinterp(j,i+num_crosses)   = refnew(j)
-          yinterp(j,i+num_crosses+1) = ynew(j,i)
+    do i=1, npts-1
+      xinterp(j,i+num_crosses) = x2d(j,i)
+      yinterp(j,i+num_crosses) = y2d(j,i)
+      if(.not.ismissing(y2d(j,i)).and..not.ismissing(x2d(j,i)).and.\
+         .not.ismissing(y2d(j,i-1)).and..not.ismissing(x2d(j,i-1)))
+        if((reftype.eq."y").and.\
+           ((y2d(j,i-1).lt.ref1d(j).and.y2d(j,i).gt.ref1d(j)).or.\
+            (y2d(j,i-1).gt.ref1d(j).and.y2d(j,i).lt.ref1d(j)))) then
+          xinterp(j,i+num_crosses) = xy_ref_interp(x2d(j,i-1),x2d(j,i),\
+                                                   y2d(j,i-1),y2d(j,i),\
+                                                   ref1d(j),reftype)
+          xinterp(j,i+num_crosses+1) = x2d(j,i)
+          yinterp(j,i+num_crosses)   = ref1d(j)
+          yinterp(j,i+num_crosses+1) = y2d(j,i)
           num_crosses = num_crosses + 1
+        else if((reftype.eq."x").and.\
+                ((x2d(j,i-1).lt.ref1d(j).and.x2d(j,i).gt.ref1d(j)).or.\
+                 (x2d(j,i-1).gt.ref1d(j).and.x2d(j,i).lt.ref1d(j)))) then
+          yinterp(j,i+num_crosses) = xy_ref_interp(x2d(j,i-1),x2d(j,i),\
+                                                   y2d(j,i-1),y2d(j,i),\
+                                                   ref1d(j),reftype)
+          yinterp(j,i+num_crosses+1) = y2d(j,i)
+          xinterp(j,i+num_crosses)   = ref1d(j)
+          xinterp(j,i+num_crosses+1) = x2d(j,i)
+          num_crosses = num_crosses + 1
+        end if
         end if
       end if
     end do
-    npts(j) = nptsy + num_crosses
+    num_interp_pts(j) = npts + num_crosses
   end do
-  delete(xnew)
-  delete(ynew)
-  delete(refnew)
-  return(npts)
+  delete([/x2d,y2d/])
+  return([/xinterp,yinterp,ref1d,num_interp_pts/])
 end
 
 ;***********************************************************************;
 ; Function : get_bar_widths                                             ;
 ;                  x: numeric                                           ;
+;                  y: numeric                                           ;
+;          type_ref[1]:string                                           ;
 ;               res2: logical                                           ;
 ;                                                                       ;
 ; Given a set of x points, return a bar width for filled bars later.    ;
 ;                                                                       ;
 ;***********************************************************************;
 undef("get_bar_widths")
-function get_bar_widths(x,ncurves,res2)
-local ncurves, npts, bar_widths, dx, nwidths
+function get_bar_widths(x,y,type_ref[1]:string,res2)
+local dims, rank, ncurves, npts, bar_widths, delta, nwidths
 begin
 ;---Get number of curves and points.
-  dims = dimsizes(x)
-  rank = dimsizes(dims)
+  if(type_ref.eq."y")
+    dims  = dimsizes(y)
+    rank  = dimsizes(dims)
+    drank = dimsizes(dimsizes(x))
+  else
+    dims  = dimsizes(x)
+    rank  = dimsizes(dims)
+    drank = dimsizes(dimsizes(y))
+  end if
   if(rank.eq.1)
-    npts = dims(0)
+    ncurves = 1
+    npts    = dims(0)
   else
     ncurves = dims(0)
     npts    = dims(1)
   end if
-
 ;---If bar width is set explicitly, we have to check it first.
   if(isatt(res2,"gsnXYBarChartBarWidth"))
     bar_width = get_res_value_keep(res2,"gsnXYBarChartBarWidth",0.)
@@ -170,8 +267,8 @@ begin
     end if
   end if
 
-;---Get the distances between x values.
-  if(rank.eq.1)
+;---Get the distances between x or y values.
+  if(drank.eq.1)
 ;---Special case if we only have one bar.
     if(npts.eq.1)
       if(isatt(res2,"gsnXYBarChartBarWidth")) then
@@ -180,15 +277,29 @@ begin
       else
         print("get_bar_widths: Warning: You only have one element,")
         print("and gsnXYBarChartBarWidth is not set.")
-        print("Will default to a bar width equal to x")
-        return(x)
+        if(type_ref.eq."y") then
+          print("Will default to a bar width equal to x")
+          return(x)
+        else
+          print("Will default to a bar width equal to y")
+          return(y)
+        end if
       end if
     else
-      dx = min( x(1:npts-1) - x(0:npts-2) )
+      if(type_ref.eq."y") then
+        delta = min( x(1:npts-1) - x(0:npts-2) )
+      else
+        delta = min( y(1:npts-1) - y(0:npts-2) )
+      end if
     end if
   else
-    x!0 = "ncurves"
-    x!1 = "npts"
+    if(type_ref.eq."y") then
+      x!0 = "ncurves"
+      x!1 = "npts"
+    else
+      y!0 = "ncurves"
+      y!1 = "npts"
+    end if
 ;---Special case if we only have one bar.
     if(npts.eq.1) then
       if(isatt(res2,"gsnXYBarChartBarWidth")) then
@@ -197,16 +308,26 @@ begin
       else
         print("get_bar_widths: Warning: You only have one element in each set of curves,")
         print("and gsnXYBarChartBarWidth is not set.")
-        print("Will default to bar widths equal to x")
-        b = new(ncurves,typeof(x))
-        b = x
+        if(type_ref.eq."y") then
+          print("Will default to bar widths equal to x")
+          b = conform_dims(ncurves,x,-1)
+        else
+          print("Will default to bar widths equal to y")
+          b = conform_dims(ncurves,y,-1)
+        end if
         return(b)
       end if
     end if
-;---Get the minimum dx for each set of curves.
-    dx = dim_min(x(:,1:npts-1)-x(:,0:npts-2))
-    delete(x!0)
-    delete(x!1)
+;---Get the minimum delta for each set of curves.
+    if(type_ref.eq."y") then
+      delta = dim_min(x(:,1:npts-1)-x(:,0:npts-2))
+      delete(x!0)
+      delete(x!1)
+    else
+      delta = dim_min(y(:,1:npts-1)-y(:,0:npts-2))
+      delete(y!0)
+      delete(y!1)
+    end if
   end if
 ;
 ; If bar width is set explicitly, we have to check it first.
@@ -218,26 +339,16 @@ begin
       print("get_bar_widths: Fatal: You must either select one constant bar width, or the same number of bar widths as you have curves.")
       return
     end if
-    if(any(bar_width.gt.dx))
-      print("get_bar_widths: Warning: The bar width(s) you selected ("+bar_width+") is larger than the smallest delta x ("+dx+").")
-      print("Defaulting to " + dx + ".")
-      
-      if(nwidths.eq.1.and.ncurves.gt.1)
-        bar_widths = new(ncurves,typeof(dx))
-      end if
-      bar_widths = dx
+    if(any(bar_width.gt.delta))
+      print("get_bar_widths: Warning: The bar width(s) you selected ("+bar_width+") is larger than the smallest delta ("+delta+").")
+      print("Defaulting to " + delta + ".")
+      bar_widths = conform_dims(ncurves,delta,-1)
     else
-;
-; Make sure bar_widths is 1D array of length (/ncurves/).
-;
-      if(nwidths.eq.1)
-        bar_widths = new(ncurves,double)
-        bar_widths = bar_width
-      end if
+;---Make sure bar_widths is 1D array of length (/ncurves/).
+      bar_widths = conform_dims(ncurves,bar_width,-1)
     end if
   else
-    bar_widths = new(ncurves,double)
-    bar_widths = dx        ; Bar width is not being set.
+    bar_widths = conform_dims(ncurves,delta,-1)
   end if
 
   return(bar_widths)
@@ -245,18 +356,17 @@ end
 
 
 ;***********************************************************************;
-; Procedure : outlined_bars                                             ;
+; Function : outlined_bars                                              ;
 ;                  x: numeric                                           ;
 ;                  y: numeric                                           ;
-;            xinterp: numeric                                           ;
-;            yinterp: numeric                                           ;
 ;                                                                       ;
-; Given a set of points represented by x and y, represent the y values  ;
-; with bar outlines.                                                    ;
+; Given a set of points represented by x and y, return new arrays       ;
+; that represent bar outlines.                                          ;
 ;***********************************************************************;
 undef("outlined_bars")
-procedure outlined_bars(x,y,xinterp,yinterp)
-local ndimsx, ndimsy, ncurves, dims, npts, nyb, bar_width
+function outlined_bars(x,y)
+local nyb, npts, ncurves, ndimsx, ndimsy, ncurves, nyb, \
+bar_width, xnew, ynew
 begin
 ;
 ; Convert x and y into two dimensional arrays so we don't have to
@@ -282,10 +392,19 @@ begin
   end if
 ;
 ; For each old y point, we need two new y points to represent
-; the horizontal line. The new X values will be the width of the bars.
+; the horizontal line.
 ;
   nyb = 2 * (npts-1) + 1
 
+  yinterp = new((/ncurves,nyb/),double,1e36)
+  xinterp = new((/ncurves,nyb/),double,1e36)
+
+  copy_var_atts(x,xinterp,"")
+  copy_var_atts(y,yinterp,"")
+;
+; For each old y point, we need two new y points to represent
+; the horizontal line. The new X values will be the width of the bars.
+;
   yinterp(:,0:nyb-2:2) = ynew(:,:npts-2)
   yinterp(:,1:nyb-1:2) = ynew(:,:npts-2)
   yinterp(:,nyb-1)     = ynew(:,npts-1)   ; last point
@@ -295,144 +414,295 @@ begin
   xinterp(:,1:nyb-2:2) = xnew(:,:npts-2) + bar_widths
   xinterp(:,nyb-1)     = xnew(:,npts-1)     ; last point, no bar
 
-  delete(xnew)
-  delete(ynew)
+  return([/xinterp,yinterp/])
+end
+
+;**********************************************************************
+; Function to return the arrays needed for filling in bars for a
+; bar chart plot (rather than an XY plot).
+;
+; Note: there are several if-else statements to check whether this
+; is a vertical (type_ref="y") or horizontal (type_ref="x") plot.
+; Instead of doing if-else statements, since the "else" parts are
+; identical with the xb and yb arrays being swapped, we could have
+; made temporary copies of the xb and yb arrays and swapped them for
+; the type_ref="x" case. However, this could cause a memory hit if 
+; the arrays are large. So, keeping the if-else statements for now.
+;**********************************************************************
+undef("get_bar_arrays")
+function get_bar_arrays(xb,yb,type_ref[1]:string,bres)
+local ybarmsg, npts, ndimsx, ndimsy, ncurves
+begin
+  ndimsy = dimsizes(dimsizes(yb))
+  ndimsx = dimsizes(dimsizes(xb))
+
+  if(type_ref.eq."y")
+    if(ndimsy.eq.1)
+      ncurves = 1
+      npts    = dimsizes(yb)
+    else
+      ncurves = dimsizes(yb(:,0))
+      npts    = dimsizes(yb(0,:))
+    end if
+  else
+    if(ndimsx.eq.1)
+      ncurves = 1
+      npts    = dimsizes(xb)
+    else
+      ncurves = dimsizes(xb(:,0))
+      npts    = dimsizes(xb(0,:))
+    end if
+  end if
+
+  bw = get_bar_widths(xb,yb,type_ref,bres)
+  if(any(ismissing(bw)).or.any(bw.le.0))
+    print("get_bar_arrays: Fatal: The array is not monotonically increasing.")
+    print("Cannot draw a bar chart.")
+    return
+  end if
+  if(npts.eq.1) then
+;
+; Special test for just one point. If just one point, add some
+; dummy missing vals before and after.
+;
+    if(type_ref.eq."y")
+      ybarmsg = get_res_value_keep(yb,"_FillValue",1e20)
+      xbar = (/xb-bw,xb,xb+bw/)
+      ybar = (/ybarmsg,yb,ybarmsg/)
+      nptsbar = 3
+      ybar@_FillValue = ybarmsg
+    else
+      xbarmsg = get_res_value_keep(xb,"_FillValue",1e20)
+      ybar = (/yb-bw,yb,yb+bw/)
+      xbar = (/xbarmsg,xb,xbarmsg/)
+      nptsbar = 3
+      xbar@_FillValue = xbarmsg
+    end if
+  else
+    xbar = xb
+    ybar = yb
+    nptsbar = npts
+  end if
+  return([/xbar,ybar,bw,nptsbar/])
 end
 
 ;***********************************************************************;
-; procedure : filled_bars                                               ;
+; function : filled_bars_interp                                         ;
 ;                  x: numeric                                           ;
 ;                  y: numeric                                           ;
-;             xabove: numeric                                           ;
-;             yabove: numeric                                           ;
-;             xbelow: numeric                                           ;
-;             ybelow: numeric                                           ;
-;             xequal: numeric                                           ;
-;             yequal: numeric                                           ;
-;                nya: integer                                           ;
-;                nyb: integer                                           ;
-;                nye: integer                                           ;
-;                iya: integer                                           ;
-;                iyb: integer                                           ;
-;                iye: integer                                           ;
-;          yref_line: numeric                                           ;
-;         bar_widths: numeric                                           ;
+;        type_ref[1]:string                                             ;
+;           ref_line: numeric                                           ;
 ;                                                                       ;
-; Given a set of points represented by x and y, and y reference values, ;
-; represent the y values with bars above, below, and equal to the       ;
+; Given a set of points represented by x and y, and reference values,   ;
+; return the y values with bars greater, less, and equal to the         ;
 ; reference lines.                                                      ;
-;                                                                       ;
-; Bars aren't filled in this routine. They are returned as threes sets  ;
-; of polygons: those above, below, and equal to the reference lines.    ;
 ;***********************************************************************;
-undef("filled_bars")
-procedure filled_bars(x,y,xabove,yabove,xbelow,ybelow,xequal,yequal,\
-                      nya,nyb,nye,iya,iyb,iye,yref_line,bar_widths)
-local ndimsx, ndimsy, ncurves, dims, npts
+undef("filled_bars_interp")
+function filled_bars_interp(x,y,type_ref[1]:string,ref_line,res2)
+local ndimsx, ndimsy, dims, ncurves, npts, xnew, ynew, \
+gt_ind,ls_ind,eq_ind,bar_array_list,xb,yb,bar_widths
 begin
+;---Get arrays needed to fill in locations for bars later.
+    bar_array_list = get_bar_arrays(x,y,type_ref,res2)
+    xb = bar_array_list[0]
+    yb = bar_array_list[1]
+    bar_widths = bar_array_list[2]
+    nptsbar = bar_array_list[3]
+
+    if(all(ismissing(ref_line))) then
+      if(type_ref.eq."y") then
+        ref_line = get_res_value_keep(res2,"trYMinF",min(y))
+      else
+        ref_line = get_res_value_keep(res2,"trXMinF",min(x))
+      end if
+    end if
 ;
 ; Convert x and y into two dimensional arrays so we don't have to
 ; test for whether we have one line or multiple lines.
 ;
-  ndimsx = dimsizes(dimsizes(x))
-  ndimsy = dimsizes(dimsizes(y))
+  ndimsx = dimsizes(dimsizes(xb))
+  ndimsy = dimsizes(dimsizes(yb))
   
-  if(ndimsy.eq.1)
-    ncurves = 1
-    npts    = dimsizes(y)
-    ynew    = new((/ncurves,npts/),double)
-    ynew    = onedtond(y,(/ncurves,npts/))
+  if(type_ref.eq."y") then
+    if(ndimsy.eq.1)
+      ncurves = 1
+      npts    = dimsizes(yb)
+      ynew    = onedtond(todouble(yb),(/ncurves,npts/))
+    else
+      ncurves = dimsizes(yb(:,0))
+      npts    = dimsizes(yb(0,:))
+      ynew    = todouble(yb)
+    end if
+    if(ndimsx.eq.1)
+      xnew = onedtond(todouble(xb),(/ncurves,npts/))
+    else
+      xnew = todouble(xb)
+    end if
   else
-    ncurves = dimsizes(y(:,0))
-    npts    = dimsizes(y(0,:))
-    ynew    = new(dimsizes(y),double)
-    ynew    = y
+;
+; Note: we are treating the "X" values here as "Y"
+; values and vice versa, so we don't have to duplicate
+; the code below when you check if values are > or <
+; ref line value.
+;
+; When we're all done, we'll need to switch the arrays
+; back.
+;
+    if(ndimsx.eq.1)
+      ncurves = 1
+      npts    = dimsizes(xb)
+      ynew    = onedtond(todouble(xb),(/ncurves,npts/))
+    else
+      ncurves = dimsizes(xb(:,0))
+      npts    = dimsizes(xb(0,:))
+      ynew    = todouble(xb)
+    end if
+    if(ndimsy.eq.1)
+      xnew = onedtond(todouble(yb),(/ncurves,npts/))
+    else
+      xnew = todouble(yb)
+    end if
   end if
 
-  if(ndimsx.eq.1)
-    xnew = new((/ncurves,npts/),double)
-    xnew = onedtond(x,(/ncurves,npts/))
-  else
-    xnew = new(dimsizes(x),double)
-    xnew = x
-  end if
+;---Create arrays to hold points greater than, less than, and equal to reference lines.
+  xgrtr = new((/ncurves,5*nptsbar/),double,1e36)
+  ygrtr = new((/ncurves,5*nptsbar/),double,1e36)
+  xless = new((/ncurves,5*nptsbar/),double,1e36)
+  yless = new((/ncurves,5*nptsbar/),double,1e36)
+  xequal = new((/ncurves,5*nptsbar/),double,1e36)
+  yequal = new((/ncurves,5*nptsbar/),double,1e36)
 ;
-; Make yref_line a 1D double array of length ncurves.
+; Arrays to hold number of points in each set of greater/less points,
+; and the index values where points fall greater, less, and equal
+; to the Y ref value.
 ;
-  yref_lines = new(ncurves,double)
-  yref_lines = yref_line
+  ngrtr    = new(ncurves,integer)
+  nless    = new(ncurves,integer)
+  nequal   = new(ncurves,integer)
+  indgrtr  = new((/ncurves,nptsbar/),integer)
+  indless  = new((/ncurves,nptsbar/),integer)
+  indequal = new((/ncurves,nptsbar/),integer)
+
+;--Make ref_line a 1D double array of length ncurves.
+  ref_lines = conform_dims(ncurves,todouble(ref_line),-1)
 ;
-; Loop across ncurves.
+; Loop across curves and figure out which points are greater than,
+; less than, and equal to the references lines.
 ;
   do i=0,ncurves-1
-;
-; Get the indices where the y curve is above, below, equal to the ref line.
-;
-    ya_ind = ind(ynew(i,:).gt.yref_lines(i))
-    yb_ind = ind(ynew(i,:).lt.yref_lines(i))
-    ye_ind = ind(ynew(i,:).eq.yref_lines(i))
+;---Get the indices where the y curve is greater, less, equal to the ref line.
+    gt_ind := ind(ynew(i,:).gt.ref_lines(i))
+    ls_ind := ind(ynew(i,:).lt.ref_lines(i))
+    eq_ind := ind(ynew(i,:).eq.ref_lines(i))
 ;
 ; Create new array to hold bar charts.  For each old y point, we need
 ; five new y points to represent the closed rectangle.
 ;
-    if(.not.any(ismissing(ya_ind)))
-      nya(i) = 5*dimsizes(ya_ind)              ; # values above ref line
-      iya(i,0:dimsizes(ya_ind)-1) = ya_ind     ; indexes above ref line
-      yabove(i,0:nya(i)-5:5)  = yref_lines(i)
-      yabove(i,1:nya(i)-4:5)  = ynew(i,ya_ind)
-      yabove(i,2:nya(i)-3:5)  = ynew(i,ya_ind)
-      yabove(i,3:nya(i)-2:5)  = yref_lines(i)
-      yabove(i,4:nya(i)-1:5)  = yref_lines(i)
-
-      xabove(i,0:nya(i)-5:5) = xnew(i,ya_ind) - bar_widths(i)/2.
-      xabove(i,1:nya(i)-4:5) = xnew(i,ya_ind) - bar_widths(i)/2.
-      xabove(i,2:nya(i)-3:5) = xnew(i,ya_ind) + bar_widths(i)/2.
-      xabove(i,3:nya(i)-2:5) = xnew(i,ya_ind) + bar_widths(i)/2.
-      xabove(i,4:nya(i)-1:5) = xnew(i,ya_ind) - bar_widths(i)/2.
+    if(.not.any(ismissing(gt_ind)))
+      ngrtr(i) = 5*dimsizes(gt_ind)                ; # values > ref line
+      indgrtr(i,0:dimsizes(gt_ind)-1) = gt_ind     ; indexes > ref line
+      ygrtr(i,0:ngrtr(i)-5:5)  = ref_lines(i)
+      ygrtr(i,1:ngrtr(i)-4:5)  = ynew(i,gt_ind)
+      ygrtr(i,2:ngrtr(i)-3:5)  = ynew(i,gt_ind)
+      ygrtr(i,3:ngrtr(i)-2:5)  = ref_lines(i)
+      ygrtr(i,4:ngrtr(i)-1:5)  = ref_lines(i)
+  
+      xgrtr(i,0:ngrtr(i)-5:5) = xnew(i,gt_ind) - bar_widths(i)/2.
+      xgrtr(i,1:ngrtr(i)-4:5) = xnew(i,gt_ind) - bar_widths(i)/2.
+      xgrtr(i,2:ngrtr(i)-3:5) = xnew(i,gt_ind) + bar_widths(i)/2.
+      xgrtr(i,3:ngrtr(i)-2:5) = xnew(i,gt_ind) + bar_widths(i)/2.
+      xgrtr(i,4:ngrtr(i)-1:5) = xnew(i,gt_ind) - bar_widths(i)/2.
     else
-      nya(i) = 0
+      ngrtr(i) = 0
     end if  
-    if(.not.any(ismissing(yb_ind))) 
-      nyb(i) = 5*dimsizes(yb_ind)              ; # values below ref line
-      iyb(i,0:dimsizes(yb_ind)-1) = yb_ind     ; indexes below ref line
-
-      ybelow(i,0:nyb(i)-5:5) = yref_lines(i)
-      ybelow(i,1:nyb(i)-4:5) = ynew(i,yb_ind)
-      ybelow(i,2:nyb(i)-3:5) = ynew(i,yb_ind)
-      ybelow(i,3:nyb(i)-2:5) = yref_lines(i)
-      ybelow(i,4:nyb(i)-1:5) = yref_lines(i)
-
-      xbelow(i,0:nyb(i)-5:5) = xnew(i,yb_ind) - bar_widths(i)/2.
-      xbelow(i,1:nyb(i)-4:5) = xnew(i,yb_ind) - bar_widths(i)/2.
-      xbelow(i,2:nyb(i)-3:5) = xnew(i,yb_ind) + bar_widths(i)/2.
-      xbelow(i,3:nyb(i)-2:5) = xnew(i,yb_ind) + bar_widths(i)/2.
-      xbelow(i,4:nyb(i)-1:5) = xnew(i,yb_ind) - bar_widths(i)/2.
+    if(.not.any(ismissing(ls_ind))) 
+      nless(i) = 5*dimsizes(ls_ind)                ; # values < ref line
+      indless(i,0:dimsizes(ls_ind)-1) = ls_ind     ; indexes < ref line
+      yless(i,0:nless(i)-5:5) = ref_lines(i)
+      yless(i,1:nless(i)-4:5) = ynew(i,ls_ind)
+      yless(i,2:nless(i)-3:5) = ynew(i,ls_ind)
+      yless(i,3:nless(i)-2:5) = ref_lines(i)
+      yless(i,4:nless(i)-1:5) = ref_lines(i)
+  
+      xless(i,0:nless(i)-5:5) = xnew(i,ls_ind) - bar_widths(i)/2.
+      xless(i,1:nless(i)-4:5) = xnew(i,ls_ind) - bar_widths(i)/2.
+      xless(i,2:nless(i)-3:5) = xnew(i,ls_ind) + bar_widths(i)/2.
+      xless(i,3:nless(i)-2:5) = xnew(i,ls_ind) + bar_widths(i)/2.
+      xless(i,4:nless(i)-1:5) = xnew(i,ls_ind) - bar_widths(i)/2.
     else
-      nyb(i) = 0
+      nless(i) = 0
     end if  
-    if(.not.any(ismissing(ye_ind))) 
-      nye(i) = 5*dimsizes(ye_ind)              ; # values equal ref line
-      iye(i,0:dimsizes(ye_ind)-1) = ye_ind     ; indexes equal ref line
-
-      yequal(i,0:nye(i)-1:5) = yref_lines(i)
-
-      xequal(i,0:nye(i)-5:5) = xnew(i,ye_ind) - bar_widths(i)/2.
-      xequal(i,1:nye(i)-4:5) = xnew(i,ye_ind) - bar_widths(i)/2.
-      xequal(i,2:nye(i)-3:5) = xnew(i,ye_ind) + bar_widths(i)/2.
-      xequal(i,3:nye(i)-2:5) = xnew(i,ye_ind) + bar_widths(i)/2.
-      xequal(i,4:nye(i)-1:5) = xnew(i,ye_ind) - bar_widths(i)/2.
+    if(.not.any(ismissing(eq_ind))) 
+      nequal(i) = 5*dimsizes(eq_ind)              ; # values equal ref line
+      indequal(i,0:dimsizes(eq_ind)-1) = eq_ind     ; indexes equal ref line
+      yequal(i,0:nequal(i)-1:5) = ref_lines(i)
+      xequal(i,0:nequal(i)-5:5) = xnew(i,eq_ind) - bar_widths(i)/2.
+      xequal(i,1:nequal(i)-4:5) = xnew(i,eq_ind) - bar_widths(i)/2.
+      xequal(i,2:nequal(i)-3:5) = xnew(i,eq_ind) + bar_widths(i)/2.
+      xequal(i,3:nequal(i)-2:5) = xnew(i,eq_ind) + bar_widths(i)/2.
+      xequal(i,4:nequal(i)-1:5) = xnew(i,eq_ind) - bar_widths(i)/2.
     else
-      nye(i) = 0
+      nequal(i) = 0
     end if  
-    delete(ya_ind)
-    delete(yb_ind)
-    delete(ye_ind)
   end do
 
-  delete(xnew)
-  delete(ynew)  
-end
+  delete([/xnew,ynew/])
 
+;
+; Combine the greater/less/equal arrays into one X/Y array so that we can
+; pass to gsn_xy routine. Make the 5th point missing, since the 5th point
+; closes the polygon, and we only want an outline here.
+;
+  ng_max   = max(ngrtr)
+  nl_max   = max(nless)
+  ne_max   = max(nequal)
+  ngle_max = ng_max + nl_max + ne_max
+
+  if(ng_max.le.0.and.nl_max.le.0) then
+    print("filled_bars_interp: Fatal: There are no values less than or greater than the chosen reference line.")
+    print("Cannot draw a bar chart.")
+    xinterp = x
+    yinterp = y
+  else
+    ncurves3 = 3*ncurves
+    xinterp  = new((/ncurves3,ngle_max/),double,xgrtr@_FillValue)
+    yinterp  = new((/ncurves3,ngle_max/),double,ygrtr@_FillValue)
+
+    if(type_ref.eq."y") then
+      copy_var_atts(xb,xinterp,"")
+      copy_var_atts(yb,yinterp,"")
+    else
+      copy_var_atts(xb,yinterp,"")    ; remember we have to swap them if dealing
+      copy_var_atts(yb,yinterp,"")    ; with the x reference line case
+    end if
+    if(ng_max.gt.0)
+      xinterp(0:ncurves3-1:3,0:ng_max-1)   = xgrtr(:,0:ng_max-1)
+      yinterp(0:ncurves3-1:3,0:ng_max-1)   = ygrtr(:,0:ng_max-1)
+      yinterp(0:ncurves3-1:3,4:ng_max-1:5) = yinterp@_FillValue
+    end if
+    if(nl_max.gt.0)
+      xinterp(1:ncurves3-1:3,0:nl_max-1)   = xless(:,0:nl_max-1)
+      yinterp(1:ncurves3-1:3,0:nl_max-1)   = yless(:,0:nl_max-1)
+      yinterp(1:ncurves3-1:3,4:nl_max-1:5) = yinterp@_FillValue
+    end if
+    if(ne_max.gt.0)
+      xinterp(2:ncurves3-1:3,0:ne_max-1)   = xequal(:,0:ne_max-1)
+      yinterp(2:ncurves3-1:3,0:ne_max-1)   = yequal(:,0:ne_max-1)
+      yinterp(2:ncurves3-1:3,4:ne_max-1:5) = yinterp@_FillValue
+    end if
+  end if
+;
+; Here's where we switch the X and Y values back
+; for the type_ref="x" case.
+;
+  if(type_ref.eq."y") then
+    return([/xinterp,yinterp,xgrtr,ygrtr,xless,yless,ngrtr,nless,\
+             indgrtr,indless/])  
+  else
+    return([/yinterp,xinterp,ygrtr,xgrtr,yless,xless,ngrtr,nless,\
+             indgrtr,indless/])  
+  end if
+end
 
 ;***********************************************************************;
 ; Function : find_cross_xy                                              ;
@@ -794,15 +1064,9 @@ begin
       delete(res@gsnRightString)
     end if
   end if
-  if(isatt(res,"gsnStringFontHeightF")) then
-    delete(res@gsnStringFontHeightF)
-  end if
-  if(isatt(res,"gsnStringFuncCode")) then
-    delete(res@gsnStringFuncCode)
-  end if
-  if(isatt(res,"gsnStringFontColor")) then
-    delete(res@gsnStringFontColor)
-  end if
+  delete_attr(res,"gsnStringFontHeightF")
+  delete_attr(res,"gsnStringFuncCode")
+  delete_attr(res,"gsnStringFontColor")
   return
 end
 
@@ -910,7 +1174,7 @@ end
 ;                                                                       ;
 ; Checks for a valid lon2d or lat2d attribute. This special attribute is;
 ; used by the gsn_csm* scripts for cases where the data is represented  ;
-; by 2D  lat/lon arrays, instead of 1D coordinate arrays.               ;
+; by 2D lat/lon arrays, instead of 1D coordinate arrays.                ;
 ;                                                                       ;
 ; The lat2d/lon2d arrays can be one element larger in both dimensions.  ;
 ; This can mean that we are dealing with cell boundaries instead of cell;
@@ -926,12 +1190,45 @@ begin
     if(all(ldims.eq.data_dims).or.all(ldims.eq.(data_dims+1))) then
       return(True)
     else
-      print("is_valid_latlon2d_attr: Warning: The '" + lstring + "' attribute must either be the same dimension sizes as the data, or one element larger in both directions.  Your data will most likely not be overlaid on the map correctly.")
+      print("is_valid_latlon2d_attr: Warning: The '" + lstring + \
+            "' attribute must either be")
+       print("the same dimension sizes as the data, or one element larger in both directions.")
+       print("Your data will most likely not be overlaid on the map correctly.")
     end if
   end if
   return(False)
 end 
 
+
+;***********************************************************************;
+; Function : is_valid_latlon1d_attr                                     ;
+;                                                                       ;
+; Checks for a valid lon1d or lat1d attribute. This special attribute is;
+; used by the gsn_csm* scripts for cases where the data is represented  ;
+; by 1D lat/lon arrays of the same length as the 1D data array.         ;
+;                                                                       ;
+; This was added in NCL V6.4.0. I'm not sure I like it, so it may stay  ;
+; unadvertised for a bit.                                               ;
+;***********************************************************************;
+undef("is_valid_latlon1d_attr")
+function is_valid_latlon1d_attr(data:numeric,lstring:string)
+local ldims, lrank, data_dims, data_rank
+begin
+  if(isatt(data,lstring)) then
+    ldims     = dimsizes(data@$lstring$)
+    data_dims = dimsizes(data)
+    lrank     = dimsizes(ldims)
+    data_rank = dimsizes(data_dims)
+    if(lrank.eq.1.and.data_rank.eq.1.and.all(ldims.eq.data_dims)) then
+      return(True)
+    else
+      print("is_valid_latlon1d_attr: Warning: The '" + lstring + \
+            "' attribute must be 1D and same length as the data")
+      print("Your data will most likely not be overlaid on the map correctly.")
+    end if
+  end if
+  return(False)
+end 
 
 ;***********************************************************************;
 ; Function : is_tm_obj_valid                                            ;
@@ -953,7 +1250,7 @@ begin
   getvalues pobj
     "trGridType" : tr_grid_type
   end getvalues
-  if(any(tr_grid_type.eq.(/3,4/))) then
+  if(any(tr_grid_type.eq.get_enum_value((/"Curvilinear","Spherical"/)))) then
     return(False)
   else
     return(True)
@@ -996,8 +1293,7 @@ begin
 ; If the axis tickmarks are being labeled explicitly by the user, 
 ; then don't put a label on that axis.
 ;
-  if(check_attr(res,mode_res,"Explicit",True).or. \
-     check_attr(res,mode_res,2,True)) then
+  if(check_attr_enum_value(res,mode_res,"Explicit")) then
     set_attr(tires,axis_res,"")
   else
     if(.not.is_xyplot) then
@@ -1078,20 +1374,16 @@ end
 ; resources to these values. These 2D coords only work if you plan to   ;
 ; overlay the vectors/contours on a map, however.                       ;
 ;                                                                       ;
+; In NCL V6.4.0, we added recognition of the special "lat1d"/"lon1d"    ;
+; attributes which behave similarly to lat2d/lon2d, except it's an      ;
+; indicator that we have 1D arrays of x,y,z data. These special attrs   ;
+; only work for contouring, and not vectors or streamlines.             ;
 ;***********************************************************************;
 undef("check_for_coord_arrays")
 procedure check_for_coord_arrays(data:numeric,res:logical,type:string)
 local prefix, xstart_name, xend_name, ystart_name, yend_name, \
 xarray_name, yarray_name, valid_2dcoord_types
-
 begin 
-;
-; If the data is 1D, no coord arrays should exist.
-;
-  if(dimsizes(dimsizes(data)).eq.1) then
-     return
-  end if
-
   if(type.eq."vector".or.type.eq."vector_map")
     prefix = "vf"
   else
@@ -1106,16 +1398,19 @@ begin
   yend_name   = prefix + "YCEndV"
   
 ;
-; I originally thought that Only plots over maps could have
+; I originally thought that only plots over maps could have
 ; 2D lat/lon coordinates, but I don't believe this is the case.
 ; So, I've commented out the valid_2dcoord_types stuff.
 ;
 ;  valid_2dcoord_types = (/"contour_map","vector_map"/)
 ;
-; First check if a valid "lon2d" attribute is set and whether we are 
-; drawing over a map. If both conditions are not met, then
-; check for a regular coordinate array.  One of these will be used for 
-; sf/vf/XArray.
+; We check for the following, in this order:
+;
+;   - special lat2d/lon2d attributes
+;   - special lat1d/lon1d attributes (contouring only)
+;   - coordinate arrays
+;
+; and then set vf/sfX/YArray accordingly.
 ;
   if(.not.((isatt(res,xstart_name).and.isatt(res,xend_name)).or.\
             isatt(res,xarray_name))) then
@@ -1123,28 +1418,27 @@ begin
 ;       is_valid_latlon2d_attr(data,"lon2d")) then
     if(is_valid_latlon2d_attr(data,"lon2d")) then
       res@$xarray_name$ = data@lon2d
-    else 
-      if(is_valid_coord(data,"x")) then
-        res@$xarray_name$ = data&$data!1$
-      end if
+    else if(prefix.eq."sf".and.is_valid_latlon1d_attr(data,"lon1d")) then
+      res@$xarray_name$ = data@lon1d
+    else if(is_valid_coord(data,"x")) then
+      res@$xarray_name$ = data&$data!1$
+    end if
+    end if
     end if
   end if
 
-;
-; First check if a valid "lat2d" attribute is set. If not set, then
-; check for a regular coordinate array.  One of these will be used for 
-; sf/vf/YArray.
-;
   if(.not.((isatt(res,ystart_name).and.isatt(res,yend_name)).or.\
             isatt(res,yarray_name))) then
 ;    if(any(type.eq.valid_2dcoord_types).and. \
 ;       is_valid_latlon2d_attr(data,"lat2d")) then
     if(is_valid_latlon2d_attr(data,"lat2d")) then
       res@$yarray_name$ = data@lat2d
-    else
-      if(is_valid_coord(data,"y")) then
-        res@$yarray_name$ = data&$data!0$
-     end if
+    else if(prefix.eq."sf".and.is_valid_latlon1d_attr(data,"lat1d")) then
+      res@$yarray_name$ = data@lat1d
+    else if(is_valid_coord(data,"y")) then
+      res@$yarray_name$ = data&$data!0$
+    end if
+    end if
     end if
   end if
 
@@ -1500,15 +1794,8 @@ end
 undef("check_for_y_lat_coord")
 procedure check_for_y_lat_coord(data:numeric,res:logical,type:string)
 local latname, char_latname, array_name, start_name, end_name, \
-valid_2dcoord_types
+valid_2dcoord_types, prefix
 begin 
-;
-; If the data is 1D, no coord arrays should exist.
-;
-  if(dimsizes(dimsizes(data)).eq.1) then
-     return
-  end if
-
 ;
 ;
 ; If tfDoNDCOverlay is set to True, then coordinate arrays shouldn't be
@@ -1524,14 +1811,13 @@ begin
 ; Determine what kind of plot we need to set the data field resources for.
 ; 
   if(type.eq."vector".or.type.eq."vector_map")
-    array_name = "vfYArray"
-    start_name = "vfYCStartV"
-    end_name   = "vfYCEndV"
+    prefix = "vf"
   else
-    array_name = "sfYArray"
-    start_name = "sfYCStartV"
-    end_name   = "sfYCEndV"
+    prefix = "sf"
   end if
+  array_name = prefix + "YArray"
+  start_name = prefix + "YCStartV"
+  end_name   = prefix + "YCEndV"
 
 ;
 ; I originally thought that Only plots over maps could have
@@ -1542,7 +1828,7 @@ begin
 ;
 ; Make sure user is not already setting own *Start* and *End*
 ; or *Array resources. Then check if a valid "lat2d" attribute
-; is set or if a valid coordinate array is set.
+; or "lat2d" attribute set or if a valid coordinate array exists.
 ;
   if(.not.((isatt(res,start_name).and.isatt(res,end_name)).or.\
             isatt(res,array_name))) then
@@ -1550,16 +1836,18 @@ begin
 ;       is_valid_latlon2d_attr(data,"lat2d")) then
     if(is_valid_latlon2d_attr(data,"lat2d")) then
       res@$array_name$ = data@lat2d
-      return
-    else 
-      if(is_valid_latlon_coord(data,"y","lat",res))
-        res@$array_name$ = data&$data!0$
-        return
-      else
-        print("check_for_y_lat_coord: Warning: Data either does not contain a valid latitude coordinate array or doesn't contain one at all.")
-        print("A valid latitude coordinate array should have a 'units' attribute equal to one of the following values: ")
-        print("    " + cat_strings(get_allowed_lat_units))
-      end if
+    else if(prefix.eq."sf".and.is_valid_latlon1d_attr(data,"lat1d")) then
+      res@$array_name$ = data@lat1d
+    else if(is_valid_latlon_coord(data,"y","lat",res))
+      res@$array_name$ = data&$data!0$
+    else
+      print("check_for_y_lat_coord: Warning: Data either does not contain")
+      print("a valid latitude coordinate array or doesn't contain one at all.")
+      print("A valid latitude coordinate array should have a 'units'")
+      print("attribute equal to one of the following values: ")
+      print("    " + cat_strings(get_allowed_lat_units))
+    end if
+    end if
     end if
   end if 
 
@@ -1582,15 +1870,8 @@ end
 undef("check_for_x_lat_coord")
 procedure check_for_x_lat_coord(data:numeric,res:logical,type:string)
 local latname, char_latname, array_name, start_name, end_name, \
-valid_2dcoord_types
+valid_2dcoord_types, prefx
 begin 
-;
-; If the data is 1D, no coord arrays should exist.
-;
-  if(dimsizes(dimsizes(data)).eq.1) then
-     return
-  end if
-
 ;
 ; If tfDoNDCOverlay is set to True, then coordinate arrays shouldn't be
 ; used in the first place.  It is up to the user to do the right thing
@@ -1605,14 +1886,13 @@ begin
 ; Determine what kind of plot we need to set the data field resources for.
 ; 
   if(type.eq."vector".or.type.eq."vector_map")
-    array_name = "vfXArray"
-    start_name = "vfXCStartV"
-    end_name   = "vfXCEndV"
+    prefix = "vf"
   else
-    array_name = "sfXArray"
-    start_name = "sfXCStartV"
-    end_name   = "sfXCEndV"
+    prefix = "sf"
   end if
+  array_name = prefix + "XArray"
+  start_name = prefix + "XCStartV"
+  end_name   = prefix + "XCEndV"
 
 ;
 ; I originally thought that Only plots over maps could have
@@ -1623,8 +1903,8 @@ begin
 
 ;
 ; Make sure user is not already setting own *Start* and *End*
-; or *Array resources. Then check if a valid "lat2d" attribute
-; is set or if a valid coordinate array is set.
+; or *Array resources. Then check if a valid "lat2d" or
+; "lat1d" attributes are set, or if a valid coordinate array exists.
 ;
   if(.not.((isatt(res,start_name).and.isatt(res,end_name)).or. \
             isatt(res,array_name))) then
@@ -1632,16 +1912,18 @@ begin
 ;       is_valid_latlon2d_attr(data,"lat2d")) then
     if(is_valid_latlon2d_attr(data,"lat2d")) then
       res@$array_name$ = data@lat2d
-      return
-    else 
-      if(is_valid_latlon_coord(data,"x","lat",res))
-        res@$array_name$ = data&$data!1$
-        return
-      else
-        print("check_for_x_lat_coord: Warning: Data either does not contain a valid latitude coordinate array or doesn't contain one at all.")
-        print("A valid latitude coordinate array should have a 'units' attribute equal to one of the following values: ")
-        print("    " + cat_strings(get_allowed_lat_units))
-      end if
+    else if(prefix.eq."sf".and.is_valid_latlon1d_attr(data,"lat1d")) then
+      res@$array_name$ = data@lat1d
+    else if(is_valid_latlon_coord(data,"x","lat",res))
+      res@$array_name$ = data&$data!1$
+    else
+      print("check_for_x_lat_coord: Warning: Data either does not contain")
+      print("a valid latitude coordinate array or doesn't contain one at all.")
+      print("A valid latitude coordinate array should have a 'units'")
+      print("attribute equal to one of the following values: ")
+      print("    " + cat_strings(get_allowed_lat_units))
+    end if
+    end if
     end if
   end if
 
@@ -1667,13 +1949,6 @@ local lonname, char_lonname, array_name, start_name, end_name, \
 valid_2dcoord_types
 begin 
 ;
-; If the data is 1D, no coord arrays should exist.
-;
-  if(dimsizes(dimsizes(data)).eq.1) then
-     return
-  end if
-
-;
 ; If tfDoNDCOverlay is set to True, then coordinate arrays shouldn't be
 ; used in the first place.  It is up to the user to do the right thing
 ; and *not* set coordinate arrays.  Here, we check for the setting
@@ -1688,14 +1963,13 @@ begin
 ; Determine what kind of plot we need to set the data field resources for.
 ; 
   if(type.eq."vector".or.type.eq."vector_map")
-    array_name = "vfXArray"
-    start_name = "vfXCStartV"
-    end_name   = "vfXCEndV"
+    prefix = "vf"
   else
-    array_name = "sfXArray"
-    start_name = "sfXCStartV"
-    end_name   = "sfXCEndV"
+    prefix = "sf"
   end if
+  array_name = prefix + "XArray"
+  start_name = prefix + "XCStartV"
+  end_name   = prefix + "XCEndV"
 
 ;
 ; I originally thought that Only plots over maps could have
@@ -1715,16 +1989,18 @@ begin
 ;       is_valid_latlon2d_attr(data,"lon2d")) then
     if(is_valid_latlon2d_attr(data,"lon2d")) then
       res@$array_name$ = data@lon2d
-      return
-    else 
-      if(is_valid_latlon_coord(data,"x","lon",res))
-        res@$array_name$ = data&$data!1$
-        return
-      else
-        print("check_for_lon_coord: Warning: Data either does not contain a valid longitude coordinate array or doesn't contain one at all.")
-        print("A valid longitude coordinate array should have a 'units' attribute equal to one of the following values: ")
-        print("    " + cat_strings(get_allowed_lon_units))
-      end if
+    else if(prefix.eq."sf".and.is_valid_latlon1d_attr(data,"lon1d")) then
+      res@$array_name$ = data@lon1d
+    else if(is_valid_latlon_coord(data,"x","lon",res))
+      res@$array_name$ = data&$data!1$
+    else
+      print("check_for_lon_coord: Warning: Data either does not contain")
+      print("a valid longitude coordinate array or doesn't contain one at all.")
+      print("A valid longitude coordinate array should have a 'units'")
+      print("attribute equal to one of the following values: ")
+      print("    " + cat_strings(get_allowed_lon_units))
+    end if
+    end if
     end if 
   end if
 
@@ -1917,12 +2193,8 @@ begin
 ; Remove the text font height and txString, so they don't get
 ; applied at the end.
 ;
-  if(isatt(txres,"txFontHeightF")) then
-    delete(txres@txFontHeightF)
-  end if
-  if(isatt(txres,"txString")) then
-    delete(txres@txString)
-  end if
+  delete_attr(txres,"txFontHeightF")
+  delete_attr(txres,"txString")
 
   ablank = stringtocharacter(" ")
   do i=0,2
@@ -1979,8 +2251,7 @@ begin
   set_attr(r,"lbPerimOn",False)
   set_attr(r,"lbLabelJust","CenterCenter")
   set_attr(r,"lbAutoManage",False)
-  if(check_attr(r,"lbOrientation","vertical",True).or.\
-     check_attr(r,"lbOrientation",1,True)) then
+  if(check_attr_enum_value(r,"lbOrientation","vertical"))
     set_attr(r,"pmLabelBarSide","right")
   else
     set_attr(r,"pmLabelBarSide","bottom")
@@ -1988,10 +2259,10 @@ begin
   end if
   if(type.eq."polar")
     set_attr(r,"pmLabelBarOrthogonalPosF",0.05)
-  else if(type.eq."ce".and.\
-          .not.(check_attr(r,"pmTickMarkDisplayMode","Always",True).or.\
-                check_attr(r,"pmTickMarkDisplayMode",2,False).or.\
-                check_attr(r,"pmTickMarkDisplayMode",3,False))) then
+  else if(type.eq."ce".and..not.\
+          (check_attr_enum_value(r,"pmTickMarkDisplayMode","Always").or.\
+           check_attr_enum_value(r,"pmTickMarkDisplayMode","Conditional").or.\
+           check_attr_enum_value(r,"pmTickMarkDisplayMode","ForceAlways"))) then
     set_attr(r,"pmLabelBarOrthogonalPosF",0.08)
   end if
   end if
@@ -2004,74 +2275,73 @@ end
 ;               zone: integer                                           ;
 ;        font_height: numeric                                           ;
 ;               type: string                                            ;
+;           lbar_on : logical                                           ;
 ;                res: logical                                           ;
 ;                                                                       ;
-; This procedure adds a labelbar to "plot" (which must be either a      ;
+; This procedure attaches a labelbar to "plot" (which must be either a  ;
 ; contour or vector plot). The default is to add the labelbar to the    ;
 ; bottom of the plot, unless resources are set to change this. The zone ;
 ; must be passed in, as well as the font height for the labelbar labels.;
 ; "type" is the type of plot ("ce", "polar", and so on) so the labelbar ;
 ; can be positioned differently depending on the plot.                  ;
 ;                                                                       ;
-; Eventually we want to move to using the PlotManager labelbar. This is ;
-; what the global GSN_OLD_LABELBAR variable is for. If it's set to True,;
-; then the PlotManager labelbar is *not* used, and instead, a custom    ;
-; one via this routine, is created.                                     ;
+; Eventually we want to deprecate this procedure and use the PlotManager;
+; labelbar. This is what the global GSN_OLD_LABELBAR variable is for.   ;
+; If set to True, then the PlotManager labelbar is *not* used, and a    ;
+; a custom labelbar via this routine, is created.                       ;
+;
+; In V6.4.0 we changed this code to create the lablebar, but only add   ;
+; it as an annotation if lbar_on is True.                               ;
 ;***********************************************************************;
 undef("add_labelbar")
 procedure add_labelbar(wks:graphic,plot,zone:integer, \
-                       font_height:numeric,type:string,res:logical)
+                       font_height:numeric,type:string,\
+                       lbar_on,res:logical)
 local anno, num_res, amres, lbres, labelbar_object, lbar_orient, \
 lbar_side, lbar_just, fill_patterns, fill_scales, mono_fill_pat, \
-mono_fill_scl, mono_fill_col, levels
+mono_fill_scl, mono_fill_col, levels, class_name, the_plot, anno_off
 begin
-;
-; If lbLabelBarOn is set to False, then don't bother with a labelbar.
-;
-  if(check_attr(res,"lbLabelBarOn",False,False))
-    return
-  end if
-
   lbres = True   ; hold labelbar resources
   amres = True   ; hold annomanager resources 
 
   parallel = get_res_value(res,"pmLabelBarParallelPosF",0.5)
 
-; Check for annotation/labelbar resources
-
+;---Check for annotation/labelbar resources
   lbres = get_res_eq(res,(/"lb","vp"/))
   amres = get_res_eq(res,"am")
 
+;---Set some defaults, which may be overridden later.
   set_attr(amres,"amZone",zone)
   set_attr(amres,"amResizeNotify",True)
   set_attr(amres,"amParallelPosF",parallel)
   set_attr(lbres,"lbLabelFontHeightF",font_height)
+  set_attr(lbres,"lbBoxEndCapStyle",get_enum_value("RectangleEnds"))
 
-; Default is horizontal at the bottom.
-
-  lbar_orient = "horizontal"
-  lbar_side   = "bottom"
-  lbar_just   = "bottomcenter"
-
-  if(check_attr(lbres,"lbOrientation","vertical",True).or.\
-     check_attr(lbres,"lbOrientation",1,True)) then
+;---The default is to attach a horizontal labelbar at the bottom of the plot.
+  if(check_attr_enum_value(lbres,"lbOrientation","vertical")) then
     lbar_orient = "vertical"
     lbar_side   = "right"
     lbar_just   = "centerright"
+  else
+    lbar_orient = "horizontal"
+    lbar_side   = "bottom"
+    lbar_just   = "bottomcenter"
   end if
 
   set_attr(lbres,"lbOrientation",lbar_orient)
   set_attr(amres,"amSide",lbar_side)
   set_attr(amres,"amJust",lbar_just)
-
 ; 
-; Determine what the default labelbar width and height should be depending
-; on shape of plot (this is for a horizontal labelbar).  For example, if
-; the plot is square, then make the labelbar the same width as the plot.
-; If the plot is 1:2, then make the labelbar .75 * width of the plot.
+; Calculate the labelbar width and height, based on the plot type and
+; shape. Also calculate how far to move the labelbar from the plot.
 ;
-; For a vertical labelbar, make the height the same as the height of the
-; plot.
+; Here are some examples on how the width/height are determined.
+;
+;  - Square plot: make the labelbar the same width as the plot.
+;  - Plot w/aspect ratio of 1-to-2: make the labelbar 3/4 the width of
+;    the plot.
+;  - Plot w/vertical labelbar: make the height the same as the height 
+;    of the plot.
 ;
   getvalues plot
     "vpWidthF"  : width    ; Width of plot
@@ -2087,7 +2357,6 @@ begin
   wh_ind    = ind(ratio.le.ratios)
   def_lvpwf = lwscale(wh_ind(0))    ; default width scale for labelbar
 
-  amres = get_res_eq(res,"am")
   if(lbar_orient.eq."vertical") then
     if(type.eq."polar")
       orth = get_res_value(res,"pmLabelBarOrthogonalPosF",0.05)
@@ -2113,7 +2382,13 @@ begin
   set_attr(lbres,"vpWidthF",width)
   set_attr(amres,"amOrthogonalPosF",orth)
 
+;
+; If we have a contour plot, then there are a bunch of contour
+; resources that we have to retrieve in order to reconstruct the 
+; labelbar.
+; 
   class_name = NhlClassName(plot)
+
   if(class_name.eq."logLinPlotClass".or.class_name.eq."irregularPlotClass")
     the_plot = plot@contour
   else
@@ -2125,6 +2400,7 @@ begin
       "cnLevels"              : levels
       "cnFillDotSizeF"        : dot_size
       "cnFillColors"          : tmp_colors
+      "cnFillOpacityF"        : fill_opacity
       "cnFillPatterns"        : tmp_fill_patterns
       "cnFillPattern"         : fill_pattern
       "cnFillScales"          : tmp_fill_scales
@@ -2138,27 +2414,38 @@ begin
       "lbLabelStrings"        : lbstrings
     end getvalues
 ;
+; This next section is a bit of a nightmare.
+;
+; It's an attempt to handle various combinations of lbBoxEndCapStyle, 
+; cnLabelBarEndStyle, cnLabelBarEndLabelsOn, vcLabelBarEndLabelsOn,
+; and stLabelBarEndLabelsOn.
+;
+; To make things more complicated, cnLabelBarEndLabelsOn is deprecated
+; and replaced with cnLabelBarEndStyle, but we still have to deal with
+; it. On top of that, vcLabelBarEndLabelsOn and stLabelBarEndLabelsOn
+; are NOT deprecated, because we don't have vcLabelBarEndStyle or 
+; stLabelBarEndStyle resources.
+;
+; lbBoxEndCapStyle was added in V6.4.0 and allows you to add triangle
+; ends for the labelbar. 
+;
 ; cnLabelBarEndLabelsOn was deprecated in V5.0, but we still need to
 ; check for it. It's been replaced by cnLabelBarEndStyle.
 ;
-; The three styles are:
+; If the end label style is IncludeOuterBoxes *and* 
+; xxLabelBarEndLabelsOn is True, then set the style to 
+; IncludeMinMaxLabels. Conversely, if the style is IncludeMinMaxLabels 
+; or ExcludeOuterBoxes, then xxLabelBarEndLabelsOn should be set True.
 ;
-; 0 - IncludeOuterBoxes  (default)
-; 1 - IncludeMinMaxLabels (the equivalent of cnLabelBarEndLabelsOn=True)
-; 2 - ExcludeOuterBoxes
-; 
-; If the style is 0 (the default) *and* xxLabelBarEndLabelsOn is
-; True, then set the style to 1. If the style is 1 or 2 (the only
-; other valid values), then xxLabelBarEndLabelsOn should be set True.
-;
-    if(end_labelbar_style.eq.0) then
+    cap_style = lbres@lbBoxEndCapStyle
+    if(end_labelbar_style.eq.get_enum_value("IncludeOuterBoxes")) then
       if(end_labels_on) then
-        end_labelbar_style = 1
+        end_labelbar_style = get_enum_value("IncludeMinMaxLabels")
       end if
     else
       end_labels_on = True
     end if
-    if(end_labelbar_style.eq.2) then
+    if(end_labelbar_style.eq.get_enum_value("ExcludeOuterBoxes")) then
 ; Don't use the first fill color, scale, or pattern.
       nc2 = dimsizes(tmp_colors)
       end_labels_on = True
@@ -2170,21 +2457,20 @@ begin
       fill_scales   = tmp_fill_scales
       fill_patterns = tmp_fill_patterns
     end if
-    delete(tmp_colors)
-    delete(tmp_fill_scales)
-    delete(tmp_fill_patterns)
+    delete([/tmp_colors,tmp_fill_scales,tmp_fill_patterns/])
 ;
 ; Check if the fill mode is "RasterFill". If so, be sure to 
 ; set lbRasterFillOn to True
 ;
-    if(.not.isatt(lbres,"lbRasterFillOn").and.fill_mode.eq.1)
+    if(.not.isatt(lbres,"lbRasterFillOn").and.fill_mode.eq.get_enum_value("RasterFill"))
       lbres@lbRasterFillOn = True
     end if
 ;
 ; Check if we want different fill patterns or fill scales.  If so, we
 ; have to pass these on to the labelbar.
 ;
-    lbres@lbMonoFillColor = mono_fill_col
+    lbres@lbMonoFillColor  = mono_fill_col
+    lbres@lbBoxEndCapStyle = cap_style
     if(.not.mono_fill_pat)
       lbres@lbMonoFillPattern = False
       lbres@lbFillPatterns    = fill_patterns
@@ -2199,6 +2485,7 @@ begin
     else
       lbres@lbFillScaleF    = fill_scale
     end if
+    lbres@lbFillOpacityF = fill_opacity     ; Added in NCL V6.4.0
   else if(class_name.eq."vectorPlotClass") then
     getvalues the_plot
       "vcLevels"              : levels
@@ -2223,45 +2510,51 @@ begin
 ;
   if(.not.isvar("end_labelbar_style")) then
     if(end_labels_on) then
-      end_labelbar_style = 1
+      end_labelbar_style = get_enum_value("IncludeMinMaxLabels")
     else
-      end_labelbar_style = 0
+      end_labelbar_style = get_enum_value("IncludeOuterBoxes")
     end if
   end if
 ;
-; If user set cn/vcLabelBarEndLabelsOn to True or the LabelBarStyle
-; resource to 1, then we need to add min/max labels. Use lbstrings (rather
-; than actual min/max of data) because the labels will already be 
-; formatted correctly.
+; Now we have to figure out what labels to use for the labelbar.
 ;
-  nlev = dimsizes(levels)
-  if(end_labels_on.and.end_labelbar_style.eq.1.and. \
-      (lbstrings(0).eq."".or.lbstrings(nlev+1).eq."")) then
-    print("Warning:add_labelbar: invalid end labels, turning them off.")
-    end_labels_on = False
-  end if
+; If user set cn/st/vcLabelBarEndLabelsOn to True or the LabelBarStyle
+; resource to IncludeMinMaxLabels, then we need to add min/max 
+; labels, if the user hasn't done so (by setting lbLabelStrings). 
+; Use lbLabelStrings rather than actual min/max of data, because the 
+; labels will already be formatted correctly.
+;
+  if(.not.isatt(res,"lbLabelStrings")) then
+    nlev = dimsizes(levels)
+    nlab = dimsizes(lbstrings)
+    if(end_labels_on.and.end_labelbar_style.eq.get_enum_value("IncludeMinMaxLabels").and. \
+        (lbstrings(0).eq."".or.lbstrings(nlab-1).eq."")) then
+      print("Warning: add_labelbar: invalid end labels, turning them off.")
+      end_labels_on = False
+    end if
+    if(end_labels_on) then
+      if(end_labelbar_style.eq.get_enum_value("IncludeMinMaxLabels")) then
+        lbres@lbLabelStrings = lbstrings
+      end if
+    end if
+  end if  
   if(end_labels_on) then
-    if(end_labelbar_style.eq.1) then
-      newlevels         = new(nlev+2,typeof(levels))
-      newlevels(1:nlev) = levels
-      newlevels(0)      = stringtoxxx(lbstrings(0),typeof(newlevels))
-      newlevels(nlev+1) = stringtoxxx(lbstrings(nlev+1),typeof(newlevels))
-      delete(levels)
-      levels = newlevels
-      delete(newlevels)
-    end if
     set_attr(lbres,"lbLabelAlignment","ExternalEdges")
   end if
 
   levels = fix_zero_contour(levels)
 
   labelbar_object = create_labelbar(wks,dimsizes(colors),colors,levels,lbres)
-
+;
+; Check if the user has requested to turn off the labelbar.
+; We will go ahead and create it, just in case it is needed
+; later (by gsn_panel, for example), but we will turn it off
+; by setting amOn to False.
+;
   anno = NhlAddAnnotation(plot,labelbar_object)
 
+  set_attr(amres,"amOn",lbar_on)
   attsetvalues_check(anno,amres)   ; Set annotation resources.
-
-  delete(levels)
 
   return
 end
@@ -2274,14 +2567,39 @@ end
 ;                                                                       ;
 ; This is for when we decide to start using the PlotManager labelbar    ;
 ; again (GSN_OLD_LABELBAR = False).                                     ;
+;                                                                       ;
+; lbar_on is the setting from lbLabelBarOn. For now, don't do anything  ;
+; if this is False. This may change when/if we decide to use the        ;
+; PlotManager labelbar as the default.                                  ;
 ;***********************************************************************;
 undef("fix_labelbar")
-procedure fix_labelbar(plot:graphic,font_height:numeric,res)
+procedure fix_labelbar(plot:graphic,font_height:numeric,\
+                       lbar_on[1]:logical,res)
 local width, height, the_plot, class_name, ratio1, ratio2, ratio, \
       ratios, lwscale, wh_ind, def_lvpwf, lbar_orient, lbres
 begin
-  if(check_attr(res,"lbOrientation","vertical",True).or.\
-     check_attr(res,"lbOrientation",1,True)) then
+  if(.not.lbar_on) then
+    return
+  end if
+  class_name = NhlClassName(plot)
+  if(class_name.eq."logLinPlotClass".or.class_name.eq."irregularPlotClass") then
+    if(isatt(plot,"contour")) then
+      the_plot = plot@contour
+    else if(isatt(plot,"vector")) then
+      the_plot = plot@vector
+    else if(isatt(plot,"streamline")) then
+      the_plot = plot@streamline
+    else
+      print("Warning: fix_labelbar: invalid plot type, won't try to fix the labelbar.")
+      exit      
+    end if
+    end if
+    end if
+  else
+    the_plot = plot
+  end if
+
+  if(check_attr_enum_value(res,"lbOrientation","vertical")) then
     lbar_orient = "vertical"
   else
     lbar_orient = "horizontal"
@@ -2316,8 +2634,24 @@ begin
     height = get_res_value(res,"pmLabelBarHeightF",0.3*height)
     width  = get_res_value(res,"pmLabelBarWidthF",def_lvpwf*width)
   end if
-
+;
+; Don't understand why you have to set cnExplicitLabelBarLabelsOn to
+; True if lbLabelAlignment and/or lbLabelStrings are set. Can't it
+; detect that one of these resources is set, and turn it on by default?
+;
   lbres = True
+  lbres = get_res_eq(res,"lb")
+  if(res.and.any(isatt(res,(/"lbLabelAlignment","lbLabelStrings"/)))) then
+    if(class_name.eq."contourPlotClass") then
+      lbres@cnExplicitLabelBarLabelsOn = get_res_value_keep(res,"cnExplicitLabelBarLabelsOn",True)
+    else if(class_name.eq."vectorPlotClass") then
+      lbres@vcExplicitLabelBarLabelsOn = get_res_value_keep(res,"vcExplicitLabelBarLabelsOn",True)
+    else if(class_name.eq."streamlinePlotClass") then
+      lbres@stExplicitLabelBarLabelsOn = get_res_value_keep(res,"stExplicitLabelBarLabelsOn",True)
+    end if
+    end if
+    end if
+  end if
   if(.not.res.or..not.isatt(res,"pmLabelBarHeightF"))
     lbres@pmLabelBarHeightF = height
   end if
@@ -2327,13 +2661,6 @@ begin
   if(.not.res.or..not.isatt(res,"lbLabelFontHeightF")) then
     lbres@lbLabelFontHeightF = font_height
     lbres@lbAutoManage       = False
-  end if
-
-  class_name = NhlClassName(plot)
-  if(class_name.eq."logLinPlotClass".or.class_name.eq."irregularPlotClass")
-    the_plot = plot@contour
-  else
-    the_plot = plot
   end if
 
   attsetvalues(the_plot,lbres)
@@ -2442,45 +2769,48 @@ end
 ; Function : fill_xy_ref                                                ;
 ;                    wks: graphic                                       ;
 ;                     xy: graphic                                       ;
+;             reftype[1]: string
 ;                 xin[*]: numeric                                       ;
 ;                 yin[*]: numeric                                       ;
 ;                    ref: numeric                                       ;
-;   ref_line_above_color: integer or string or RGB value                ;
-;   ref_line_below_color: integer or string or RGB value                ;
+;   ref_line_greater_color: integer or string or RGB value              ;
+;   ref_line_less_color:    integer or string or RGB value              ;
 ;                                                                       ;
-; Take a set of X and Y points, and fill the Y points in one color if   ;
-; they are above the ref line, and in another color if they are below   ;
-; the ref line.                                                         ;
+; Given a set of X and Y points, fill the Y (or X) points in one color  ;
+; if they are greater than the Y (X) ref line, and in another color if  ;
+; they are less than the Y (X) ref line.                                ;
 ;***********************************************************************;
 undef("fill_xy_ref")
-function fill_xy_ref(wks:graphic,xy:graphic,xin[*]:numeric,yin[*]:numeric,\
-                     ref:numeric,ref_line_above_color,ref_line_below_color)
-local npts, yabove_gon, ybelow_gon, i, gsresa, gsresb, gsresr, \
-fill_above, fill_below
+function fill_xy_ref(wks:graphic,xy:graphic,reftype[1]:string,\   
+                     xin[*]:numeric,yin[*]:numeric,ref:numeric,\  
+                     ref_line_greater_color,ref_line_less_color)
+local npts, greater_gon, less_gon, i, gsresg, gsresl, gsresr, \
+fill_greater, fill_less, npts, gnumgons, lnumgons
 begin
-
   npts = dimsizes(yin)
 
-  anumgons = 0  ; Count the number of polygons
-  bnumgons = 0
-  if(ref_line_above_color.ne.-1)
-    gsresa             = True
-    gsresa@gsFillColor = ref_line_above_color
+  fill_greater = .not.any(ismissing(ref_line_greater_color)).and.\
+                 .not.is_color_transparent(ref_line_greater_color)  
+  fill_less    = .not.any(ismissing(ref_line_less_color)).and.\
+                 .not.is_color_transparent(ref_line_less_color)
+
+  gnumgons = 0  ; Count the number of polygons
+  lnumgons = 0
+  if(fill_greater) then
+    gsresg             = True
+    gsresg@gsFillColor = ref_line_greater_color
 ;
-; First count the number of the above-the-y-reference-line polygons we
+; First count the number of the greater-than-reference-line polygons we
 ; need to create.
 ;
     igon       = 0
     create_gon = False
     do i=0,npts-1
       if(.not.ismissing(yin(i)).and..not.ismissing(xin(i)))
-        if(yin(i).ge.ref)
-          if(igon.eq.0)
-            igon = 1
-          else
-            igon = igon + 1
-          end if
-          if(i.eq.npts-1)      ; On the last point.
+        if((reftype.eq."y".and.yin(i).ge.ref).or.\
+           (reftype.eq."x".and.xin(i).ge.ref)) then
+          igon = igon + 1
+          if(i.eq.(npts-1))      ; On the last point.
             create_gon = True
           end if
         else
@@ -2491,7 +2821,7 @@ begin
       end if   ; not ismissing
       if(create_gon)
         if(igon.gt.1)
-          anumgons = anumgons + 1 
+          gnumgons = gnumgons + 1 
         end if
         igon       = 0
         create_gon = False
@@ -2499,24 +2829,21 @@ begin
     end do
   end if
 
-  if(ref_line_below_color.ne.-1)
-    gsresb             = True
-    gsresb@gsFillColor = ref_line_below_color
+  if(fill_less) then
+    gsresl             = True
+    gsresl@gsFillColor = ref_line_less_color
 ;
-; First count the number of the above-the-y-reference-line polygons we
+; Count the number of the less-than-reference-line polygons we
 ; need to create.
 ;
     igon       = 0
     create_gon = False
     do i=0,npts-1
       if(.not.ismissing(yin(i)).and..not.ismissing(xin(i)))
-        if(yin(i).le.ref)
-          if(igon.eq.0)
-            igon = 1
-          else
-            igon = igon + 1
-          end if
-          if(i.eq.npts-1)      ; On the last point.
+        if((reftype.eq."y".and.yin(i).le.ref).or.\
+           (reftype.eq."x".and.xin(i).le.ref)) then
+          igon = igon + 1
+          if(i.eq.(npts-1))      ; On the last point.
             create_gon = True
           end if
         else
@@ -2527,40 +2854,41 @@ begin
       end if   ; not ismissing
       if(create_gon)
         if(igon.gt.1)
-          bnumgons = bnumgons + 1 
+          lnumgons = lnumgons + 1 
         end if
         igon       = 0
         create_gon = False
       end if
     end do
   end if
-  if(anumgons.gt.0.or.bnumgons.gt.0) then
-    polygons = new(anumgons+bnumgons,graphic) 
+  if(gnumgons.gt.0.or.lnumgons.gt.0) then
+    polygons = new(gnumgons+lnumgons,graphic) 
   else
     polygons = new(1,graphic) 
   end if
 ;
-; Loop through and add above-ref-line polygons.
+; Loop through and add greater-ref-line polygons.
 ;
   ngons = 0
-  if(ref_line_above_color.ne.-1.and.anumgons.gt.0)
+  if(fill_greater.and.gnumgons.gt.0)
     igon       = 0
     create_gon = False
     do i=0,npts-1
       if(.not.ismissing(yin(i)).and..not.ismissing(xin(i)))
-        if(yin(i).ge.ref)
+        if((reftype.eq."y".and.yin(i).ge.ref).or.\
+           (reftype.eq."x".and.xin(i).ge.ref)) then
           if(igon.eq.0)
-            xabove_line = new(npts+2,typeof(xin))
-            yabove_line = new(npts+2,typeof(yin))
-            yabove_line(0) = yin(i)
-            xabove_line(0) = xin(i)
+            xgreater_line = new(npts+2,typeof(xin))
+            ygreater_line = new(npts+2,typeof(yin))
+            ygreater_line(0) = yin(i)
+            xgreater_line(0) = xin(i)
             igon = 1
           else
-            xabove_line(igon) = xin(i) 
-            yabove_line(igon) = yin(i) 
+            xgreater_line(igon) = xin(i) 
+            ygreater_line(igon) = yin(i) 
             igon = igon + 1
           end if
-          if(i.eq.npts-1)      ; On the last point.
+          if(i.eq.(npts-1))      ; On the last point.
             create_gon = True
           end if
         else
@@ -2571,63 +2899,70 @@ begin
       end if   ; not ismissing
       if(create_gon)
         if(igon.gt.1)
-          yabove_gon = new((/igon+3/),typeof(yin))
-          xabove_gon = new((/igon+3/),typeof(xin))
+          ygreater_gon = new((/igon+3/),typeof(yin))
+          xgreater_gon = new((/igon+3/),typeof(xin))
 ; Close up and draw polygon
-          if(yabove_line(0).ne.ref)
-            xabove_gon(0) = xabove_line(0)
-            yabove_gon(0) = ref
-            xabove_gon(1:igon) = xabove_line(0:igon-1)
-            yabove_gon(1:igon) = yabove_line(0:igon-1)
+          if(reftype.eq."y".and.ygreater_line(0).ne.ref) then
+            xgreater_gon(0) = xgreater_line(0)
+            ygreater_gon(0) = ref
+            xgreater_gon(1:igon) = xgreater_line(0:igon-1)
+            ygreater_gon(1:igon) = ygreater_line(0:igon-1)
+            newgon = igon + 1
+          else if(reftype.eq."x".and.xgreater_line(0).ne.ref) then
+            ygreater_gon(0) = ygreater_line(0)
+            xgreater_gon(0) = ref
+            ygreater_gon(1:igon) = ygreater_line(0:igon-1)
+            xgreater_gon(1:igon) = xgreater_line(0:igon-1)
             newgon = igon + 1
           else
-            xabove_gon(0:igon-1) = xabove_line(0:igon-1)
-            yabove_gon(0:igon-1) = yabove_line(0:igon-1)
+            xgreater_gon(0:igon-1) = xgreater_line(0:igon-1)
+            ygreater_gon(0:igon-1) = ygreater_line(0:igon-1)
             newgon = igon
           end if
-          if(yabove_line(igon-1).ne.ref)
-            xabove_gon(newgon) = xabove_line(igon-1)
-            yabove_gon(newgon) = ref
+          end if
+          if(reftype.eq."y".and.ygreater_line(igon-1).ne.ref) then
+            xgreater_gon(newgon) = xgreater_line(igon-1)
+            ygreater_gon(newgon) = ref
+            newgon = newgon + 1
+          else if(reftype.eq."x".and.xgreater_line(igon-1).ne.ref) then
+            ygreater_gon(newgon) = ygreater_line(igon-1)
+            xgreater_gon(newgon) = ref
             newgon = newgon + 1
           end if
+          end if
 
-          polygons(ngons) = gsn_add_polygon(wks,xy,xabove_gon(0:newgon-1),\
-                                            yabove_gon(0:newgon-1),gsresa)
+          polygons(ngons) = gsn_add_polygon(wks,xy,xgreater_gon(0:newgon-1),\
+                                            ygreater_gon(0:newgon-1),gsresg)
           ngons = ngons + 1 
 ; Delete temporary arrays so we can recreate them.
-          delete(xabove_line)
-          delete(yabove_line)
-          delete(xabove_gon)
-          delete(yabove_gon)
+          delete([/xgreater_line,ygreater_line,xgreater_gon,ygreater_gon/])
         end if
         igon       = 0
         create_gon = False
       end if
     end do
   end if
-
-;
-; Loop through and add below-ref-line polygons.
-;
-  if(ref_line_below_color.ne.-1.and.bnumgons.gt.0) then
+;---Loop through and add less-ref-line polygons.
+  if(fill_less.and.lnumgons.gt.0) then
     igon       = 0
     create_gon = False
 
     do i=0,npts-1
       if(.not.ismissing(yin(i)).and..not.ismissing(xin(i)))
-        if(yin(i).le.ref)
+        if((reftype.eq."y".and.yin(i).le.ref).or.\
+           (reftype.eq."x".and.xin(i).le.ref)) then
           if(igon.eq.0)
-            xbelow_line = new(npts+2,typeof(xin))
-            ybelow_line = new(npts+2,typeof(yin))
-            ybelow_line(0) = yin(i)
-            xbelow_line(0) = xin(i)
+            xless_line = new(npts+2,typeof(xin))
+            yless_line = new(npts+2,typeof(yin))
+            yless_line(0) = yin(i)
+            xless_line(0) = xin(i)
             igon = 1
           else
-            xbelow_line(igon) = xin(i) 
-            ybelow_line(igon) = yin(i) 
+            xless_line(igon) = xin(i) 
+            yless_line(igon) = yin(i) 
             igon = igon + 1
           end if
-          if(i.eq.npts-1)      ; On the last point.
+          if(i.eq.(npts-1))      ; On the last point.
             create_gon = True
           end if
         else
@@ -2638,34 +2973,43 @@ begin
       end if   ; not ismissing
       if(create_gon)
         if(igon.gt.1)
-          ybelow_gon = new((/igon+3/),typeof(yin))
-          xbelow_gon = new((/igon+3/),typeof(xin))
+          yless_gon = new((/igon+3/),typeof(yin))
+          xless_gon = new((/igon+3/),typeof(xin))
 ; Close up and draw polygon
-          if(ybelow_line(0).ne.ref)
-            xbelow_gon(0) = xbelow_line(0)
-            ybelow_gon(0) = ref
-            xbelow_gon(1:igon) = xbelow_line(0:igon-1)
-            ybelow_gon(1:igon) = ybelow_line(0:igon-1)
+          if(reftype.eq."y".and.yless_line(0).ne.ref) then
+            xless_gon(0) = xless_line(0)
+            yless_gon(0) = ref
+            xless_gon(1:igon) = xless_line(0:igon-1)
+            yless_gon(1:igon) = yless_line(0:igon-1)
+            newgon = igon + 1
+          else if(reftype.eq."x".and.xless_line(0).ne.ref) then
+            yless_gon(0) = yless_line(0)
+            xless_gon(0) = ref
+            yless_gon(1:igon) = yless_line(0:igon-1)
+            xless_gon(1:igon) = xless_line(0:igon-1)
             newgon = igon + 1
           else
-            xbelow_gon(0:igon-1) = xbelow_line(0:igon-1)
-            ybelow_gon(0:igon-1) = ybelow_line(0:igon-1)
+            xless_gon(0:igon-1) = xless_line(0:igon-1)
+            yless_gon(0:igon-1) = yless_line(0:igon-1)
             newgon = igon
           end if
-          if(ybelow_line(igon-1).ne.ref)
-            xbelow_gon(newgon) = xbelow_line(igon-1)
-            ybelow_gon(newgon) = ref
+          end if
+          if(reftype.eq."y".and.yless_line(igon-1).ne.ref) then
+            xless_gon(newgon) = xless_line(igon-1)
+            yless_gon(newgon) = ref
+            newgon = newgon + 1
+          else if(reftype.eq."x".and.xless_line(igon-1).ne.ref) then
+            yless_gon(newgon) = yless_line(igon-1)
+            xless_gon(newgon) = ref
             newgon = newgon + 1
           end if
+          end if
 
-          polygons(ngons) = gsn_add_polygon(wks,xy,xbelow_gon(0:newgon-1), \
-                                            ybelow_gon(0:newgon-1),gsresb)
+          polygons(ngons) = gsn_add_polygon(wks,xy,xless_gon(0:newgon-1), \
+                                            yless_gon(0:newgon-1),gsresl)
           ngons = ngons + 1 
 ; Delete temporary arrays so we can recreate them.
-          delete(xbelow_line)
-          delete(ybelow_line)
-          delete(xbelow_gon)
-          delete(ybelow_gon)
+          delete([/xless_line,yless_line,xless_gon,yless_gon/])
         end if
         igon       = 0
         create_gon = False
@@ -2673,394 +3017,6 @@ begin
     end do
   end if
   return(polygons)
-end
-
-;***********************************************************************;
-; Function : fill_bw_xy                                                 ;
-;                                                                       ;
-; This function takes "n" Y or X curves, defined on the same set of X   ;
-; or Y points, and fills the area between each adjacent curves with     ;
-; some given color. Depending on options set by the user, the areas     ;
-; between curves can be filled differently if one is greater than       ;
-; another.                                                              ;
-;                                                                       ;
-;***********************************************************************;
-undef("fill_bw_xy")
-function fill_bw_xy(wks,plot,xx:numeric,yy:numeric,res:logical)
-local y1_gt_y2, y1, y2, i, ab, bpt, ept, x, y, color, first, last, \
-dsizes_y, rank_y, ncurves, npts, ppts, ppts2, res2, above_fill_colors, \
-below_fill_colors, gsres, dum, fill_x, xi, yi, rgbArrayA, rgbArrayB, tmp
-begin
-;
-; Determine whether we're filling between Y curves or X curves.
-;
-  ndimsx = dimsizes(xx)
-  ndimsy = dimsizes(yy)
-  rankx  = dimsizes(ndimsx)
-  ranky  = dimsizes(ndimsy)
-
-  if(rankx.eq.1.and.ranky.eq.2) then
-    fill_x = False
-    xi = xx
-    yi = yy
-  else
-    if(rankx.eq.2.and.ranky.eq.1) then
-      fill_x = True
-      xi = yy
-      yi = xx
-    else
-      print("fill_bw_xy: Error: If filling between two curves, one set must be 2D, and the other 1D.")
-      return(plot)
-    end if
-  end if
-
-;---Check length of arrays.
-  dsizes_y = dimsizes(yi)
-  npts     = dimsizes(xi)
-  ncurves  = dsizes_y(0)
-
-  if(dsizes_y(1).ne.npts) then
-    print("fill_bw_xy: Error: The rightmost dimension of both arrays must be the same.")
-    return(plot)
-  end if
-
-  if(ncurves.le.1) then
-    print("fill_bw_xy: Error: The leftmost dimension of input array must be at least 2.")
-    return(plot)
-  end if
-
-  if(any(ismissing(xi)))
-    print("fill_bw_xy: Error: The input array cannot contain any missing values")
-    return(plot)
-  end if
-
-  if(.not.res) then
-    return(plot)     ; No resources set, so just return.
-  end if
-
-  if(.not.isatt(res,"gsnXYFillColors").and. \
-     .not.isatt(res,"gsnXYAboveFillColors").and. \
-     .not.isatt(res,"gsnXYBelowFillColors").and. \
-     .not.isatt(res,"gsnXYRightFillColors").and. \
-     .not.isatt(res,"gsnXYLeftFillColors")) then
-    return(plot)     ; No resources set, so just return.
-  end if
-;
-; Check resources. There are five possible resources:
-;    gsnXYFillColors
-;    gsnXYAboveFillColors
-;    gsnXYBelowFillColors
-;    gsnXYRightFillColors
-;    gsnXYLeftFillColors
-;    gsnXYFillOpacities
-;
-; If the first one is set, it overwrites the others. If
-; none of them are set, then no fill color will be used.
-;
-; To make things a little easier (or harder?): 
-;      above==right and below==left
-;
-  res2 = res       ; Make a copy
-  if(isatt(res2,"gsnXYFillColors")) then
-    above_fill_colors = get_res_value(res2,"gsnXYFillColors",-1)
-    below_fill_colors = above_fill_colors
-    dum               = get_res_value(res2,"gsnXYAboveFillColors",-1)
-    dum               = get_res_value(res2,"gsnXYBelowFillColors",-1)
-    dum               = get_res_value(res2,"gsnXYRightFillColors",-1)
-    dum               = get_res_value(res2,"gsnXYLeftFillColors",-1)
-  else
-    if(fill_x) then
-      above_fill_colors = get_res_value(res2,"gsnXYRightFillColors",-1)
-      below_fill_colors = get_res_value(res2,"gsnXYLeftFillColors",-1)
-    else
-      above_fill_colors = get_res_value(res2,"gsnXYAboveFillColors",-1)
-      below_fill_colors = get_res_value(res2,"gsnXYBelowFillColors",-1)
-    end if
-  end if
-
-  nacol = dimsizes(above_fill_colors)
-  nbcol = dimsizes(below_fill_colors)
-
-;
-; This function originally assumed that if [above|below]_fill_colors were arrays,
-; then they were arrays of color indices, and were indexed accordingly. 
-; In the 32bit color scheme, an individual RGBa color is also an array (of floats), but should
-; be treated as one logical entity. When we get a singular RGBa color, we'll convert it
-; to a 1xN doubly dimensioned array, and we'll therefore always have 2D arrays when
-; dealing with RGBa colors (either a 1xN or a MxN array of RGBa). Lastly, the original
-; indexing scheme below will work as before if applied only to the first dimension of these
-; 2D RGBa arrays. 
-;
-  rgbArrayA = False
-  if (dimsizes(nacol).eq.1 .and. typeof(above_fill_colors).eq."float") then
-    tmp = above_fill_colors
-    delete(above_fill_colors)
-    above_fill_colors = new((/1, nacol /), float)
-    above_fill_colors(0,:) = tmp
-    delete(tmp)
-    delete(nacol)
-    nacol = dimsizes(above_fill_colors)
-  end if
-  if (dimsizes(nacol).eq.2) then
-    rgbArrayA = True    
-    tmp = nacol(0) 
-    delete(nacol)
-    nacol = tmp
-    delete(tmp)
-  end if
-
-  rgbArrayB = False
-  if (dimsizes(nbcol).eq.1 .and. typeof(below_fill_colors).eq."float") then
-    tmp = below_fill_colors
-    delete(below_fill_colors)
-    below_fill_colors = new((/1, nbcol /), float)
-    below_fill_colors(0,:) = tmp
-    delete(tmp)
-    delete(nbcol)
-    nbcol = dimsizes(below_fill_colors)
-  end if 
-  if (dimsizes(nbcol).eq.2) then
-    rgbArrayB = True    
-    tmp = nbcol(0) 
-    delete(nbcol)
-    nbcol = tmp
-    delete(tmp)
-  end if 
-
-;---Check for a fill opacity array. If none, then make colors fully opaque (1.0)
-  nfopacs = max((/nacol,nbcol/))
-  if(isatt(res2,"gsnXYFillOpacityF")) then
-    fill_opacs = conform_dims(nfopacs,get_res_value(res2,"gsnXYFillOpacityF",1.0),-1)
-  else if(isatt(res2,"gsnXYFillOpacities")) then
-    fill_opacs = get_res_value(res2,"gsnXYFillOpacities",1.0)
-  else
-    fill_opacs = conform_dims(nfopacs,1.0,-1)
-  end if
-  end if
-;
-; Convert input arrays to double.
-;
-  x  = new(npts,double)
-  y  = new(dsizes_y,double,1.e36)
-  x  = (/xi/)
-  y  = (/yi/)
-
-;
-; Create arrays for storing polygon points.
-;
-  first     = new(2,double)
-  last      = new(2,double)
-  polygon_x = new(2*npts+3,double)
-  polygon_y = new(2*npts+3,double)
-
-;
-; Loop through each set of two curves, filling them as we go.
-;
-  gsres = True
-  do n=0,ncurves-2
-    y1 = yi(n,:)    ; Grab the current curve
-    y2 = yi(n+1,:)  ; and the next curve.
-  
-    iacol = n % nacol
-    ibcol = n % nbcol
-;
-; Compute a delta that will be used to determine if two points are
-; actually the same point. 
-;
-    range_y1 = max(y1) - min(y1)
-    range_y2 = max(y2) - min(y2)
-
-    delta_y1 = 0.01 * range_y1
-    delta_y2 = 0.01 * range_y2
-    if(delta_y1.eq.0)
-      delta = delta_y2
-    else
-      if(delta_y2.eq.0)
-        delta = delta_y1
-      else
-        delta = min((/delta_y1,delta_y2/))
-      end if
-    end if
-
-    npoly = 0     ; Number of polygons
-;
-; First fill in polygons where y1 is above y2, and then fill in
-; polygons where y2 is above y1.
-;
-    do ab = 0,1
-      if (rgbArrayA.eq.True) then
-        gsres@gsFillColor    = above_fill_colors(iacol,:)
-        gsres@gsFillOpacityF = fill_opacs(iacol,:)
-      else
-        gsres@gsFillColor    = above_fill_colors(iacol)
-        gsres@gsFillOpacityF = fill_opacs(iacol)
-      end if
-      if(ab.eq.1)
-        y1 = (/yi(n+1,:)/)
-        y2 = (/yi(n,:)/)
-; Color for when first curve is > second curve
-        delete(gsres@gsFillColor)    ; just in case
-        delete(gsres@gsFillOpacityF)
-        if (rgbArrayB.eq.True) then
-          gsres@gsFillColor    = below_fill_colors(ibcol,:)
-          gsres@gsFillOpacityF = fill_opacs(ibcol,:)
-        else
-          gsres@gsFillColor    = below_fill_colors(ibcol)
-          gsres@gsFillOpacityF = fill_opacs(ibcol)
-        end if
-      end if
-;
-; Get areas where y1 > y2.
-;
-      y1_gt_y2 = y1.gt.y2
-
-      bpt = -1    ; Index of first point of polygon.
-      ept = -1    ; Index of last point of polygon.
-;
-; Loop through points.
-;
-      do i=0,npts-1
-        if(bpt.lt.0)
-          if(.not.ismissing(y1_gt_y2(i)).and.y1_gt_y2(i))
-            bpt = i
-            ept = i
-          end if
-        else
-          if(.not.ismissing(y1_gt_y2(i)).and.y1_gt_y2(i))
-            ept = i
-          end if
-          if(ismissing(y1_gt_y2(i)).or..not.y1_gt_y2(i).or.ept.eq.(npts-1))
-;
-; Draw polygon. If bpt is the very first point or ept is the
-; very last point, then these are special cases we have to
-; handle separately.
-;
-            if(bpt.eq.0.or.(bpt.gt.0.and.(ismissing(y1(bpt-1)).or.\
-                                          ismissing(y2(bpt-1)).or.\
-                                          ismissing(x(bpt-1)))))
-              first(0) = (/ x(bpt) /)
-              first(1) = (/ y2(bpt)/)
-            else
-              if(fabs(y1(bpt-1)-y2(bpt-1)).le.delta)
-;
-; If the two points are within delta of each other, then we'll
-; consider them to be the same point.
-;
-                first(0) = (/  x(bpt-1) /)
-                first(1) = (/ y1(bpt-1) /)
-              else
-;
-; Otherwise, find the intersection where the two curves cross.
-;
-                first = find_cross_xy(x(bpt-1),x(bpt),y1(bpt-1), \
-                                      y1(bpt),y2(bpt-1),y2(bpt))
-              end if
-            end if
-            if(ept.eq.(npts-1).or.(ept.lt.(npts-1).and.(ismissing(y1(ept+1)).or.\
-                                                    ismissing(y2(ept+1)).or.\
-                                                    ismissing(x(ept+1)))))
-              last(0) = (/  x(ept) /)
-              last(1) = (/ y2(ept) /)
-            else
-              if(fabs(y1(ept+1)-y2(ept+1)).le.delta)
-;
-; If the two points are within delta of each other, then we'll
-; consider them to be the same point.
-;
-                last(0) = (/  x(ept+1) /)
-                last(1) = (/ y1(ept+1) /)
-              else
-;
-; Otherwise, find the intersection where the two curves cross.
-;
-                last = find_cross_xy(x(ept),x(ept+1),y1(ept),y1(ept+1), \
-                                     y2(ept),y2(ept+1))
-              end if
-            end if
-;
-; Initialize polygon.
-;
-            ppts  = ept - bpt + 1
-            ppts2 = ppts * 2
-            polygon_x(0)              = (/first(0)/)
-            polygon_y(0)              = (/first(1)/)
-            polygon_x(1:ppts)         = x(bpt:ept)
-            polygon_y(1:ppts)         = y1(bpt:ept)
-            polygon_x(ppts+1)         = (/last(0)/)
-            polygon_y(ppts+1)         = (/last(1)/)
-            polygon_x(ppts+2:ppts2+1) = x(ept:bpt)
-            polygon_y(ppts+2:ppts2+1) = y2(ept:bpt)
-            polygon_x(ppts2+2)        = (/first(0)/)
-            polygon_y(ppts2+2)        = (/first(1)/)
-;
-; Make sure polygons get drawn *after* the plot gets drawn.
-;
-            if(npoly.eq.0)
-              setvalues plot
-                "tfPolyDrawOrder" : "Predraw"
-              end setvalues
-            end if
-;
-; Add polygon to XY plot.
-;
-            var_string = unique_string("fill_polygon"+npoly)
-
-            if(fill_x) then
-              plot@$var_string$ = gsn_add_polygon(wks,plot, \
-                                                  polygon_y(0:ppts2+2), \
-                                                  polygon_x(0:ppts2+2),gsres)
-            else
-              plot@$var_string$ = gsn_add_polygon(wks,plot, \
-                                                  polygon_x(0:ppts2+2), \
-                                                  polygon_y(0:ppts2+2),gsres)
-            end if
-;
-; Advance polygon counter.
-;
-            npoly = npoly + 1
-            bpt = -1            ; Reinitialize
-            ept = -1
-          end if
-        end if
-      end do
-    end do
-  end do
-  return(plot)
-end
-
-;***********************************************************************;
-; Function : fill_xy2                                                   ;
-;                                                                       ;
-; This function is obsolete. Use resources gsnXYFillColors,             ;
-;    gsnXYAboveFillColors, gsnXYBelowFillColors, gsnXYLeftFillColors,   ;
-;    gsnXYRightFillColors.                                              ;
-;                                                                       ;
-; This function takes as input two Y curves, defined on the same set    ;
-; of X points, and fills the area between the two curves with two       ;
-; different colors, depending on which curve is above the other one.    ;
-;                                                                       ;
-;***********************************************************************;
-undef("fill_xy2")
-function fill_xy2(wks,plot,xi[*]:numeric,yi1[*]:numeric,yi2[*]:numeric, \
-                  colora,colorb)
-local res, nx, ny1, ny2
-begin
-;
-; Check length of arrays.
-;
-  nx  = dimsizes(xi)
-  ny1 = dimsizes(yi1)
-  ny2 = dimsizes(yi2)
-
-  if(nx.ne.ny1.or.nx.ne.ny2.or.nx.lt.2) 
-    print("fill_xy2: Error: x and y arrays must be the same length and at least two elements")
-    return 
-  end if
-
-  res = True
-  res@gsnXYAboveFillColors = colora
-  res@gsnXYBelowFillColors = colorb
-  return(fill_bw_xy(wks,plot,xi,(/yi1,yi2/),res))
 end
 
 ;***********************************************************************;
@@ -3574,7 +3530,7 @@ begin
       "vpHeightF"    : vphf
       "mpLimitMode"  : limit_mode
     end getvalues
-    if(limit_mode.ne.5) then
+    if(limit_mode.ne.get_enum_value("Satellite")) then
       getvalues map
         "mpMinLonF"    : min_lon
         "mpMaxLonF"    : max_lon
@@ -3650,6 +3606,73 @@ begin
     return
 end
 
+
+;***********************************************************************;
+; Function : get_lon_cyclic_point_default(data_list,res,ftype,keep)     ;
+;                                                                       ;
+; This function determines an appropriate default value for the special ;
+; gsnAddCyclic resource, based on the data input and options.           ;
+;                                                                       ;
+; If res@gsnAddCyclic=True, then True is returned regardless of anything;
+; else. If tfDoNDCOverlay is set to True, or if the calling function is ;
+; not one of the gsn_csm_xxx_map functions, then False is returned.     ;
+;                                                                       ;
+; Otherwise, this function checks the given list of data variables to   ;
+; see if they all have the *potential* for having a longitude cyclic    ;
+; point added.                                                          ;
+;                                                                       ;
+; If a data variable doesn't contain the special lat2d/lon2d or         ; 
+; lat1d/lon1d attributes, then it's assumed that this is a good         ;
+; candidate for adding a cyclic point.                                  ;
+;***********************************************************************;
+undef("get_lon_cyclic_point_default")
+function get_lon_cyclic_point_default(data,res,ftype[1]:string,keep[1]:logical)
+local set_cyclic, nitems, n
+begin
+;---If gsnAddCyclic is set, then just return this
+  if(res.and.isatt(res,"gsnAddCyclic"))
+    if(keep) then
+      return(get_res_value_keep(res,"gsnAddCyclic",False))
+    else
+      return(get_res_value(res,"gsnAddCyclic",False))
+    end if
+  end if
+
+;---If tfDoNDCOverlay is set to True, then gsnAddCyclic shouldn't be True.
+  if(get_res_value_keep(res,"tfDoNDCOverlay",False).or.ftype.ne."map") then
+    return(False)
+  end if
+  
+;
+; Otherwise, set gsnAddCyclic True if not using lat2d/lon2d OR lat1d/lon1d.
+; "data" can either be a single array, or a list of arrays.
+
+  if(isnumeric(data)) then
+    return(.not.(isatt(data,"lat2d").and.isatt(data,"lon2d")).or.\
+                (isatt(data,"lat1d").and.isatt(data,"lon1d")))
+  end if
+;
+; If *any* of the data items in the list have lat2d/lon2d or lat1d/lon1d 
+; attached, then return True.
+;
+  if(typeof(data).eq."list") then
+    nitems = ListCount(data)
+    do n=0,nitems-1
+      set_cyclic = .not.(isatt(data[n],"lat2d").and.isatt(data[n],"lon2d")).or.\
+                        (isatt(data[n],"lat1d").and.isatt(data[n],"lon1d"))
+      if(.not.set_cyclic) then
+        return(False)
+      end if
+    end do
+;
+; If we get through the whole loop w/o encountering the lat/lon1d/2d
+; attributes, then return True.
+;
+    return(True)
+  end if
+  return(False)
+end
+
 ;***********************************************************************;
 ; Function : gsn_add_cyclic_point                                       ;
 ;                  data : numeric                                       ;
@@ -3695,15 +3718,15 @@ begin
       delta      = second_val - first_val
       range      = last_val - first_val
 
-      if(range.ge.360.)
-        print("gsn_add_cyclic: Warning: The range of your longitude coordinate array is at least 360.")
-        print("You may want to set gsnAddCyclic to False to avoid a warning")
-        print("message from the spline function.")
+      if(range.ge.360.) then
+        print("gsn_add_cyclic: Warning: The range of your longitude coordinate")
+        print("array is at least 360. No cyclic point will be added.")
+        return(data)
       end if
-      if(any((range+delta).lt.359.))
+      if(any((range+delta).lt.359.)) then
         print("gsn_add_cyclic: Warning: The range of your longitude data is not 360.")
-        print("You may want to set gsnAddCyclic to False to avoid a warning")
-        print("message from the spline function.")
+        print("You may want to set the gsnAddCyclic resource to False to avoid a")
+        print("warning message from the spline function.")
       end if
     else
       if(.not.(isatt(newdata,"lon2d").and.isatt(newdata,"lat2d"))) then
@@ -3930,17 +3953,14 @@ begin
   mpres = True
   if(isatt(res,"mpProjection")) then
     iproj = res@mpProjection
-    if((typeof(iproj).eq."integer".and.iproj.ne.9).or.\
-       (typeof(iproj).eq."string".and. \
-        lower_case(iproj).ne."lambertconformal")) then
+    if(.not.check_attr_enum_value(res,"mpProjection","LambertConformal")) then
       print("mask_lambert_conformal: warning: you are using a projection other")
       print("  than LambertConformal. Unexpected results will likely occur.")
     end if
     delete(iproj)
   end if
 
-  mpres@mpProjection = get_res_value_keep(res,"mpProjection", \
-                                          "LambertConformal")
+  mpres@mpProjection = get_res_value_keep(res,"mpProjection","LambertConformal")
 
   if(isatt(res,"mpLimitMode")) then
     need_to_set_limits = False
@@ -4208,7 +4228,7 @@ begin
 ; Outline the area we are looking at (optional).
 ;
    if(maskoutln) then
-     pres@gsLineColor      = "foreground"
+     pres@gsLineColor      = rm_single_dims_no_meta(convert_color_to_rgba(wks,"foreground"))
      pres@gsLineThicknessF = 3.0
      var_string         = unique_string("lamb_polyline")
      outline_lon        = (/ minlon, maxlon, maxlon, minlon, minlon /)
@@ -4334,6 +4354,1429 @@ begin
   return(canvas)
 end
 
+;----------------------------------------------------------------------
+; Returns the color(s) of X or Y reference line(s). If just one color
+; is given and there are multiple reference lines, then propagate
+; the value for each reference line.
+;----------------------------------------------------------------------
+undef("get_ref_line_color")
+function get_ref_line_color(wks,reftype,nref,rfres)
+local dims, rank, color_res1, color_res2
+begin
+  if(reftype.eq."y") then
+    color_res1 = "gsnYRefLineColor"
+    color_res2 = "gsnYRefLineColors"
+  else if(reftype.eq."x") then
+    color_res1 = "gsnXRefLineColor"
+    color_res2 = "gsnXRefLineColors"
+  else
+    print("get_ref_line_color: fatal, invalid type for reference line color.")
+    return
+  end if
+  end if
+  if(isatt(rfres,color_res2))
+    ref_line_color = convert_color_to_rgba(wks,rfres@$color_res2$)
+  else if(isatt(rfres,color_res1))
+    ref_line_color = convert_color_to_rgba(wks,rfres@$color_res1$)
+  else
+    ref_line_color = convert_color_to_rgba(wks,"foreground")
+  end if
+  end if
+  dims = dimsizes(ref_line_color)
+  rank = dimsizes(dims)
+  if(rank.ne.2.or.(dims(0).ne.nref.and.dims(0).ne.1)) then
+    print("get_ref_line_color: Warning: you must specify either one reference line color")
+    print("      or the same number of colors as there are reference lines.")
+    print("      Will use the foreground color.") 
+    ref_line_color := convert_color_to_rgba(wks,"foreground")
+  end if
+
+  return(conform_dims((/nref,4/),ref_line_color,-1))
+;;  if(dims(0).eq.1.and.nref.gt.1) then
+;;    return(conform_dims((/nref,4/),ref_line_color(0,:),1))
+;;  else
+;;    return(ref_line_color)
+;;  end if
+end
+
+;----------------------------------------------------------------------
+; Returns the pattern(s) of X or Y reference line(s). If just one
+; pattern is given and there are multiple reference lines, then 
+; propagate the value for each reference line.
+; For use by gsn_csm_xy.
+;----------------------------------------------------------------------
+undef("get_ref_line_pattern")
+function get_ref_line_pattern(wks,reftype,nref,rfres)
+begin
+  if(reftype.eq."y") then
+    pattern_res1 = "gsnYRefLineDashPattern"
+    pattern_res2 = "gsnYRefLineDashPatterns"
+  else if(reftype.eq."x") then
+    pattern_res1 = "gsnXRefLineDashPattern"
+    pattern_res2 = "gsnXRefLineDashPatterns"
+  else
+    print("get_ref_line_pattern: fatal, invalid type for reference line pattern.")
+    return
+  end if
+  end if
+  if(isatt(rfres,pattern_res1)) then
+    if(dimsizes(rfres@$pattern_res1$).gt.1) then
+      print("get_ref_line_pattern: Warning: only one pattern should be specified with " + pattern_res1)
+      print("                      Use " + pattern_res2 + " if multiple patterns desired.")
+    end if
+    ref_line_pattern := rfres@$pattern_res1$(0)
+  else if(isatt(rfres,pattern_res2))
+    ref_line_pattern := rfres@$pattern_res2$
+  else  
+    ref_line_pattern = 0
+  end if
+  end if
+
+  dims = dimsizes(ref_line_pattern)
+  rank = dimsizes(dims)
+  if(.not.isscalar(ref_line_pattern).and.rank.ne.1.and.dimsizes(ref_line_pattern).ne.nref) then
+    print("get_ref_line_pattern: Warning: you must specify either one reference line dash pattern")
+    print("      or the same number of dash patterns as there are reference lines.")
+    print("      Will use a solid line.") 
+    ref_line_pattern := 0
+  end if
+  return(conform_dims(nref,ref_line_pattern,-1))
+end
+
+;----------------------------------------------------------------------
+; Returns a thickness or list of thicknesses for a reference line.
+; If just one thickness is given and there are multiple reference 
+; lines, then propagate the value for each reference line.
+; For use by gsn_csm_xy.
+;----------------------------------------------------------------------
+undef("get_ref_line_thickness")
+function get_ref_line_thickness(wks,reftype,nref,rfres)
+local dims, rank
+begin
+  if(reftype.eq."y") then
+    thickness_res1 = "gsnYRefLineThicknessF"
+    thickness_res2 = "gsnYRefLineThicknesses"
+  else if(reftype.eq."x") then
+    thickness_res1 = "gsnXRefLineThicknessF"
+    thickness_res2 = "gsnXRefLineThicknesses"
+  else
+    print("get_ref_line_thickness: fatal, invalid type for reference line thickness.")
+    return
+  end if
+  end if
+  if(isatt(rfres,thickness_res1)) then
+    if(dimsizes(rfres@$thickness_res1$).gt.1) then
+      print("get_ref_line_thickness: Warning: only one thickness should be specified with " + thickness_res1)
+      print("                        Use " + thickness_res2 + " if multiple thicknesses desired.")
+    end if
+    ref_line_thickness = rfres@$thickness_res1$(0)
+  else if(isatt(rfres,thickness_res2)) then
+    ref_line_thickness = rfres@$thickness_res2$
+  else
+    ref_line_thickness = 1.0
+  end if
+  end if
+  dims = dimsizes(ref_line_thickness)
+  rank = dimsizes(dims)
+  if(.not.isscalar(ref_line_thickness).and.rank.ne.1.and.dimsizes(ref_line_thickness).ne.nref) then
+    print("get_ref_line_thickness: Warning: you must specify either one reference line thickness")
+    print("      or the same number of dash thicknesss as there are reference lines.")
+    print("      Will use a solid line.") 
+    ref_line_thickness := 1.0
+  end if
+  return(conform_dims(nref,ref_line_thickness,-1))
+end
+
+;----------------------------------------------------------------------
+; Returns a color or list of colors for filling curves or bars
+; above (to the right) or below (to the left) a given ref line or 
+; series of lines. If there are a series of lines, but only single
+; colors, then the single color will be propagated to all lines.
+;----------------------------------------------------------------------
+undef("get_ref_line_fill_color")
+function get_ref_line_fill_color(wks,location[1]:string,ncurves,nref,rfres)
+local tmpdims, color_res, msg_color
+begin
+  if(location.eq."above") then
+    color_res = "gsnAboveYRefLineColor"
+  else if(location.eq."below") then
+    color_res = "gsnBelowYRefLineColor"
+  else if(location.eq."right") then
+    color_res = "gsnRightXRefLineColor"
+  else if(location.eq."left") then
+    color_res = "gsnLeftXRefLineColor"
+  else
+    print("get_ref_line_fill_color: fatal, invalid type for reference fill color.")
+    return
+  end if
+  end if
+  end if
+  end if
+
+  msg_color = new((/1,4/),float)
+
+  if(any(isatt(rfres,(/"gsnXYBarChartPatterns", \
+                       "gsnXYBarChartPatterns2", \
+                       "gsnAboveYRefLineBarPatterns", \
+                       "gsnBelowYRefLineBarPatterns", \
+                       "gsnRightXRefLineBarPatterns", \
+                       "gsnLeftXRefLineBarPatterns"/)))) then
+    ref_curve_fill_color = convert_color_to_rgba(wks,"foreground")
+  else
+;
+; You need transparent here because the NCL default for polygon
+; fill is the foreground color.
+;
+    ref_curve_fill_color = convert_color_to_rgba(wks,"transparent")
+  end if
+  if(isatt(rfres,color_res))
+    ref_curve_fill_color := convert_color_to_rgba(wks,rfres@$color_res$)
+    tmpdims = dimsizes(ref_curve_fill_color)
+    if(.not.(tmpdims(0).eq.1.or.tmpdims(0).eq.nref)) then
+      print("get_ref_line_fill_color: Fatal: there must either be an above/below/right/left fill color")
+      print("      for every reference line, or one global fill color specified.")
+      print("      No fill will be done.")
+      ref_curve_fill_color := msg_color
+    end if
+  end if
+;
+; If ref_curve_fill_on is True, and we have more than one curve, then
+; there should be the same number of reference lines as curves.
+;
+  if(isvar("ref_curve_fill_color")) then
+    if(.not.any(ismissing(ref_curve_fill_color)).and.ncurves.gt.1.and.\
+       ncurves.ne.nref.and.nref.ne.1)
+      print("get_ref_line_fill_color: Fatal: if you plan to fill above/below/right/left reference lines,")
+      print("      then the number of reference lines must either equal the number")
+      print("      of curves or be a scalar.")
+      print("      No fill will be done.")
+      ref_curve_fill_color := msg_color
+    end if
+  else
+    ref_curve_fill_color := msg_color
+  end if
+  dims := dimsizes(ref_curve_fill_color)
+  rank = dimsizes(dims)
+  if(rank.ne.2.or.(dims(0).ne.nref.and.dims(0).ne.1)) then
+    print("get_ref_line_fill_color: Warning: you must specify either one above/below/right/left fill color")
+    print("      or the same number of colors as there are reference lines.")
+    print("      Will use the foreground color.") 
+    ref_curve_fill_color := convert_color_to_rgba(wks,"foreground")
+  end if
+
+  return(conform_dims((/max((/ncurves,nref/)),4/),ref_curve_fill_color,-1))
+;;  if(dims(0).eq.1.and.any((/ncurves,nref/).gt.1)) then
+;;    return(conform_dims((/max((/ncurves,nref/)),4/),ref_curve_fill_color(0,:),1))
+;;  else
+;;    return(ref_curve_fill_color)
+;;  end if
+end
+
+;**********************************************************************
+; This function sets a bunch of variables for drawing an X or Y 
+; reference line and/or filling curves above/below or to the right/left
+; of a reference line.
+;**********************************************************************
+undef("get_ref_line_options")
+function get_ref_line_options(wks,x,y,reftype[1]:string,ncurves,rfres)
+local nref, imsg, fmsg, tmpdims, nref, set_ref_line_color
+begin
+  imsg = new(1,integer)
+  fmsg = new(1,float)
+  cmsg = new(4,float)
+  nref                   = 0
+  ref_line               = fmsg
+  ref_line_on            = False
+  ref_line_color         = cmsg
+  ref_line_pattern       = imsg
+  ref_line_thickness     = fmsg
+  ref_grtr_curve_fill_on = False
+  ref_less_curve_fill_on = False
+  ref_fill_color_g       = cmsg   ; greater than
+  ref_fill_color_l       = cmsg   ; less than
+
+;
+; If neither gsnYRefLine or gsnXRefLine are set, but gsnXYBarChart has 
+; been set, then assume the user wants a Y reference line, and return 
+; a default value for Y ref line.
+;
+  bar_chart        = get_res_value_keep(rfres,"gsnXYBarChart",False)
+  bar_outline_only = get_res_value_keep(rfres,"gsnXYBarChartOutlineOnly",False)
+  if(.not.isatt(rfres,"gsnYRefLine").and..not.isatt(rfres,"gsnXRefLine")) then
+    if(reftype.eq."y".and.bar_chart.and..not.bar_outline_only) then
+      ref_line = get_res_value_keep(rfres,"trYMinF",min(y))
+;      print("get_ref_line_options: warning: you've set gsnXYBarChart=True, but haven't")
+;      print("    specified an X or Y reference line. Will assume a default Y reference")
+;      print("    line of " + ref_line)
+      nref               := 1
+      ref_line_on        = True
+      ref_line_color     := convert_color_to_rgba(wks,"foreground")
+      ref_line_pattern   := 0
+      ref_line_thickness := 1.
+    end if
+    return([/ref_line,ref_line_on,ref_line_color,ref_line_pattern,\
+             ref_line_thickness,ref_grtr_curve_fill_on,\
+             ref_less_curve_fill_on,ref_fill_color_g,ref_fill_color_l/])
+  end if
+  if(bar_outline_only.or.(reftype.eq."x".and..not.isatt(rfres,"gsnXRefLine").or.\
+                          reftype.eq."y".and..not.isatt(rfres,"gsnYRefLine"))) then
+    if( (reftype.eq."y".and.isatt(rfres,"gsnYRefLine")).or.\
+        (reftype.eq."x".and.isatt(rfres,"gsnXRefLine"))) then
+      ref_line_on        = True
+      ref_line           := get_res_value_keep(rfres,"gsn" + str_upper(reftype)+"RefLine",0)
+      nref               = dimsizes(ref_line)
+      ref_line_color     := get_ref_line_color(wks,reftype,nref,rfres)
+      ref_line_pattern   := get_ref_line_pattern(wks,reftype,nref,rfres)
+      ref_line_thickness := get_ref_line_thickness(wks,reftype,nref,rfres)
+    end if
+    return([/ref_line,ref_line_on,ref_line_color,ref_line_pattern,\
+             ref_line_thickness,ref_grtr_curve_fill_on,\
+             ref_less_curve_fill_on,ref_fill_color_g,ref_fill_color_l/])
+  end if
+
+  if(reftype.eq."y") then
+    fill_string_g = "above"
+    fill_string_l = "below"
+  else
+    fill_string_g = "right"
+    fill_string_l = "left"
+  end if
+  ref_line_on = True
+  ref_line    := get_res_value_keep(rfres,"gsn" + str_upper(reftype)+"RefLine",0)
+  nref         = dimsizes(ref_line)
+  ref_line_color       := get_ref_line_color(wks,reftype,nref,rfres)
+  ref_line_pattern     := get_ref_line_pattern(wks,reftype,nref,rfres)
+  ref_line_thickness   := get_ref_line_thickness(wks,reftype,nref,rfres)
+  ref_fill_color_g     := get_ref_line_fill_color(wks,fill_string_g,ncurves,\
+                           nref,rfres)
+  ref_fill_color_l     := get_ref_line_fill_color(wks,fill_string_l,ncurves,\
+                           nref,rfres)
+  ref_grtr_curve_fill_on = .not.any(ismissing(ref_fill_color_g))
+  ref_less_curve_fill_on = .not.any(ismissing(ref_fill_color_l))
+
+  return([/ref_line,ref_line_on,ref_line_color,ref_line_pattern,\
+           ref_line_thickness,ref_grtr_curve_fill_on,\
+           ref_less_curve_fill_on,ref_fill_color_g,\
+           ref_fill_color_l/])
+end
+
+;**********************************************************************
+; This function sets a bunch of variables for determining how to
+; fill bars in an XY plot, when gsnXYBarChart has been set to True.
+;  The "bres" variable may have some attributes removed too.;
+;
+; Three resources can be used to specify fill colors, in this order:
+;
+;     1. gsnAbove/BelowYRefLineBarColors
+;     2. gsnXYBarChartColors
+;     3. gsnXYBarChartColors2
+;     4. gsnAbove/BelowYRefLineColor
+;
+; 1. gsnAbove/BelowYRefLineBarColors
+;
+; If you specify either one of these resources, then the top bars 
+; will be colored in the gsnAboveYRefLineBarColors, and the
+; below bars in gsnBelowYRefLineBarColors. The colors will repeat
+; if you specify fewer colors than bars.
+;
+; For example, if you have 10 "up" bars and 3 "above" colors specified,
+; and 8 "below" bars and 3 "below" colors specified:
+;
+;   up bars #1-3:  above colors 1-3    down bars #1-3: below colors 1-3
+;   up bars #4-6:  above colors 1-3    down bars #4-6  below colors 1-3
+;   up bars #7-9:  above colors 1-3    down bars #7-8  below colors 1-2
+;   up bar  #10:   above color 1
+; 
+; 2. gsnXYBarChartColors
+;
+; If you specify this resource, then then up bars will cycle through
+; these colors independently of the down bars.
+;
+; 3. gsnXYBarChartColors2
+;
+; If you specify this resource, then the colors will be applied 
+; to each consecutive bar, regardless if it is up or down.
+;
+; By the way, the same logic applies to the gsnXYBarChart*Pattern* 
+; resources.
+;
+; 4. gsnAbove/BelowYRefLineColor can also be used to color bars,
+;    but mostly for backwards compatibility.
+;;**********************************************************************
+undef("get_bar_colors")
+function get_bar_colors(wks,type_ref[1]:string,bres,bar_list)
+local bac_rank, bbc_rank, mesg_color
+begin
+  ngrtr = bar_list[6]
+  nless = bar_list[7]
+  indgrtr = bar_list[8]
+  indless = bar_list[9]
+  dims = dimsizes(indgrtr)
+  ncurves = dims(0)
+  nptsbar = dims(1)
+  if(any(isatt(bres,(/"gsnXYBarChartPatterns", \
+                      "gsnXYBarChartPatterns2", \
+                      "gsnLeftXRefLineBarPatterns", \
+                      "gsnRightXRefLineBarPatterns",\
+                      "gsnAboveYRefLineBarPatterns", \
+                      "gsnBelowYRefLineBarPatterns"/)))) then
+    def_rgba := convert_color_to_rgba(wks,"foreground")
+  else     
+    def_rgba := convert_color_to_rgba(wks,"transparent")
+  end if
+  grt_colors_set = False
+  lss_colors_set = False
+  def_grt_colors = conform_dims((/ncurves,nptsbar,4/),def_rgba(0,:),2)
+  def_lss_colors = conform_dims((/ncurves,nptsbar,4/),def_rgba(0,:),2)
+
+  if(type_ref.eq."y") then
+    grt_res_name = "gsnAboveYRefLineBarColors"
+    lss_res_name = "gsnBelowYRefLineBarColors"
+  else
+    grt_res_name = "gsnRightXRefLineBarColors"
+    lss_res_name = "gsnLeftXRefLineBarColors"
+  end if
+  if(isatt(bres,grt_res_name)) then
+    tmp_rgba  := convert_color_to_rgba(wks,bres@$grt_res_name$)
+    rgba_dims := dimsizes(tmp_rgba)
+    rgba_rank = dimsizes(rgba_dims)
+    if((rgba_rank.ne.2.and.rgba_rank.ne.3).or.(rgba_rank.eq.3.and.rgba_dims(0).ne.ncurves)) then
+      print("get_bar_colors: " + grt_res_name + " must be a 1D array")
+      print("    of color indexes, color names, or an RGB/A array. Will ignore.")
+      return([/def_grt_colors,def_lss_colors/])
+    end if
+    ncol = rgba_dims(rgba_rank-2)
+    grt_colors = new((/ncurves,nptsbar,4/),float)
+    do nc = 0,ncurves-1
+      do ii = 0,ngrtr(nc)/5-1
+        ci = ii % ncol
+        if(rgba_rank.eq.2) then
+          grt_colors(nc,ii,:) = tmp_rgba(ci,:)
+        else
+          grt_colors(nc,ii,:) = tmp_rgba(nc,ci,:)
+        end if
+      end do
+    end do
+    grt_colors_set = True
+  end if  
+
+  if(isatt(bres,lss_res_name)) then
+    tmp_rgba  := convert_color_to_rgba(wks,bres@$lss_res_name$)
+    rgba_dims := dimsizes(tmp_rgba)
+    rgba_rank = dimsizes(rgba_dims)
+    if((rgba_rank.ne.2.and.rgba_rank.ne.3).or.(rgba_rank.eq.3.and.rgba_dims(0).ne.ncurves)) then
+      print("get_bar_colors: " + lss_re_name + " must be a 1D array")
+      print("    of color indexes, color names, or an RGB/A array. Will ignore.")
+      return([/def_grt_colors,def_lss_colors/])
+    end if
+    ncol = rgba_dims(rgba_rank-2)
+    lss_colors = new((/ncurves,nptsbar,4/),float)
+    do nc = 0,ncurves-1
+      do ii = 0,nless(nc)/5-1
+        ci = ii % ncol
+        if(rgba_rank.eq.2) then
+          lss_colors(nc,ii,:) = tmp_rgba(ci,:)
+        else
+          lss_colors(nc,ii,:) = tmp_rgba(nc,ci,:)
+        end if
+      end do
+    end do
+    lss_colors_set = True
+  end if  
+;
+; gsnXYBarChartColors will apply independently to both the greater
+; than and less than ref line bars. bhat is, if you give this resource
+; the colors "red", "green", and "blue", then all the colors > the ref
+; line will cycle b/w these three colors, and independently, the
+; colors < the ref line will cycle b/w these colors. 
+;
+; If you want to specify colors consecutively for each bar, not caring 
+; whether it is > or < the ref line, use the "gsnXYBarChartColors2" resource.
+;
+  if(.not.grt_colors_set.and..not.lss_colors_set.and.isatt(bres,"gsnXYBarChartColors")) then
+    tmp_rgba := convert_color_to_rgba(wks,bres@gsnXYBarChartColors)
+    rgba_dims := dimsizes(tmp_rgba)
+    rgba_rank = dimsizes(rgba_dims)
+    if((rgba_rank.ne.2.and.rgba_rank.ne.3).or.(rgba_rank.eq.3.and.rgba_dims(0).ne.ncurves)) then
+      print("get_bar_colors: gsnXYBarChartColors must be a 1D array")
+      print("    of color indexes, color names, or an RGB/A array. Will ignore.")
+      return([/def_grt_colors,def_lss_colors/])
+    end if
+    ncol = rgba_dims(rgba_rank-2)
+    grt_colors = new((/ncurves,nptsbar,4/),float)
+    lss_colors = new((/ncurves,nptsbar,4/),float)
+    do nc = 0,ncurves-1
+      do ii = 0,ngrtr(nc)/5-1
+        ci = ii % ncol
+        if(rgba_rank.eq.2) then
+          grt_colors(nc,ii,:) = tmp_rgba(ci,:)
+        else
+          grt_colors(nc,ii,:) = tmp_rgba(nc,ci,:)
+        end if
+      end do
+      do ii = 0,nless(nc)/5-1
+        ci = ii % ncol
+        if(rgba_rank.eq.2) then
+          lss_colors(nc,ii,:) = tmp_rgba(ci,:)
+        else
+          lss_colors(nc,ii,:) = tmp_rgba(nc,ci,:)
+        end if
+      end do
+    end do
+    grt_colors_set = True
+    lss_colors_set = True
+  end if
+
+  if(.not.grt_colors_set.and..not.lss_colors_set.and.isatt(bres,"gsnXYBarChartColors2")) then
+    tmp_rgba := convert_color_to_rgba(wks,bres@gsnXYBarChartColors2)
+    rgba_dims := dimsizes(tmp_rgba)
+    rgba_rank = dimsizes(rgba_dims)
+    if((rgba_rank.ne.2.and.rgba_rank.ne.3).or.(rgba_rank.eq.3.and.rgba_dims(0).ne.ncurves)) then
+      print("get_bar_colors: gsnXYBarChartColors2 must be a 1D array")
+      print("    of color indexes, color names, or an RGB/A array. Will ignore.")
+      return([/def_grt_colors,def_lss_colors/])
+    end if
+    ncol = rgba_dims(rgba_rank-2)
+    grt_colors = new((/ncurves,nptsbar,4/),float)
+    lss_colors = new((/ncurves,nptsbar,4/),float)
+    do nc = 0,ncurves-1
+      do ii = 0,ngrtr(nc)/5-1
+        ci = indgrtr(nc,ii) % ncol
+        if(rgba_rank.eq.2) then
+          grt_colors(nc,ii,:) = tmp_rgba(ci,:)
+        else
+          grt_colors(nc,ii,:) = tmp_rgba(nc,ci,:)
+        end if
+      end do
+      do ii = 0,nless(nc)/5-1
+        ci = indless(nc,ii) % ncol
+        if(rgba_rank.eq.2) then
+          lss_colors(nc,ii,:) = tmp_rgba(ci,:)
+        else
+          lss_colors(nc,ii,:) = tmp_rgba(nc,ci,:)
+        end if
+      end do
+    end do
+    grt_colors_set = True
+    lss_colors_set = True
+  end if
+
+  if(type_ref.eq."y") then
+    grt_res_name = "gsnAboveYRefLineColor"
+    lss_res_name = "gsnBelowYRefLineColor"
+  else
+    grt_res_name = "gsnRightXRefLineColor"
+    lss_res_name = "gsnLeftXRefLineColor"
+  end if
+
+  if(.not.grt_colors_set.and.isatt(bres,grt_res_name)) then
+    tmp_rgba := convert_color_to_rgba(wks,bres@$grt_res_name$)
+    rgba_dims = dimsizes(tmp_rgba)
+    rgba_rank = dimsizes(rgba_dims)
+    if(rgba_rank.ne.2.or.(rgba_rank.eq.2.and.rgba_dims(0).ne.ncurves.and.rgba_dims(0).ne.1)) then
+      print("get_bar_colors: " + grt_res_name + " must be a 1D array")
+      print("    of color indexes, color names, or an RGB/A array. Will ignore.")
+      return([/def_grt_colors,def_lss_colors/])
+    end if
+    grt_colors = conform_dims((/ncurves,nptsbar,4/),tmp_rgba,(/0,2/))
+    grt_colors_set = True
+  end if  
+
+  if(.not.lss_colors_set.and.isatt(bres,lss_res_name)) then
+    tmp_rgba := convert_color_to_rgba(wks,bres@$lss_res_name$)
+    rgba_dims = dimsizes(tmp_rgba)
+    rgba_rank = dimsizes(rgba_dims)
+    if(rgba_rank.ne.2.or.(rgba_rank.eq.2.and.rgba_dims(0).ne.ncurves.and.rgba_dims(0).ne.1)) then
+      print("get_bar_colors: " + lss_res_name + " must be a 1D array")
+      print("    of color indexes, color names, or an RGB/A array. Will ignore.")
+      return([/def_grt_colors,def_lss_colors/])
+    end if
+    lss_colors = conform_dims((/ncurves,nptsbar,4/),tmp_rgba,(/0,2/))
+    lss_colors_set = True
+  end if  
+
+  if(.not.grt_colors_set) then
+    grt_colors = def_grt_colors
+  end if
+  if(.not.lss_colors_set) then
+    lss_colors = def_lss_colors
+  end if
+
+  return([/grt_colors,lss_colors/])
+end
+
+;**********************************************************************
+; See description above for get_bar_colors
+
+; This function sets a bunch of variables for determining how to
+; pattern fill bars in an XY plot, when gsnXYBarChart has been set 
+; to True.
+;
+; Three resources can be used to specify fill colors, in this order:
+;
+;     1. gsnAbove/BelowYRefLineBarPatterns
+;     2. gsnXYBarChartPatterns
+;     3. gsnXYBarChartPatterns2
+;**********************************************************************
+undef("get_bar_patterns")
+function get_bar_patterns(bres,type_ref[1]:string,bar_list)
+local ngrtr,nless,indgrtr,indless,dims,ncurves,nptsbar,tmp_pattrn,\
+pttrn_dims,pttrn_rank,pi,ii,nc,res_name,grt_res_name,lss_res_name
+begin
+  ngrtr = bar_list[6]
+  nless = bar_list[7]
+  indgrtr = bar_list[8]
+  indless = bar_list[9]
+  dims = dimsizes(indgrtr)
+  ncurves = dims(0)
+  nptsbar = dims(1)
+  def_grt_patterns = conform_dims((/ncurves,nptsbar/),0,-1)   ; default to solid fill (no
+  def_lss_patterns = conform_dims((/ncurves,nptsbar/),0,-1)   ;    patterns)
+  grt_patterns_set = False
+  lss_patterns_set = False
+
+  if(type_ref.eq."y") then
+    grt_res_name = "gsnAboveYRefLineBarPatterns"
+    lss_res_name = "gsnBelowYRefLineBarPatterns"
+  else
+    grt_res_name = "gsnRightXRefLineBarPatterns"
+    lss_res_name = "gsnLeftXRefLineBarPatterns"
+  end if
+  if(isatt(bres,grt_res_name)) then
+    tmp_pttrn := bres@$grt_res_name$
+    pttrn_dims := dimsizes(tmp_pttrn)
+    pttrn_rank = dimsizes(pttrn_dims)
+    if((pttrn_rank.ne.1.and.pttrn_rank.ne.2).or.(pttrn_rank.eq.2.and.pttrn_dims(0).ne.ncurves)) then
+      print("get_bar_patterns: error: " + grt_res_name + " must either")
+      print("     be 1D, or 2D where the first dimension is equal to the number")
+      print("     of Y reference lines or curves. Won't pattern fill any bars.")
+      return([/def_grt_patterns,def_lss_patterns/])
+    end if
+    npat = pttrn_dims(pttrn_rank-1)
+    grt_patterns = new((/ncurves,nptsbar/),integer)
+    do nc = 0,ncurves-1
+      do ii = 0,ngrtr(nc)/5-1
+        pi = ii % npat
+        if(pttrn_rank.eq.1) then
+          grt_patterns(nc,ii) = tmp_pttrn(pi)
+        else
+          grt_patterns(nc,ii) = tmp_pttrn(nc,pi)
+        end if
+      end do
+    end do
+    grt_patterns_set = True
+  end if
+
+  if(isatt(bres,lss_res_name)) then
+    tmp_pttrn := bres@$lss_res_name$
+    pttrn_dims := dimsizes(tmp_pttrn)
+    pttrn_rank = dimsizes(pttrn_dims)
+    if((pttrn_rank.ne.1.and.pttrn_rank.ne.2).or.(pttrn_rank.eq.2.and.pttrn_dims(0).ne.ncurves)) then
+      print("get_bar_patterns: error: " + lss_res_name + " must either")
+      print("     be 1D, or 2D where the first dimension is equal to the number")
+      print("     of Y reference lines or curves. Won't pattern fill any bars.")
+      return([/def_grt_patterns,def_lss_patterns/])
+    end if
+    npat = pttrn_dims(pttrn_rank-1)
+    lss_patterns = new((/ncurves,nptsbar/),integer)
+    do nc = 0,ncurves-1
+      do ii = 0,nless(nc)/5-1
+        pi = ii % npat
+        if(pttrn_rank.eq.1) then
+          lss_patterns(nc,ii) = tmp_pttrn(pi)
+        else
+          lss_patterns(nc,ii) = tmp_pttrn(nc,pi)
+        end if
+      end do
+    end do
+    lss_patterns_set = True
+  end if
+
+  res_name = "gsnXYBarChartPatterns"
+  if(.not.grt_patterns_set.and..not.lss_patterns_set.and.isatt(bres,res_name)) then
+    tmp_pttrn := bres@$res_name$
+    pttrn_dims := dimsizes(tmp_pttrn)
+    pttrn_rank = dimsizes(pttrn_dims)
+    if((pttrn_rank.ne.1.and.pttrn_rank.ne.2).or.(pttrn_rank.eq.2.and.pttrn_dims(0).ne.ncurves)) then
+      print("get_bar_patterns: error: " + res_name + " must either")
+      print("     be 1D, or 2D where the first dimension is equal to the number")
+      print("     of Y reference lines or curves. Won't pattern fill any bars.")
+      return([/def_grt_patterns,def_lss_patterns/])
+    end if
+    npat = pttrn_dims(pttrn_rank-1)
+    grt_patterns = new((/ncurves,nptsbar/),integer)
+    lss_patterns = new((/ncurves,nptsbar/),integer)
+    do nc = 0,ncurves-1
+      do ii = 0,ngrtr(nc)/5-1
+        pi = ii % npat
+        if(pttrn_rank.eq.1) then
+          grt_patterns(nc,ii) = tmp_pttrn(pi)
+        else
+          grt_patterns(nc,ii) = tmp_pttrn(nc,pi)
+        end if
+      end do
+      do ii = 0,nless(nc)/5-1
+        pi = ii % npat
+        if(pttrn_rank.eq.1) then
+          lss_patterns(nc,ii) = tmp_pttrn(pi)
+        else
+          lss_patterns(nc,ii) = tmp_pttrn(nc,pi)
+        end if
+      end do
+    end do
+    grt_patterns_set = True
+    lss_patterns_set = True
+  end if
+
+  res_name = "gsnXYBarChartPatterns2"
+  if(.not.grt_patterns_set.and..not.lss_patterns_set.and.isatt(bres,res_name)) then
+    tmp_pttrn := bres@$res_name$
+    pttrn_dims := dimsizes(tmp_pttrn)
+    pttrn_rank = dimsizes(pttrn_dims)
+    if((pttrn_rank.ne.1.and.pttrn_rank.ne.2).or.(pttrn_rank.eq.2.and.pttrn_dims(0).ne.ncurves)) then
+      print("get_bar_patterns: error: " + res_name + " must either")
+      print("     be 1D, or 2D where the first dimension is equal to the number")
+      print("     of Y reference lines or curves. Won't pattern fill any bars.")
+      return([/def_grt_patterns,def_lss_patterns/])
+    end if
+    npat = pttrn_dims(pttrn_rank-1)
+    grt_patterns = new((/ncurves,nptsbar/),integer)
+    lss_patterns = new((/ncurves,nptsbar/),integer)
+    do nc = 0,ncurves-1
+      do ii = 0,ngrtr(nc)/5-1
+        pi = indgrtr(nc,ii) % npat
+        if(pttrn_rank.eq.1) then
+          grt_patterns(nc,ii) = tmp_pttrn(pi)
+        else
+          grt_patterns(nc,ii) = tmp_pttrn(nc,pi)
+        end if
+      end do
+      do ii = 0,nless(nc)/5-1
+        pi = indless(nc,ii) % npat
+        if(pttrn_rank.eq.1) then
+          lss_patterns(nc,ii) = tmp_pttrn(pi)
+        else
+          lss_patterns(nc,ii) = tmp_pttrn(nc,pi)
+        end if
+      end do
+    end do
+    grt_patterns_set = True
+    lss_patterns_set = True
+  end if
+
+  if(.not.grt_patterns_set.and..not.lss_patterns_set) then
+    return([/def_grt_patterns,def_lss_patterns/])
+  end if
+
+  return([/grt_patterns,lss_patterns/])
+end
+
+
+;**********************************************************************
+; This function returns a list of scale factors for bar filling
+; depending on special "gsn" resources.
+;
+; It was updated in NCL V6.4.0 to contain the same type as resources
+; that are available for fill patterns (gsnXYBarChartFillScales and
+; gsnXYBarChartFillScales2)
+;**********************************************************************
+undef("get_bar_scales")
+function get_bar_scales(wks,type_ref[1]:string,bres,bar_list)
+local ngrtr,nless,indgrtr,indless,ncurves,nptsbar,tmp_scale,
+def_grt_scales,def_lss_scales,grt_scales_set,lss_scales_set,\
+scales,dims,rank,nscl
+begin
+  ngrtr = bar_list[6]
+  nless = bar_list[7]
+  indgrtr = bar_list[8]
+  indless = bar_list[9]
+  dims = dimsizes(indgrtr)
+  ncurves = dims(0)
+  nptsbar = dims(1)
+  grt_scales_set = False
+  lss_scales_set = False
+  def_grt_scales = conform_dims((/ncurves,nptsbar/),1.0,-1)
+  def_lss_scales = conform_dims((/ncurves,nptsbar/),1.0,-1)
+
+  if(type_ref.eq."y") then
+    grt_res_name = "gsnAboveYRefLineBarFillScales"
+    lss_res_name = "gsnBelowYRefLineBarFillScales"
+  else
+    grt_res_name = "gsnRightXRefLineBarFillScales"
+    lss_res_name = "gsnLeftXRefLineBarFillScales"
+  end if
+
+  if(isatt(bres,grt_res_name)) then
+    tmp_scale := bres@$grt_res_name$
+    scale_dims := dimsizes(tmp_scale)
+    scale_rank = dimsizes(scale_dims)
+    if((scale_rank.ne.1.and.scale_rank.ne.2).or.(scale_rank.eq.2.and.scale_dims(0).ne.ncurves)) then
+      print("get_bar_scales: error: " + grt_res_name + " must either")
+      print("     be 1D, or 2D where the first dimension is equal to the number")
+      print("     of Y reference lines or curves. Will return a default of 1.")
+      return([/def_grt_scales,def_lss_scales/])
+    end if
+    nscl = scale_dims(scale_rank-1)
+    grt_scales = new((/ncurves,nptsbar/),float)
+    do nc = 0,ncurves-1
+      do ii = 0,ngrtr(nc)/5-1
+        si = ii % nscl
+        if(scale_rank.eq.1) then
+          grt_scales(nc,ii) = tmp_scale(si)
+        else
+          grt_scales(nc,ii) = tmp_scale(nc,si)
+        end if
+      end do
+    end do
+    grt_scales_set = True
+  end if
+
+  if(isatt(bres,lss_res_name)) then
+    tmp_scale := bres@$lss_res_name$
+    scale_dims := dimsizes(tmp_scale)
+    scale_rank = dimsizes(scale_dims)
+    if((scale_rank.ne.1.and.scale_rank.ne.2).or.(scale_rank.eq.2.and.scale_dims(0).ne.ncurves)) then
+      print("get_bar_scales: error: " + lss_res_name + " must either")
+      print("     be 1D, or 2D where the first dimension is equal to the number")
+      print("     of Y reference lines or curves. Will return a default of 1.")
+      return([/def_grt_scales,def_lss_scales/])
+    end if
+    nscl = scale_dims(scale_rank-1)
+    lss_scales = new((/ncurves,nptsbar/),float)
+    do nc = 0,ncurves-1
+      do ii = 0,nless(nc)/5-1
+        si = ii % nscl
+        if(scale_rank.eq.1) then
+          lss_scales(nc,ii) = tmp_scale(si)
+        else
+          lss_scales(nc,ii) = tmp_scale(nc,si)
+        end if
+      end do
+    end do
+    lss_scales_set = True
+  end if
+
+  res_name = "gsnXYBarChartFillScales"
+  if(.not.grt_scales_set.and..not.lss_scales_set.and.isatt(bres,res_name)) then
+    tmp_scale := bres@$res_name$
+    scale_dims := dimsizes(tmp_scale)
+    scale_rank = dimsizes(scale_dims)
+    if((scale_rank.ne.1.and.scale_rank.ne.2).or.(scale_rank.eq.2.and.scale_dims(0).ne.ncurves)) then
+      print("get_bar_scales: error: " + res_name + " must either")
+      print("     be 1D, or 2D where the first dimension is equal to the number")
+      print("     of Y reference lines or curves. Won't pattern fill any bars.")
+      return([/def_grt_scales,def_lss_scales/])
+    end if
+    nscl = scale_dims(scale_rank-1)
+    grt_scales = new((/ncurves,nptsbar/),integer)
+    lss_scales = new((/ncurves,nptsbar/),integer)
+    do nc = 0,ncurves-1
+      do ii = 0,ngrtr(nc)/5-1
+        si = ii % nscl
+        if(scale_rank.eq.1) then
+          grt_scales(nc,ii) = tmp_scale(si)
+        else
+          grt_scales(nc,ii) = tmp_scale(nc,si)
+        end if
+      end do
+      do ii = 0,nless(nc)/5-1
+        si = ii % nscl
+        if(scale_rank.eq.1) then
+          lss_scales(nc,ii) = tmp_scale(si)
+        else
+          lss_scales(nc,ii) = tmp_scale(nc,si)
+        end if
+      end do
+    end do
+    grt_scales_set = True
+    lss_scales_set = True
+  end if
+
+  res_name = "gsnXYBarChartFillScales2"
+  if(.not.grt_scales_set.and..not.lss_scales_set.and.isatt(bres,res_name)) then
+    tmp_scale := bres@$res_name$
+    scale_dims := dimsizes(tmp_scale)
+    scale_rank = dimsizes(scale_dims)
+    if((scale_rank.ne.1.and.scale_rank.ne.2).or.(scale_rank.eq.2.and.scale_dims(0).ne.ncurves)) then
+      print("get_bar_scales: error: " + res_name + " must either")
+      print("     be 1D, or 2D where the first dimension is equal to the number")
+      print("     of Y reference lines or curves. Won't pattern fill any bars.")
+      return([/def_grt_scales,def_lss_scales/])
+    end if
+    nscl = scale_dims(scale_rank-1)
+    grt_scales = new((/ncurves,nptsbar/),integer)
+    lss_scales = new((/ncurves,nptsbar/),integer)
+    do nc = 0,ncurves-1
+      do ii = 0,ngrtr(nc)/5-1
+        si = indgrtr(nc,ii) % nscl
+        if(scale_rank.eq.1) then
+          grt_scales(nc,ii) = tmp_scale(si)
+        else
+          grt_scales(nc,ii) = tmp_scale(nc,si)
+        end if
+      end do
+      do ii = 0,nless(nc)/5-1
+        si = indless(nc,ii) % nscl
+        if(scale_rank.eq.1) then
+          lss_scales(nc,ii) = tmp_scale(si)
+        else
+          lss_scales(nc,ii) = tmp_scale(nc,si)
+        end if
+      end do
+    end do
+    grt_scales_set = True
+    lss_scales_set = True
+  end if
+
+  res_name = "gsnXYBarChartFillScaleF"
+  if(.not.grt_scales_set.and..not.lss_scales_set.and.isatt(bres,res_name)) then
+    tmp_scale := bres@$res_name$
+    if(.not.isscalar(tmp_scale)) then
+      print("get_bar_scales: error: " + res_name + " must be a scalar.")
+      print("     Use gsnXYBarChartFillScales if you want an array of fill scales.")
+      return([/def_grt_scales,def_lss_scales/])
+    end if
+    grt_scales = conform_dims((/ncurves,nptsbar/),tmp_scale,-1)
+    lss_scales = conform_dims((/ncurves,nptsbar/),tmp_scale,-1)
+    grt_scales_set = True
+    lss_scales_set = True
+  end if
+
+  if(.not.grt_scales_set.and..not.lss_scales_set) then
+    return([/def_grt_scales,def_lss_scales/])
+  end if
+
+  return([/grt_scales,lss_scales/])
+end
+
+;**********************************************************************
+; This procedure fills the bars in a bar chart drawn from gsn_csm_xy
+; when gsnXYBarChart = True
+;**********************************************************************
+undef("fill_the_bars")
+procedure fill_the_bars(wks,xyobj,type_ref[1]:string,ncurves,nref,filled_bar_list,res2)
+local gsres,xgrtr,ygrtr,xless,yless,ngrtr,nless,indgrtr,indless,\
+bar_color_list,bar_pattern_list,bar_scales_list,bar_colors_above,\
+bar_colors_below,bar_patterns_above,bar_patterns_below,\
+bar_scales_above,bar_scales_below,ymin
+begin
+  res3 = res2
+  if(type_ref.eq."y") then
+    if(.not.isatt(res3,"gsnYRefLine")) then
+      getvalues xyobj
+        "trYMinF" : ymin
+      end getvalues
+      res3@gsnYRefLine = ymin
+    end if
+  else
+    if(.not.isatt(res3,"gsnXRefLine")) then
+      getvalues xyobj
+        "trXMinF" : xmin
+      end getvalues
+      res3@gsnXRefLine = xmin
+    end if
+  end if
+
+;--Set bar filling variables (above==right==greater,below==left=less)
+  bar_color_list   = get_bar_colors(wks,type_ref,res3,filled_bar_list)
+  bar_pattern_list = get_bar_patterns(res3,type_ref,filled_bar_list)
+  bar_scales_list  = get_bar_scales(wks,type_ref,res3,filled_bar_list)
+
+  bar_colors_above   = bar_color_list[0]
+  bar_colors_below   = bar_color_list[1]
+  bar_patterns_above = bar_pattern_list[0]
+  bar_patterns_below = bar_pattern_list[1]
+
+  bar_scales_above = bar_scales_list[0]
+  bar_scales_below = bar_scales_list[1]
+
+  xgrtr = filled_bar_list[2]
+  ygrtr = filled_bar_list[3]
+  xless = filled_bar_list[4]
+  yless = filled_bar_list[5]
+  ngrtr = filled_bar_list[6]
+  nless = filled_bar_list[7]
+
+;---Delete unneeded lists
+  delete([/bar_color_list,bar_pattern_list,bar_scales_list/])
+;
+; These resources allow you to control the look of the fill patterns
+; in the bars. You can change the fill line thickness, the density of
+; the fill pattern, the thickness of the stippled dots, or the opacity
+; of the bar colors.
+;
+  bar_outline_thickness = get_res_value(res3,"gsnXYBarChartOutlineThicknessF",1.0)
+  bar_fill_line_thickness = get_res_value(res3,"gsnXYBarChartFillLineThicknessF",1.0)
+  bar_fill_opacity = get_res_value(res3,"gsnXYBarChartFillOpacityF",1.0)
+  bar_fill_dot_size = get_res_value(res3,"gsnXYBarChartFillDotSizeF",0.0)
+
+  gsres = True
+  if(bar_outline_thickness.gt.0.and.bar_outline_thickness.ne.1) then
+    gsres@gsEdgesOn        = True
+    gsres@gsEdgeThicknessF = bar_outline_thickness
+  end if
+  gsres@gsFillLineThicknessF = bar_fill_line_thickness
+  gsres@gsFillOpacityF       = bar_fill_opacity
+  gsres@gsFillDotSizeF       = bar_fill_dot_size
+                                                 ; otherwise, you will get bars in the foreground color
+  do i=0,ncurves-1 
+    var_string = unique_string("polygons"+i)
+;---Fill above reference line.
+    if(ngrtr(i).gt.0)
+      do ii = 0,ngrtr(i)/5-1
+        gsres@gsFillColor := bar_colors_above(i,ii,:)
+        gsres@gsFillIndex = bar_patterns_above(i,ii)
+        gsres@gsFillScaleF = bar_scales_above(i,ii)
+        var_string2 = var_string + "above" + ii
+        xyobj@$var_string2$ = gsn_add_polygon(wks,xyobj,xgrtr(i,ii*5:ii*5+4), \
+                                              ygrtr(i,ii*5:ii*5+4),gsres)
+      end do
+    end if
+;---Fill below reference line.
+    if(nless(i).gt.0)
+      do ii = 0,nless(i)/5-1
+        gsres@gsFillColor := bar_colors_below(i,ii,:)
+        gsres@gsFillIndex = bar_patterns_below(i,ii)
+        gsres@gsFillScaleF = bar_scales_below(i,ii)
+        var_string2 = var_string + "below" + ii
+        xyobj@$var_string2$ = gsn_add_polygon(wks,xyobj,xless(i,ii*5:ii*5+4), \
+                                                 yless(i,ii*5:ii*5+4),gsres)
+      end do
+    end if
+  end do
+
+;---Make sure polygons get drawn first, so that XY lines are drawn on top.
+  setvalues xyobj
+    "tfPolyDrawOrder" : "Predraw"
+  end setvalues
+end
+
+
+;**********************************************************************
+; This function takes "n" Y or X curves, defined on the same set of X  ;
+; or Y points, and fills the area between each adjacent curves with    ;
+; some given color. Depending on options set by the user, the areas    ;
+; between curves can be filled differently if one is greater than      ;
+; another.                                                             ;
+;**********************************************************************
+undef("fill_between_curves")
+function fill_between_curves(wks,xyobj,xx,yy,xyres2)
+local fill_atts 
+begin
+;
+; Check if filling between curves is desired. This can be
+; specified via gsnXYFillColors, gsnXYAboveFillColors,  
+; gsnXYBelowFillColors, gsnXYLeftFillColors, gsnXYRightFillColors.
+;
+  fill_atts = (/"gsnXYFillColors", "gsnXYAboveFillColors", \
+                "gsnXYBelowFillColors","gsnXYLeftFillColors", \
+                "gsnXYRightFillColors","gsnXYFillOpacities", \
+                "gsnXYFillOpacityF"/)
+  if(.not.xyres2.or..not.any(isatt(xyres2,fill_atts))) then
+    return(xyobj)
+  end if
+  ndimsx = dimsizes(xx)
+  ndimsy = dimsizes(yy)
+  rankx  = dimsizes(ndimsx)
+  ranky  = dimsizes(ndimsy)
+
+;
+; This next requirement is mostly out of laziness. It wouldn't be that 
+; hard to let both X and Y be multi-dimensional. Or would it?
+;
+  if(rankx.ne.1.and.ranky.ne.1) then
+    print("fill_between_curves: Warning: to fill between curves, either X or Y must be 1D.")
+    return(xyobj)
+  end if
+
+;---Determine whether we're filling between Y curves or X curves.
+  if(rankx.eq.1.and.ranky.eq.2) then
+    fill_x = False
+    xi = xx
+    yi = yy
+  else
+    if(rankx.eq.2.and.ranky.eq.1) then
+      fill_x = True
+      xi = yy
+      yi = xx
+    else
+      print("fill_between_curves: Error: If filling between two curves, one set must be 2D, and the other 1D.")
+      return(xyobj)
+    end if
+  end if
+
+;---Check length of arrays.
+  dsizes_y = dimsizes(yi)
+  npts     = dimsizes(xi)
+  ncurves  = dsizes_y(0)
+
+  if(dsizes_y(1).ne.npts) then
+    print("fill_between_curves: Error: The rightmost dimension of both arrays must be the same.")
+    return(xyobj)
+  end if
+
+  if(ncurves.le.1) then
+    print("fill_between_curves: Error: The leftmost dimension of input array must be at least 2.")
+    return(xyobj)
+  end if
+
+  if(any(ismissing(xi)))
+    print("fill_between_curves: Error: The input array cannot contain any missing values")
+    return(xyobj)
+  end if
+
+;
+; Check resources. There are several possible resources:
+;    gsnXYFillColors
+;    gsnXYAboveFillColors
+;    gsnXYBelowFillColors
+;    gsnXYRightFillColors
+;    gsnXYLeftFillColors
+;    gsnXYFillOpacities
+;
+; If the first one is set, it overwrites the others. If
+; none of them are set, then no fill color will be used.
+;
+; To make things a little easier (or harder?): 
+;      above==right and below==left
+;
+  res2 = xyres2       ; Make a copy
+  if(isatt(res2,"gsnXYFillColors")) then
+    above_fill_colors = convert_color_to_rgba(wks,get_res_value(res2,"gsnXYFillColors",-1))
+    below_fill_colors = above_fill_colors
+    dum               = get_res_value(res2,"gsnXYAboveFillColors",-1)
+    dum               = get_res_value(res2,"gsnXYBelowFillColors",-1)
+    dum               = get_res_value(res2,"gsnXYRightFillColors",-1)
+    dum               = get_res_value(res2,"gsnXYLeftFillColors",-1)
+  else
+    if(fill_x) then
+      above_fill_colors = convert_color_to_rgba(wks,get_res_value(res2,"gsnXYRightFillColors",-1))
+      below_fill_colors = convert_color_to_rgba(wks,get_res_value(res2,"gsnXYLeftFillColors",-1))
+    else
+      above_fill_colors = convert_color_to_rgba(wks,get_res_value(res2,"gsnXYAboveFillColors",-1))
+      below_fill_colors = convert_color_to_rgba(wks,get_res_value(res2,"gsnXYBelowFillColors",-1))
+    end if
+  end if
+
+  nacol = dimsizes(above_fill_colors(:,0))
+  nbcol = dimsizes(below_fill_colors(:,0))
+
+;---Check for a fill opacity array. If none, then make colors fully opaque (1.0)
+  nfopacs = max((/nacol,nbcol/))
+  if(isatt(res2,"gsnXYFillOpacityF")) then
+    fill_opacs = conform_dims(nfopacs,get_res_value(res2,"gsnXYFillOpacityF",1.0),-1)
+  else if(isatt(res2,"gsnXYFillOpacities")) then
+    fill_opacs = get_res_value(res2,"gsnXYFillOpacities",1.0)
+  else
+    fill_opacs = conform_dims(nfopacs,1.0,-1)
+  end if
+  end if
+;
+; Convert input arrays to double.
+;
+  x  = new(npts,double)
+  y  = new(dsizes_y,double,1.e36)
+  x  = (/xi/)
+  y  = (/yi/)
+
+;
+; Create arrays for storing polygon points.
+;
+  first     = new(2,double)
+  last      = new(2,double)
+  polygon_x = new(2*npts+3,double)
+  polygon_y = new(2*npts+3,double)
+
+;
+; Loop through each set of two curves, filling them as we go.
+;
+  gsres = True
+  do n=0,ncurves-2
+    y1 = yi(n,:)    ; Grab the current curve
+    y2 = yi(n+1,:)  ; and the next curve.
+  
+    iacol = n % nacol
+    ibcol = n % nbcol
+;
+; Compute a delta that will be used to determine if two points are
+; actually the same point. 
+;
+    range_y1 = max(y1) - min(y1)
+    range_y2 = max(y2) - min(y2)
+
+    delta_y1 = 0.01 * range_y1
+    delta_y2 = 0.01 * range_y2
+    if(delta_y1.eq.0)
+      delta = delta_y2
+    else
+      if(delta_y2.eq.0)
+        delta = delta_y1
+      else
+        delta = min((/delta_y1,delta_y2/))
+      end if
+    end if
+
+    npoly = 0     ; Number of polygons
+;
+; First fill in polygons where y1 is above y2, and then fill in
+; polygons where y2 is above y1.
+;
+    do ab = 0,1
+      if(ab.eq.0) then
+        gsres@gsFillColor    := above_fill_colors(iacol,:)
+        gsres@gsFillOpacityF = fill_opacs(iacol)
+      else
+        y1 = (/yi(n+1,:)/)
+        y2 = (/yi(n,:)/)
+        gsres@gsFillColor    := below_fill_colors(ibcol,:)
+        gsres@gsFillOpacityF = fill_opacs(ibcol)
+      end if
+
+;---Get areas where y1 > y2.
+      y1_gt_y2 = y1.gt.y2
+
+      bpt = -1    ; Index of first point of polygon.
+      ept = -1    ; Index of last point of polygon.
+
+;---Loop through points.
+      do i=0,npts-1
+        if(bpt.lt.0)
+          if(.not.ismissing(y1_gt_y2(i)).and.y1_gt_y2(i))
+            bpt = i
+            ept = i
+          end if
+        else
+          if(.not.ismissing(y1_gt_y2(i)).and.y1_gt_y2(i))
+            ept = i
+          end if
+          if(ismissing(y1_gt_y2(i)).or..not.y1_gt_y2(i).or.ept.eq.(npts-1))
+;
+; Draw polygon. If bpt is the very first point or ept is the
+; very last point, then these are special cases we have to
+; handle separately.
+;
+            if(bpt.eq.0.or.(bpt.gt.0.and.(ismissing(y1(bpt-1)).or.\
+                                          ismissing(y2(bpt-1)).or.\
+                                          ismissing(x(bpt-1)))))
+              first(0) = (/ x(bpt) /)
+              first(1) = (/ y2(bpt)/)
+            else
+              if(fabs(y1(bpt-1)-y2(bpt-1)).le.delta)
+;
+; If the two points are within delta of each other, then we'll
+; consider them to be the same point.
+;
+                first(0) = (/  x(bpt-1) /)
+                first(1) = (/ y1(bpt-1) /)
+              else
+
+;---Otherwise, find the intersection where the two curves cross.
+                first = find_cross_xy(x(bpt-1),x(bpt),y1(bpt-1), \
+                                      y1(bpt),y2(bpt-1),y2(bpt))
+              end if
+            end if
+            if(ept.eq.(npts-1).or.(ept.lt.(npts-1).and.\ 
+                 (ismissing(y1(ept+1)).or.\
+                  ismissing(y2(ept+1)).or.\
+                  ismissing(x(ept+1)))))
+              last(0) = (/  x(ept) /)
+              last(1) = (/ y2(ept) /)
+            else
+              if(fabs(y1(ept+1)-y2(ept+1)).le.delta)
+;
+; If the two points are within delta of each other, then we'll
+; consider them to be the same point.
+;
+                last(0) = (/  x(ept+1) /)
+                last(1) = (/ y1(ept+1) /)
+              else
+;---Otherwise, find the intersection where the two curves cross.
+                last = find_cross_xy(x(ept),x(ept+1),y1(ept),y1(ept+1), \
+                                     y2(ept),y2(ept+1))
+              end if
+            end if
+;---Initialize polygon.
+            ppts  = ept - bpt + 1
+            ppts2 = ppts * 2
+            polygon_x(0)              = (/first(0)/)
+            polygon_y(0)              = (/first(1)/)
+            polygon_x(1:ppts)         = x(bpt:ept)
+            polygon_y(1:ppts)         = y1(bpt:ept)
+            polygon_x(ppts+1)         = (/last(0)/)
+            polygon_y(ppts+1)         = (/last(1)/)
+            polygon_x(ppts+2:ppts2+1) = x(ept:bpt)
+            polygon_y(ppts+2:ppts2+1) = y2(ept:bpt)
+            polygon_x(ppts2+2)        = (/first(0)/)
+            polygon_y(ppts2+2)        = (/first(1)/)
+
+;---Make sure polygons get drawn *after* the plot gets drawn.
+            if(npoly.eq.0)
+              setvalues xyobj
+                "tfPolyDrawOrder" : "Predraw"
+              end setvalues
+            end if
+;---Add polygon to XY plot.
+            var_string = unique_string("fill_polygon"+npoly)
+
+            if(fill_x) then
+              xyobj@$var_string$ = gsn_add_polygon(wks,xyobj, \
+                                                  polygon_y(0:ppts2+2), \
+                                                  polygon_x(0:ppts2+2),gsres)
+            else
+              xyobj@$var_string$ = gsn_add_polygon(wks,xyobj, \
+                                                  polygon_x(0:ppts2+2), \
+                                                  polygon_y(0:ppts2+2),gsres)
+            end if
+;---Advance polygon counter.
+            npoly = npoly + 1
+            bpt = -1            ; Reinitialize
+            ept = -1
+          end if
+        end if
+      end do
+    end do
+  end do
+
+  return(xyobj)
+end
+
+
+;***********************************************************************;
+; Function : fill_xy2                                                   ;
+;                                                                       ;
+; This function is obsolete. Use resources gsnXYFillColors,             ;
+;    gsnXYAboveFillColors, gsnXYBelowFillColors, gsnXYLeftFillColors,   ;
+;    gsnXYRightFillColors.                                              ;
+;                                                                       ;
+; This function takes as input two Y curves, defined on the same set    ;
+; of X points, and fills the area between the two curves with two       ;
+; different colors, depending on which curve is above the other one.    ;
+;                                                                       ;
+;***********************************************************************;
+undef("fill_xy2")
+function fill_xy2(wks,plot,xi[*]:numeric,yi1[*]:numeric,yi2[*]:numeric, \
+                  colora,colorb)
+local res, nx, ny1, ny2
+begin
+;
+; Check length of arrays.
+;
+  nx  = dimsizes(xi)
+  ny1 = dimsizes(yi1)
+  ny2 = dimsizes(yi2)
+
+  if(nx.ne.ny1.or.nx.ne.ny2.or.nx.lt.2) 
+    print("fill_xy2: Error: x and y arrays must be the same length and at least two elements")
+    return 
+  end if
+
+  res = True
+  res@gsnXYAboveFillColors = colora
+  res@gsnXYBelowFillColors = colorb
+
+  return(fill_between_curves(wks,plot,xi,(/yi1,yi2/),res))
+end
+
+;**********************************************************************
+; This procedure adds X or Y reference lines to an existing plot.
+;**********************************************************************
+undef("add_ref_line")
+procedure add_ref_line(wks,xyobj,axis,lines,color,pattern,thickness)
+local i, dmin, dmax, gsres, xline, yline, var_string
+begin
+  if(axis.ne."y".and.axis.ne."x") then
+    print("add_ref_line: warning, invalid type for adding reference line.")
+    return
+  end if
+  if(axis.eq."y") then
+    getvalues xyobj
+      "trXMinF"  : dmin
+      "trXMaxF"  : dmax
+    end getvalues
+    xline = (/dmin,dmax/)
+  else
+    getvalues xyobj
+      "trYMinF"  : dmin
+      "trYMaxF"  : dmax
+    end getvalues
+    yline = (/dmin,dmax/)
+  end if
+
+  gsres = True
+  do i=0,dimsizes(lines)-1
+    gsres@gsLineColor = color(i,:)
+    gsres@gsLineDashPattern = pattern(i)
+    gsres@gsLineThicknessF  = thickness(i)
+    if(axis.eq."y") then
+      yline = fspan(tofloat(lines(i)),tofloat(lines(i)),2)
+    else
+      xline = fspan(tofloat(lines(i)),tofloat(lines(i)),2)
+    end if
+    var_string = unique_string(axis+"polyline"+i)
+    xyobj@$var_string$ = gsn_add_polyline(wks,xyobj,xline,yline,gsres)
+  end do
+end
+
+;**********************************************************************
+; This procedure adds filled curves based on X/Y reference lines and
+; fill colors. The X/Y arrays have already been interpolated based
+; on where they intersect with the reference line(s).
+;**********************************************************************
+undef("fill_xy_ref_curves")
+procedure fill_xy_ref_curves(wks,xyobj,reftype,xin,yin,ncurves,nref,\
+                             npts_array,ref_line_array,\
+                             ref_greater_fill_colors,\
+                             ref_less_fill_colors)
+local xyres_tmp, i, fill_greater, fill_less, var_string
+begin
+;
+; Make sure polygons get filled before xy plot is drawn. This way,
+; any lines will be drawn *after* the fill. This makes the filled 
+; polygons look better if the lines are drawn thicker.
+;
+  xyres_tmp = True
+  xyres_tmp@tfPolyDrawOrder = "Predraw"
+  attsetvalues_check(xyobj,xyres_tmp)
+
+  fill_greater = ref_greater_fill_colors(0,:)
+  fill_less    = ref_less_fill_colors(0,:)
+  do i=0,max((/ncurves,nref/))-1
+    if(dimsizes(ref_greater_fill_colors(:,0)).gt.1)
+      fill_greater = ref_greater_fill_colors(i,:)
+    end if
+    if(dimsizes(ref_less_fill_colors(:,0)).gt.1)
+      fill_less = ref_less_fill_colors(i,:)
+    end if
+    var_string = unique_string("polygons"+i)
+    xyobj@$var_string$=fill_xy_ref(wks,xyobj,reftype, \
+                                   xin(i,0:npts_array(i)-1), \
+                                   yin(i,0:npts_array(i)-1),\
+                                   ref_line_array(i),fill_greater,\
+                                   fill_less)
+  end do
+end
+
+;**********************************************************************
+; This procedure adds special "30N", "20E", "EQ" type of labels
+; to the X and/or Y axis if it detects that xx or yy are valid
+; latitude or longitude arrays.
+;**********************************************************************
+undef("add_latlon_labels_xy_plot")
+procedure add_latlon_labels_xy_plot(xy_obj,xx,yy,res2)
+begin
+  res2@gsnXYPlot = True
+
+;---X axis
+  res2@gsnXAxis = True
+  add_latlon_labels(xy_obj,xx,res2)
+  delete(res2@gsnXAxis)
+
+;---Y axis
+  res2@gsnYAxis = True
+  add_latlon_labels(xy_obj,yy,res2)
+
+  delete([/res2@gsnYAxis,res2@gsnXYPlot/])
+end
 
 ;***********************************************************************;
 ; Function : gsn_csm_xy                                                 ;
@@ -4396,16 +5839,23 @@ undef("gsn_csm_xy")
 function gsn_csm_xy(wks:graphic,x:numeric,y:numeric,resources:logical)
 local res, xy_object, res2, xfontf, yfontf, font_height, calldraw, nlines, \
 callframe, left_string, center_string, right_string, main_zone, ncurves, \
-yabove, ybelow, ya_ind, yb_ind, xinterp, yinterp, bar_chart
+xinterp, yinterp, bar_chart
 begin
 
 ; Initialize.
     main_zone     = 2         ; Zone for main title (may change later)
-    xref_line_on  = False     ; X reference line flag
-    yref_line_on  = False     ; Y reference line flag
-    yref_fill_on  = False     ; Whether to fill above/below Y ref line.
-    bar_chart     = False     ; Whether we want bars
-    fill_xy_res   = False     ; Whether we want to fill b/w curves
+; Whether an X or Y reference line is desired
+    xref_line_on  = False
+    yref_line_on  = False
+; Whether to fill curves around a reference line
+    yref_fill_on       = False
+    yref_above_fill_on = False
+    yref_below_fill_on = False
+    xref_fill_on       = False
+    xref_right_fill_on = False
+    xref_left_fill_on  = False
+    bar_chart     = False     ; Whether we want bars or curves
+
     res2          = get_resources(resources)
 ;
 ; Write data and plot resource information to a file so we can 
@@ -4433,18 +5883,24 @@ begin
     ndimsy = dimsizes(dimsizes(y))
     ndimsx = dimsizes(dimsizes(x))
 
-    if(ndimsy.eq.1)
-      ncurves = 1
-      npts    = dimsizes(y)
-    else
-      ncurves = dimsizes(y(:,0))
-      npts    = dimsizes(y(0,:))
+    if(ndimsx.ne.1.and.ndimsy.ne.1.and.ndimsx.ne.2.and.ndimsy.ne.2)
+      print("gsn_csm_xy: Fatal: X and Y must have the same dimensions sizes, or one must be one-dimensional and both have the same rightmost dimension.")
+      exit
     end if
 
     if(ndimsx.eq.1)
-      nptsx = dimsizes(x)
+      nptsx    = dimsizes(x)
+      ncurvesx = 1
     else
-      nptsx = dimsizes(x(0,:))
+      nptsx    = dimsizes(x(0,:))
+      ncurvesx = dimsizes(x(:,0))
+    end if
+    if(ndimsy.eq.1)
+      nptsy    = dimsizes(y)
+      ncurvesy = 1
+    else
+      nptsy    = dimsizes(y(0,:))
+      ncurvesy = dimsizes(y(:,0))
     end if
 ;
 ; Test dimensions. They must both either be the same, or have the
@@ -4452,8 +5908,9 @@ begin
 ;
     if( (ndimsx.gt.1.and.ndimsy.gt.1.and.(ndimsx.ne.ndimsy.or. \
          .not.all(dimsizes(x).eq.dimsizes(y)))).or.\
-        ((ndimsx.eq.1.or.ndimsy.eq.1).and.nptsx.ne.npts))
+        ((ndimsx.eq.1.or.ndimsy.eq.1).and.nptsx.ne.nptsy))
       print("gsn_csm_xy: Fatal: X and Y must have the same dimensions sizes, or one must be one-dimensional and both have the same rightmost dimension.")
+      exit
     end if
 
 ; This section tests for more special resources: those that start
@@ -4467,199 +5924,39 @@ begin
         main_zone     = main_zone+1 ; Zone for main title
       end if
 
-; Check if filling between curves is desired. This can be
-; specified via gsnXYFillColors, gsnXYAboveFillColors,  
-; gsnXYBelowFillColors, gsnXYLeftFillColors, gsnXYRightFillColors.
+;---Check if gsnYRefLine set.
+      yref_line_list = get_ref_line_options(wks,x,y,"y",ncurvesy,res2)
+      yref_line = yref_line_list[0]
+      yref_line_on = yref_line_list[1]
+      yref_line_color = yref_line_list[2]
+      yref_line_pattern = yref_line_list[3]
+      yref_line_thickness = yref_line_list[4]
+      yref_above_fill_on = yref_line_list[5]
+      yref_below_fill_on = yref_line_list[6]
+      yref_above_fill_color = yref_line_list[7]
+      yref_below_fill_color = yref_line_list[8]
+      nyref = dimsizes(yref_line)
+      yref_fill_on = yref_above_fill_on.or.yref_below_fill_on
+      delete(yref_line_list)
 
-      fill_atts = (/"gsnXYFillColors", "gsnXYAboveFillColors", \
-                    "gsnXYBelowFillColors","gsnXYLeftFillColors", \
-                    "gsnXYRightFillColors","gsnXYFillOpacities", \
-                    "gsnXYFillOpacityF"/)
-      if(any(isatt(res2,fill_atts))) then
-;
-; Make sure you collect the appropriate resources to pass
-; to fill_bw_xy later.
-;
-        fill_xy_res = True
-        do na = 0,dimsizes(fill_atts)-1
-          if(isatt(res2,fill_atts(na))) then
-            fill_xy_res@$fill_atts(na)$ = get_res_value(res2,fill_atts(na),1)
-          end if
-        end do
-;
-; This next requirement is mostly out of laziness. It wouldn't be that 
-; hard to let both X and Y be multi-dimensional. Or would it?
-;
-        if(ndimsx.ne.1.and.ndimsy.ne.1) then
-          print("gsn_csm_xy: Warning: to fill between curves, either X or Y must be 1D.")
-          fill_xy_res = False
-        end if
-      end if
+;---Check if gsnXRefLine set.
+      xref_line_list = get_ref_line_options(wks,x,y,"x",ncurvesx,res2)
+      xref_line = xref_line_list[0]
+      xref_line_on = xref_line_list[1]
+      xref_line_color = xref_line_list[2]
+      xref_line_pattern = xref_line_list[3]
+      xref_line_thickness = xref_line_list[4]
+      xref_right_fill_on = xref_line_list[5]
+      xref_left_fill_on = xref_line_list[6]
+      xref_right_fill_color = xref_line_list[7]
+      xref_left_fill_color = xref_line_list[8]
+      nxref = dimsizes(xref_line)
+      xref_fill_on = xref_right_fill_on.or.xref_left_fill_on
+      delete(xref_line_list)
 
-; Check if gsnYRefLine set.
-
-      if(isatt(res2,"gsnYRefLine"))
-        yref_line_on = True
-        yref_line    = res2@gsnYRefLine
-        nyref        = dimsizes(yref_line)
-        delete(res2@gsnYRefLine)
-;
-; Determine color of fill above reference line(s).
-;
-        if(isatt(res2,"gsnAboveYRefLineColor"))
-          if(.not.(dimsizes(res2@gsnAboveYRefLineColor).eq.nyref.or.\
-                   dimsizes(res2@gsnAboveYRefLineColor).eq.1))
-            print("gsn_csm_xy: Fatal: there must either be an above-line fill color for every reference line, or one global above-line fill color specified")
-            return
-          end if
-          yref_line_above = res2@gsnAboveYRefLineColor
-          yref_fill_on    = True
-          delete(res2@gsnAboveYRefLineColor)
-        else
-          if(any(isatt(res2,(/"gsnXYBarChartPatterns", \
-                              "gsnXYBarChartPatterns2", \
-                              "gsnAboveYRefLineBarPatterns"/)))) then
-            yref_line_above = 1    ; defaults to foreground.
-          else
-            yref_line_above = -1    ; defaults to no fill.
-          end if
-        end if
-;
-; Determine color of fill below reference line(s).
-;
-        if(isatt(res2,"gsnBelowYRefLineColor"))
-          if(.not.(dimsizes(res2@gsnBelowYRefLineColor).eq.nyref.or.\
-                   dimsizes(res2@gsnBelowYRefLineColor).eq.1))
-            print("gsn_csm_xy: Fatal: there must either be an below-line fill color for every reference line, or one global below-line fill color specified ")
-            return
-          end if
-          yref_line_below = get_res_value(res2,"gsnBelowYRefLineColor",1)
-          yref_fill_on    = True
-        else
-          if(any(isatt(res2,(/"gsnXYBarChartPatterns", \
-                              "gsnXYBarChartPatterns2", \
-                              "gsnBelowYRefLineBarPatterns"/)))) then
-            yref_line_below = 1    ; defaults to foreground.
-          else
-            yref_line_below = -1    ; defaults to no fill.
-          end if
-        end if
-;
-; If yref_fill_on is True, and we have more than one curve, then there
-; should be the same number of reference lines as curves.
-;
-        if(yref_fill_on.and.ncurves.gt.1.and.ncurves.ne.nyref.and.nyref.ne.1)
-          print("gsn_csm_xy: Fatal: if you plan to fill above and/or below reference lines, then the number of reference lines must either equal the number")
-          print("of curves, or be one.")
-          return
-        end if
-;
-; Determine color of Y reference line(s).
-;
-        set_yref_line_color = False
-        if(isatt(res2,"gsnYRefLineColors"))
-          yref_line_color = get_res_value(res2,"gsnYRefLineColors","foreground")
-          set_yref_line_color = True
-        else
-          if(isatt(res2,"gsnYRefLineColor"))
-            yref_line_color = get_res_value(res2,"gsnYRefLineColor","foreground")
-            set_yref_line_color = True
-          else
-            yref_line_color = "foreground"
-          end if
-        end if
-        if(set_yref_line_color) then
-          if(.not.(dimsizes(yref_line_color).eq.nyref.or.\
-                   dimsizes(yref_line_color).eq.1))
-            print("gsn_csm_xy: Warning: you must specify either one Y reference line color")
-            print("or the same number of colors as there are reference lines.")
-            print("Will use the foreground color.") 
-            yref_line_color = "foreground"
-          end if
-        end if
-;
-; Determine dash pattern of Y reference line(s).
-;
-        if(isatt(res2,"gsnYRefLineDashPattern"))
-          yref_line_pattern = res2@gsnYRefLineDashPattern(0)
-          delete(res2@gsnYRefLineDashPattern)
-        else
-          if(isatt(res2,"gsnYRefLineDashPatterns"))
-            yref_line_pattern = res2@gsnYRefLineDashPatterns
-            delete(res2@gsnYRefLineDashPatterns)
-            if(.not.(dimsizes(yref_line_pattern).eq.nyref.or.\
-                     dimsizes(yref_line_pattern).eq.1))
-              print("gsn_csm_xy: Warning: you must specify either one Y reference line dash pattern")
-              print("or the same number of dash patterns as there are reference lines.")
-              print("Will use a solid line.") 
-              yref_line_pattern = 0  ; defaults to solid
-            end if
-          else
-            yref_line_pattern = 0  ; defaults to solid
-          end if
-        end if
-;
-; Determine thickness of Y reference line(s).
-;
-        if(isatt(res2,"gsnYRefLineThicknessF"))
-          yref_line_thickness = res2@gsnYRefLineThicknessF(0)
-          delete(res2@gsnYRefLineThicknessF)
-        else
-          if(isatt(res2,"gsnYRefLineThicknesses"))
-            yref_line_thickness = res2@gsnYRefLineThicknesses
-            delete(res2@gsnYRefLineThicknesses)
-            if(.not.(dimsizes(yref_line_thickness).eq.nyref.or.\
-                     dimsizes(yref_line_thickness).eq.1))
-              print("gsn_csm_xy: Warning: you must specify either one Y reference line thickness")
-              print("or the same number of line thicknesses as there are reference lines.")
-              print("Will use a thickness of 1.") 
-              yref_line_thickness = 1.0
-            end if
-          else
-            yref_line_thickness = 1.0
-          end if
-        end if
-      end if                            ; Check if gsnYRefLine set.
-;
-; Check if we want a bar chart.
-;
+;---Check if we want a bar chart.
       bar_chart        = get_res_value(res2,"gsnXYBarChart",False)
       bar_outline_only = get_res_value(res2,"gsnXYBarChartOutlineOnly",False)
-
-      if(bar_chart.and..not.bar_outline_only)
-        if(.not.yref_line_on) then
-;
-; If no ref line specified, but bar fill is on, then set the reference
-; line to the minimum y value.
-;
-          yref_line           = get_res_value_keep(res2,"trYMinF",min(y))
-          nyref               = 1 
-          yref_line_on        = True
-          yref_line_color     = "foreground"
-          yref_line_pattern   = 0
-          yref_line_thickness = 1.
-        else
-          if((ncurves.gt.1.and.nyref.gt.1.and.ncurves.ne.nyref).or. \
-             (ncurves.eq.1.and.nyref.ne.1))
-            print("gsn_csm_xy: Fatal: if you plan to draw a bar chart with values above")
-            print("and/or below reference lines, then the number of reference lines")
-            print("must either equal the number of curves, or be one.")
-            return
-          end if
-        end if          ; Check for Y ref line.
-      end if            ; Check for bar chart settage.
-
-; Check if gsnXRefLine set.
-
-      if(isatt(res2,"gsnXRefLine"))
-        xref_line_on = True
-        xref_line    = get_res_value(res2,"gsnXRefLine",0.)
-        nxref        = dimsizes(xref_line)
-
-        xref_line_color     = get_res_value(res2,"gsnXRefLineColor","foreground")
-        xref_line_pattern   = get_res_value(res2,"gsnXRefLineDashPattern",0)
-        xref_line_thickness = get_res_value(res2,"gsnXRefLineThicknessF",1.)
-      end if
 
 ; Check for existence of the left, center, and right subtitles.
 
@@ -4667,17 +5964,6 @@ begin
       if(left_string.or.center_string.or.right_string)
         main_zone   = main_zone+1
       end if
-;
-; These resources allow you to control the look of the fill patterns
-; in the bars. You can change the fill line thickness, the density of
-; the fill pattern, the thickness of the stippled dots, or the opacity
-; of the bar colors.
-;
-      bar_outline_thickness = get_res_value(res2,"gsnXYBarChartOutlineThicknessF",1.0)
-      bar_fill_line_thickness = get_res_value(res2,"gsnXYBarChartFillLineThicknessF",1.0)
-      bar_fill_opacity = get_res_value(res2,"gsnXYBarChartFillOpacityF",1.0)
-      bar_fill_scale = get_res_value(res2,"gsnXYBarChartFillScaleF",1.0)
-      bar_fill_dot_size = get_res_value(res2,"gsnXYBarChartFillDotSizeF",0.0)
     end if                  ; Done checking special resources.
 
     res2          = True
@@ -4688,388 +5974,94 @@ begin
 ; If user explicitly sets X or Y tick marks, then don't label the X 
 ; or Y axis automatically.
 
-    if(check_attr(res2,"tmXBMode","Explicit",True).or.\
-       check_attr(res2,"tmXBMode",2,True))
+    if(check_attr_enum_value(res2,"tmXBMode","Explicit"))
       set_attr(res2,"tiXAxisString","")
     end if
 
-    if(check_attr(res2,"tmYLMode","Explicit",True).or.\
-       check_attr(res2,"tmYLMode",2,True))
+    if(check_attr_enum_value(res2,"tmYLMode","Explicit"))
       set_attr(res2,"tiYAxisString","")
     end if
-
 ;
 ; The following code is going to create new X,Y arrays, depending
 ; on whether the user wants:
 ;
-;   - a regular XY plot
-;   - a regular XY plot with curves above and below a given reference
-;     line filled in
-;   - a bar plot without any fill
-;   - a bar plot with filling above and below a given Y reference value.
+;   1a. A regular XY plot with curves above/below a given
+;       reference line filled in.
+;   1b. A regular XY plot with curves left/right a given
+;       reference line filled in.
+;   2.  A bar plot without any fill.
+;   3.  A bar plot with filling above/below a given Y reference value.
+;   4.  A regular XY plot.
 
-;
-; This is the regular XY plot with the curve above and below a given
+;----------------------------------------------------------------------
+; 1a. A regular XY plot with the curve above and below a given
 ; reference line filled in with some color.
-;
-    if(yref_fill_on.and..not.bar_chart) then
-;
-; Create new X and Y arrays to hold new data values.  Wherever the curve
-; crosses the reference line, an interpolation needs to be done to create 
-; a point *on* that reference line.
-;
-      xinterp = new((/nyref,2*npts/),double,1e36)
-      yinterp = new((/nyref,2*npts/),double,1e36)
-
-      copy_var_atts(x,xinterp,"")
-      copy_var_atts(y,yinterp,"")
-
-      new_npts = ref_line_interp(x,y,xinterp,yinterp,yref_line)
-    else
-      if(bar_chart) then
-;
-; This is the bar XY plot with outlined bars only.
-;
-        if(bar_outline_only)
-;
-; For each old y point, we need two new y points to represent
-; the horizontal line.
-;
-          nyb = 2 * (npts-1) + 1
-
-          yinterp = new((/ncurves,nyb/),double,1e36)
-          xinterp = new((/ncurves,nyb/),double,1e36)
-
-          copy_var_atts(x,xinterp,"")
-          copy_var_atts(y,yinterp,"")
-
-          outlined_bars(x,y,xinterp,yinterp)
-        else
-;
-; This is the bar XY plot with filled bars.
-;
-; Get bar widths.  They are either set by user via a resource, or 
-; from the smallest dx.
-;
-          bar_widths = get_bar_widths(x,ncurves,res2)
-          if(any(ismissing(bar_widths)).or.any(bar_widths.le.0))
-            print("gsn_csm_xy: Fatal: The x array is not monotonically increasing.")
-            print("Cannot draw a bar chart.")
-            return
-          end if
-;---Special test for just one point.
-        if(npts.eq.1) then
-          if(isatt(y,"_FillValue")) then
-            ybarmsg = y@_FillValue
-          else
-            ybarmsg = 1e20
-          end if
-;---If just one point, add some dummy missing vals before and after.
-          xbar = (/x-bar_widths,x,x+bar_widths/)
-          ybar = (/ybarmsg,y,ybarmsg/)
-          nptsbar = 3
-          ybar@_FillValue = ybarmsg
-         else
-           xbar = x
-           ybar = y
-           nptsbar = npts
-        end if
-;
-; Figure out if we want to fill bars.  Three resources can be used to
-; specify fill colors, in this order:
-;
-;     gsnAbove/BelowYRefLineBarColors     gsnAbove/BelowYRefLineBarPatterns
-;     gsnXYBarChartColors                 gsnXYBarChartPatterns
-;     gsnXYBarChartColors2                gsnXYBarChartPatterns2
-;
-          mlt_above_bar_colors = False
-          mlt_below_bar_colors = False
-          mlt_above_bar_pttrns = False
-          mlt_below_bar_pttrns = False
-          mlt_above_bar_scales = False
-          mlt_below_bar_scales = False
-          colors2              = False      ; Flag to indicate whether the
-          pttrns2              = False      ; 3rd resource is being used.
-;
-; First check for above reference line bar fill colors.
-;
-          if(isatt(res2,"gsnAboveYRefLineBarColors")) then
-            yref_fill_on         = True
-            mlt_above_bar_colors = True
-            bar_colors_above = get_res_value(res2,"gsnAboveYRefLineBarColors",1)
-;
-; If gsnXYBarChartColors or gsnXYBarChartColors2 are set, then
-; delete them.
-;
-            if(isatt(res2,"gsnXYBarChartColors")) then
-              delete(res2@gsnXYBarChartColors)
-            end if
-            if(isatt(res2,"gsnXYBarChartColors2")) then
-              delete(res2@gsnXYBarChartColors2)
-            end if
-          end if  
-;
-; Now check for below reference line bar fill colors.
-;
-          if(isatt(res2,"gsnBelowYRefLineBarColors")) then
-            yref_fill_on         = True
-            mlt_below_bar_colors = True
-            bar_colors_below = get_res_value(res2,"gsnBelowYRefLineBarColors",1)
-;
-; If gsnXYBarChartColors and/or gsnXYBarChartColors2 are set,
-; then delete them.
-;
-            if(isatt(res2,"gsnXYBarChartColors")) then
-              delete(res2@gsnXYBarChartColors)
-            end if
-            if(isatt(res2,"gsnXYBarChartColors2")) then
-              delete(res2@gsnXYBarChartColors2)
-            end if
-          end if  
-;
-; If neither gsnBelow/AboveYRefLineBarColors were set, then the
-; second choice is to check for gsnXYBarChartColors.
-;
-          if(isatt(res2,"gsnXYBarChartColors")) then
-            yref_fill_on         = True
-            mlt_above_bar_colors = True
-            mlt_below_bar_colors = True
-            bar_colors_above = get_res_value(res2,"gsnXYBarChartColors",1)
-            bar_colors_below = bar_colors_above
-;
-; If gsnXYBarChartColors2 is set, then delete it.
-;
-            if(isatt(res2,"gsnXYBarChartColors2")) then
-              delete(res2@gsnXYBarChartColors2)
-            end if
-          end if
-
-;
-; If none of gsnBelow/AboveYRefLineBarColors/gsnXYBarChartColors were
-; set, then the third choice is to use gsnXYBarChartColors2.
-;
-          if(isatt(res2,"gsnXYBarChartColors2")) then
-            colors2              = True
-            yref_fill_on         = True
-            mlt_above_bar_colors = True
-            mlt_below_bar_colors = True
-            bar_colors_above = get_res_value(res2,"gsnXYBarChartColors2",1)
-            bar_colors_below = bar_colors_above
-          end if
-;
-; Now that we've exhausted all the possible ways that bar colors can
-; be set for the above ref line, check that the array is a valid size.
-;
-          if(mlt_above_bar_colors) then
-            bac_rank = dimsizes(dimsizes(bar_colors_above))
-            if(bac_rank.gt.2.or. \
-              (bac_rank.eq.2.and.dimsizes(bar_colors_above(:,0)).ne.nyref)) then
-              print("gsn_csm_xy: Fatal: The resource for specifying bar colors must either be 1D, or 2D where the first dimension is equal to the number of Y reference lines or curves.")
-              print("Will not fill your bar chart.")
-              mlt_above_bar_colors = False
-            end if            
-          end if
-          if(mlt_below_bar_colors) then
-            bbc_rank = dimsizes(dimsizes(bar_colors_below))
-            if(bbc_rank.gt.2.or. \
-              (bbc_rank.eq.2.and.dimsizes(bar_colors_below(:,0)).ne.nyref)) then
-              print("gsn_csm_xy: Fatal: The resource for specifying bar colors must either be 1D, or 2D where the first dimension is equal to the number of Y reference lines or curves.")
-              print("Will not fill your bar chart.")
-              mlt_below_bar_colors = False
-            end if            
-          end if
-;
-; Check for above reference line fill patterns.
-;
-          if(isatt(res2,"gsnAboveYRefLineBarPatterns")) then
-            yref_fill_on         = True
-            mlt_above_bar_pttrns = True
-            bar_pttrns_above = get_res_value(res2,"gsnAboveYRefLineBarPatterns",1)
-;
-; If gsnXYBarChartPatterns or gsnXYBarChartPatterns2 are set,
-; then delete them.
-;
-            if(isatt(res2,"gsnXYBarChartPatterns")) then
-              delete(res2@gsnXYBarChartPatterns)
-            end if
-            if(isatt(res2,"gsnXYBarChartPatterns2")) then
-              delete(res2@gsnXYBarChartPatterns2)
-            end if
-          end if  
-;
-; Now check for below reference line fill patterns.
-;
-          if(isatt(res2,"gsnBelowYRefLineBarPatterns")) then
-            yref_fill_on         = True
-            mlt_below_bar_pttrns = True
-            bar_pttrns_below = get_res_value(res2,"gsnBelowYRefLineBarPatterns",1)
-;
-; If gsnXYBarChartPatterns or gsnXYBarChartPatterns2 are set,
-; then delete them.
-;
-            if(isatt(res2,"gsnXYBarChartPatterns")) then
-              delete(res2@gsnXYBarChartPatterns)
-            end if
-            if(isatt(res2,"gsnXYBarChartPatterns2")) then
-              delete(res2@gsnXYBarChartPatterns2)
-            end if
-          end if  
-
-;
-; If the gsnAbove/BelowYRefLineBarPatterns resources are not set, then
-; the second choice is to use gsnXYBarChartPatterns.
-;
-          if(isatt(res2,"gsnXYBarChartPatterns")) then
-            yref_fill_on         = True
-            mlt_above_bar_pttrns = True
-            mlt_below_bar_pttrns = True
-            bar_pttrns_above = get_res_value(res2,"gsnXYBarChartPatterns",1)
-            bar_pttrns_below = bar_pttrns_above
-;
-; If gsnXYBarChartPatterns2 is set, then delete it.
-;
-            if(isatt(res2,"gsnXYBarChartPatterns2")) then
-              delete(res2@gsnXYBarChartPatterns2)
-            end if
-          end if  
-;
-; If gsnAbove/BelowYRefLineBarPatterns and gsnXYBarChartPatterns are
-; not set, then the third choice is to use gsnXYBarChartPatterns2.
-;
-          if(isatt(res2,"gsnXYBarChartPatterns2")) then
-            pttrns2              = True
-            yref_fill_on         = True
-            mlt_above_bar_pttrns = True
-            mlt_below_bar_pttrns = True
-            bar_pttrns_above = get_res_value(res2,"gsnXYBarChartPatterns2",1)
-            bar_pttrns_below = bar_pttrns_above
-          end if  
-;
-; Now that we've exhausted all the possible ways that bar patterns can
-; be set for the above ref line, check that the array is a valid size.
-;
-          if(mlt_above_bar_pttrns) then
-            bap_rank = dimsizes(dimsizes(bar_pttrns_above))
-            if(bap_rank.gt.2.or. \
-              (bap_rank.eq.2.and.dimsizes(bar_pttrns_above(:,0)).ne.nyref)) then
-              print("gsn_csm_xy: Fatal: The resource for specifying bar patterns must either be 1D, or 2D where the first dimension is equal to the number of Y reference lines or curves.")
-              print("Will not fill your bar chart.")
-              mlt_above_bar_pttrns = False
-            end if            
-          end if
-          if(mlt_below_bar_pttrns) then
-            bbp_rank = dimsizes(dimsizes(bar_pttrns_below))
-            if(bbp_rank.gt.2.or. \
-              (bbp_rank.eq.2.and.dimsizes(bar_pttrns_below(:,0)).ne.nyref)) then
-              print("gsn_csm_xy: Fatal: The resource for specifying bar patterns must either be 1D, or 2D where the first dimension is equal to the number of Y reference lines or curves.")
-              print("Will not fill your bar chart.")
-              mlt_below_bar_pttrns = False
-            end if            
-          end if
-;
-; Check for fill scales above and below.
-;
-          if(isatt(res2,"gsnAboveYRefLineBarFillScales")) then
-            mlt_above_bar_scales = True
-            bar_scales_above = get_res_value(res2,"gsnAboveYRefLineBarFillScales",1)
-          end if  
-          if(isatt(res2,"gsnBelowYRefLineBarFillScales")) then
-            mlt_below_bar_scales = True
-            bar_scales_below = get_res_value(res2,"gsnBelowYRefLineBarFillScales",1)
-          end if  
-
-;
-; Loop across curves and figure out which points are above, below,
-; and equal to the references lines.  First create arrays to hold points
-; above, below, and equal to reference lines.
-;
-          xabove = new((/ncurves,5*nptsbar/),double,1e36)
-          yabove = new((/ncurves,5*nptsbar/),double,1e36)
-          xbelow = new((/ncurves,5*nptsbar/),double,1e36)
-          ybelow = new((/ncurves,5*nptsbar/),double,1e36)
-          xequal = new((/ncurves,5*nptsbar/),double,1e36)
-          yequal = new((/ncurves,5*nptsbar/),double,1e36)
-;
-; Arrays to hold number of points in each set of above/below points,
-; and the index values where points fall above, below, and equal
-; to the Y ref value.
-;
-          nabove   = new(ncurves,integer)
-          nbelow   = new(ncurves,integer)
-          nequal   = new(ncurves,integer)
-          indabove = new((/ncurves,nptsbar/),integer)
-          indbelow = new((/ncurves,nptsbar/),integer)
-          indequal = new((/ncurves,nptsbar/),integer)
-;
-; Fill in values for filled bars (that will be filled later).
-;
-          filled_bars(xbar,ybar,xabove,yabove,xbelow,ybelow,xequal,yequal, \
-                      nabove,nbelow,nequal,indabove,indbelow,indequal, \
-                      yref_line,bar_widths)
-;
-; Combine the above/below/equal arrays into one X/Y array so that we can
-; pass to gsn_xy routine. Make the 5th point missing, since the 5th point
-; closes the polygon, and we only want an outline here.
-;
-          na_max   = max(nabove)
-          nb_max   = max(nbelow)
-          ne_max   = max(nequal)
-          nabe_max = na_max + nb_max + ne_max
-
-          if(na_max.le.0.and.nb_max.le.0)
-            print("gsn_csm_xy: Fatal: There are no values above or below the chosen reference line.")
-            print("Cannot draw a bar chart.")
-            xinterp = x
-            yinterp = y
-          else
-            ncurves3 = 3*ncurves
-            xinterp  = new((/ncurves3,nabe_max/),double,xabove@_FillValue)
-            yinterp  = new((/ncurves3,nabe_max/),double,yabove@_FillValue)
-
-            copy_var_atts(xbar,xinterp,"")
-            copy_var_atts(ybar,yinterp,"")
-
-            if(na_max.gt.0)
-              xinterp(0:ncurves3-1:3,0:na_max-1)   = xabove(:,0:na_max-1)
-              yinterp(0:ncurves3-1:3,0:na_max-1)   = yabove(:,0:na_max-1)
-              yinterp(0:ncurves3-1:3,4:na_max-1:5) = yinterp@_FillValue
-            end if
-            if(nb_max.gt.0)
-              xinterp(1:ncurves3-1:3,0:nb_max-1)   = xbelow(:,0:nb_max-1)
-              yinterp(1:ncurves3-1:3,0:nb_max-1)   = ybelow(:,0:nb_max-1)
-              yinterp(1:ncurves3-1:3,4:nb_max-1:5) = yinterp@_FillValue
-            end if
-            if(ne_max.gt.0)
-              xinterp(2:ncurves3-1:3,0:ne_max-1)   = xequal(:,0:ne_max-1)
-              yinterp(2:ncurves3-1:3,0:ne_max-1)   = yequal(:,0:ne_max-1)
-              yinterp(2:ncurves3-1:3,4:ne_max-1:5) = yinterp@_FillValue
-            end if
+;----------------------------------------------------------------------
+    if(.not.bar_chart.and.yref_fill_on) then
+      interp_list = ref_line_interp(x,y,yref_line,"y")
+      xinterp  = interp_list[0]
+      yinterp  = interp_list[1]
+      new_yref_line = interp_list[2]
+      new_npts = interp_list[3]
+      delete(interp_list)
+    end if
+;----------------------------------------------------------------------
+; 1b. A regular XY plot with the curve to the right and left of a
+; given reference line filled in with some color.
+;----------------------------------------------------------------------
+    if(.not.bar_chart.and.xref_fill_on) then
+      interp_list = ref_line_interp(x,y,xref_line,"x")
+      xinterp  = interp_list[0]
+      yinterp  = interp_list[1]
+      new_xref_line = interp_list[2]
+      new_npts = interp_list[3]
+      delete(interp_list)
+    end if
+    if(bar_chart.and.bar_outline_only) then
+;----------------------------------------------------------------------
+; 2. A bar XY plot with outlined bars only.
+;----------------------------------------------------------------------
+      interp_list = outlined_bars(x,y)
+      xinterp  = interp_list[0]
+      yinterp  = interp_list[1]
+      delete(interp_list)
+    end if
+    if(bar_chart.and..not.bar_outline_only)
+;----------------------------------------------------------------------
+; 3. A bar plot with filled bars.
+;----------------------------------------------------------------------
+      if(xref_fill_on) then
+        filled_bar_list = filled_bars_interp(x,y,"x",xref_line,res2)
+      else
+        filled_bar_list = filled_bars_interp(x,y,"y",yref_line,res2)
+      end if
+      xinterp = filled_bar_list[0]
+      yinterp = filled_bar_list[1]
 ;
 ; Make sure all lines are solid, and not dashed as is the default
 ; with the second curve drawn.
 ; 
-            res2@xyDashPatterns = get_res_value(res2,"xyDashPatterns",0)
-          end if
-        end if
-      else
-;
-; This is just a regular XY plot.
-;
-        xinterp = x
-        yinterp = y
-      end if
+      res2@xyDashPatterns = get_res_value(res2,"xyDashPatterns",0)
     end if
-
-    if(xref_line_on)
+    if(.not.any((/yref_fill_on,xref_fill_on,bar_chart/))) then
+;----------------------------------------------------------------------
+;  4. A regular XY plot
+;----------------------------------------------------------------------
+      xinterp = x
+      yinterp = y
+    end if    ; if bar_chart
+;
+; Force the X or Y min/max values to be that of the data,
+; if a reference line is drawn.
+;
+    if(xref_line_on) then
       set_attr(res2,"trYMinF",min(yinterp))
       set_attr(res2,"trYMaxF",max(yinterp))
     end if
-
-    if(yref_line_on)
+    if(yref_line_on) then
       set_attr(res2,"trXMinF",min(xinterp))
       set_attr(res2,"trXMaxF",max(xinterp))
     end if
-
 ;
 ; If user sets lgLabelFontHeightF, then lgAutoManage needs to
 ; be False in order for this resource to have any affect.
@@ -5078,301 +6070,46 @@ begin
       set_attr(res2,"lgAutoManage",False)
     end if
 
-; Create XY plot
-    xyres = get_res_ne(res2,(/"tx"/))
+;---Create XY plot
+    xyres = get_res_ne(res2,(/"tx","gsnXY","gsnYRef","gsnXRef",\
+                              "gsnAbove","gsnBelow","gsnRight","gsnLeft"/))
+
     xy_object = gsn_xy(wks,xinterp,yinterp,xyres)
-   
-; Fill between two curves if desired
-    if(fill_xy_res) then
-      xy_object = fill_bw_xy(wks,xy_object,xinterp,yinterp,fill_xy_res)
+;---Fill between two curves if desired
+    xy_object = fill_between_curves(wks,xy_object,x,y,res2)
+
+;---Add lat/lon labels to X/Y axes if appropriate units exist.
+    add_latlon_labels_xy_plot(xy_object,x,y,res2)
+
+;---Fill above/below/left/right Y/X reference line. 
+    if(yref_fill_on.and..not.bar_chart) then
+      fill_xy_ref_curves(wks,xy_object,"y",xinterp,yinterp,ncurvesy,\
+                         nyref,new_npts,new_yref_line,\
+                         yref_above_fill_color,yref_below_fill_color)
     end if
-
-; Add lat/lon labels to X/Y axes if appropriate units exist.
-
-    res2@gsnXYPlot = True
-    res2@gsnXAxis = True
-
-    add_latlon_labels(xy_object,x,res2)
-    delete(res2@gsnXAxis)
-    res2@gsnYAxis = True
-    add_latlon_labels(xy_object,y,res2)
-    delete(res2@gsnYAxis)
-    delete(res2@gsnXYPlot)
-
-; Fill above/below Y reference line.
-
-    if(yref_fill_on.and..not.bar_chart)
-;
-; Make sure polygons get filled before xy plot is drawn. This way,
-; any lines will be drawn *after* the fill. This makes the filled 
-; polygons look better if the lines are drawn thicker.
-;
-      xyres_tmp = True
-      xyres_tmp@tfPolyDrawOrder =  "Predraw"
-      attsetvalues_check(xy_object,xyres_tmp)
-      delete(xyres_tmp)
-
-      fill_above = yref_line_above(0)
-      fill_below = yref_line_below(0)
-
-      do i=0,max((/ncurves,nyref/))-1
-        if(dimsizes(yref_line_above).gt.1)
-          fill_above = yref_line_above(i)
-        end if
-        if(dimsizes(yref_line_below).gt.1)
-          fill_below = yref_line_below(i)
-        end if
-        var_string = unique_string("polygons"+i)
-        xy_object@$var_string$=fill_xy_ref(wks,xy_object, \
-                                     xinterp(i,0:new_npts(i)-1), \
-                                     yinterp(i,0:new_npts(i)-1),\
-                                     yref_line(i),fill_above,fill_below)
-      end do
+    if(xref_fill_on.and..not.bar_chart) then
+      fill_xy_ref_curves(wks,xy_object,"x",xinterp,yinterp,ncurvesx,\
+                         nxref,new_npts,new_xref_line,\
+                         xref_right_fill_color,xref_left_fill_color)
     end if
 
 ; Fill bars with either a single color for above and below, or with
 ; individual colors.
 
-    if(yref_fill_on.and.bar_chart.and..not.bar_outline_only)
-      gsres = True
-      if(bar_outline_thickness.gt.0.and.bar_outline_thickness.ne.1) then
-        gsres@gsEdgesOn        = True
-        gsres@gsEdgeThicknessF = bar_outline_thickness
+    if(bar_chart.and..not.bar_outline_only)
+      if(xref_fill_on) then
+        fill_the_bars(wks,xy_object,"x",ncurvesx,nxref,filled_bar_list,res2)
+      else
+        fill_the_bars(wks,xy_object,"y",ncurvesy,nyref,filled_bar_list,res2)
       end if
-      gsres@gsFillLineThicknessF = bar_fill_line_thickness
-      gsres@gsFillOpacityF       = bar_fill_opacity
-      gsres@gsFillScaleF         = bar_fill_scale
-      gsres@gsFillDotSizeF       = bar_fill_dot_size
-      do i=0,ncurves-1 
-        var_string = unique_string("polygons"+i)
-;
-; Fill above reference line.
-;
-        if(nabove(i).gt.0)
-;
-; Single bar color for each above and below bars.
-;
-          if(.not.mlt_above_bar_colors)
-            gsres@gsFillColor = yref_line_above(0)
-            if(dimsizes(yref_line_above).gt.1)
-              gsres@gsFillColor = yref_line_above(i)
-            end if
-          end if
-;
-; Single bar fill scale for each above and below bars.
-;
-          if(mlt_above_bar_scales) then
-            gsres@gsFillScaleF = bar_scales_above(0)
-            if(dimsizes(yref_line_above).gt.1)
-              gsres@gsFillScaleF = bar_scales_above(i)
-            end if
-          end if
-;
-; Multiple bar colors and/or patterns.
-;
-          if(mlt_above_bar_colors.or.mlt_above_bar_pttrns) then
-            if(mlt_above_bar_colors) then
-              if(bac_rank.eq.1) then
-                nca = dimsizes(bar_colors_above)
-              else
-                nca = dimsizes(bar_colors_above(0,:))
-              end if
-            end if
-            if(mlt_above_bar_pttrns) then
-              if(bap_rank.eq.1) then
-                npa = dimsizes(bar_pttrns_above)
-              else
-                npa = dimsizes(bar_pttrns_above(0,:))
-              end if
-            end if
-            do ii = 0,nabove(i)/5-1
-              var_string2 = var_string + "above" + ii
-              if(mlt_above_bar_colors) then
-                if(colors2) then 
-                  ci = indabove(i,ii) % nca
-                else
-                  ci = ii % nca
-                end if
-                if(bac_rank.eq.1) then
-                  gsres@gsFillColor = bar_colors_above(ci)
-                else
-                  gsres@gsFillColor = bar_colors_above(i,ci)
-                end if
-              end if
-              if(mlt_above_bar_pttrns) then
-                if(pttrns2) then 
-                  pi = indabove(i,ii) % npa
-                else
-                  pi = ii % npa
-                end if
-                if(bap_rank.eq.1) then
-                  gsres@gsFillIndex = bar_pttrns_above(pi)
-                else
-                  gsres@gsFillIndex = bar_pttrns_above(i,pi)
-                end if
-              end if
-              xy_object@$var_string2$ = gsn_add_polygon(wks,xy_object, \
-                                                     xabove(i,ii*5:ii*5+4), \
-                                                     yabove(i,ii*5:ii*5+4), \
-                                                     gsres)
-            end do
-          else
-            var_string2 = var_string + "above"
-            xy_object@$var_string2$ = gsn_add_polygon(wks,xy_object, \
-                                                     xabove(i,:), \
-                                                     yabove(i,:),gsres)
-          end if
-        end if
-;
-; Fill below reference line.
-;
-        if(nbelow(i).gt.0)
-          if(.not.mlt_below_bar_colors) then
-            gsres@gsFillColor = yref_line_below(0)
-            if(dimsizes(yref_line_below).gt.1)
-              gsres@gsFillColor = yref_line_below(i)
-            end if
-          end if
-;
-; Single bar fill scale for each above and below bars.
-;
-          if(mlt_below_bar_scales) then
-            gsres@gsFillScaleF = bar_scales_below(0)
-            if(dimsizes(yref_line_below).gt.1)
-              gsres@gsFillScaleF = bar_scales_below(i)
-            end if
-          end if
-;
-; Multiple bar colors and/or patterns.
-;
-         if(mlt_below_bar_colors.or.mlt_below_bar_pttrns) then
-            if(mlt_below_bar_colors) then
-              if(bbc_rank.eq.1) then
-                ncb = dimsizes(bar_colors_below)
-              else
-                ncb = dimsizes(bar_colors_below(0,:))
-              end if
-            end if
-            if(mlt_below_bar_pttrns) then
-              if(bbp_rank.eq.1) then
-                npb = dimsizes(bar_pttrns_below)
-              else
-                npb = dimsizes(bar_pttrns_below(0,:))
-              end if
-            end if
-            do ii = 0,nbelow(i)/5-1
-              var_string2 = var_string + "below" + ii
-              if(mlt_below_bar_colors) then
-                if(colors2) then 
-                  ci = indbelow(i,ii) % ncb
-                else
-                  ci = ii % ncb
-                end if
-                if(bbc_rank.eq.1) then
-                  gsres@gsFillColor = bar_colors_below(ci)
-                else
-                  gsres@gsFillColor = bar_colors_below(i,ci)
-                end if
-              end if
-              if(mlt_below_bar_pttrns) then
-                if(pttrns2) then 
-                  pi = indbelow(i,ii) % npb
-                else
-                  pi = ii % npb
-                end if
-                if(bbp_rank.eq.1) then
-                  gsres@gsFillIndex = bar_pttrns_below(pi)
-                else
-                  gsres@gsFillIndex = bar_pttrns_below(i,pi)
-                end if
-              end if
-              xy_object@$var_string2$ = gsn_add_polygon(wks,xy_object, \
-                                                     xbelow(i,ii*5:ii*5+4), \
-                                                     ybelow(i,ii*5:ii*5+4), \
-                                                     gsres)
-            end do
-          else
-            var_string2 = var_string + "below"
-            xy_object@$var_string2$ = gsn_add_polygon(wks,xy_object, \
-                                                     xbelow(i,:), \
-                                                     ybelow(i,:), gsres)
-          end if
-        end if
-      end do
-;
-; Make sure polygons get drawn first, so that XY lines are drawn on top.
-;
-      setvalues xy_object
-        "tfPolyDrawOrder" : "Predraw"
-      end setvalues
-
-      delete(gsres)    
     end if
 
-; Draw X reference line.
-
-    if(xref_line_on)
-      getvalues xy_object
-        "trYMinF"  : ymin
-        "trYMaxF"  : ymax
-      end getvalues
-
-      gsres             = True
-
-      yline = (/ymin,ymax/)
-
-      gsres@gsLineColor       = xref_line_color(0)
-      gsres@gsLineDashPattern = xref_line_pattern(0)
-      gsres@gsLineThicknessF  = xref_line_thickness(0)
-
-      do i=0,nxref-1
-        if(dimsizes(xref_line_color).gt.1)
-          gsres@gsLineColor = xref_line_color(i)
-        end if
-        xline = fspan(xref_line(i),xref_line(i),2)
-        var_string = unique_string("xpolyline"+i)
-        xy_object@$var_string$ = gsn_add_polyline(wks,xy_object,xline,yline, \
-                                                  gsres)
-      end do
-      delete(xline)
-      delete(yline)
+;---Add X/Y reference lines.
+    if(xref_line_on) then
+      add_ref_line(wks,xy_object,"x",xref_line,xref_line_color,xref_line_pattern,xref_line_thickness)
     end if
-
-; Draw Y reference line.
-
-    if(yref_line_on)
-      getvalues xy_object
-        "trXMinF"  : xmin
-        "trXMaxF"  : xmax
-      end getvalues
-
-      gsres             = True
-
-      xline = (/xmin,xmax/)
-
-      gsres@gsLineColor       = yref_line_color(0)
-      gsres@gsLineDashPattern = yref_line_pattern(0)
-      gsres@gsLineThicknessF  = yref_line_thickness(0)
-
-      do i=0,nyref-1
-        if(dimsizes(yref_line_color).gt.1)
-          gsres@gsLineColor = yref_line_color(i)
-        end if
-        if(dimsizes(yref_line_pattern).gt.1)
-          gsres@gsLineDashPattern = yref_line_pattern(i)
-        end if
-        if(dimsizes(yref_line_thickness).gt.1)
-          gsres@gsLineThicknessF = yref_line_thickness(i)
-        end if
-        yline = fspan(tofloat(yref_line(i)),tofloat(yref_line(i)),2)
-        var_string = unique_string("ypolyline"+i)
-
-        xy_object@$var_string$ = gsn_add_polyline(wks,xy_object,xline, \
-                                                  yline,gsres)
-      end do
-
-      delete(xline)
-      delete(yline)
+    if(yref_line_on) then
+      add_ref_line(wks,xy_object,"y",yref_line,yref_line_color,yref_line_pattern,yref_line_thickness)
     end if
 
 ; Get title label sizes and tickmark lengths.
@@ -5688,7 +6425,7 @@ begin
     if(isatt(res2,"mpProjection")) then
       iproj = res2@mpProjection
       if( (typeof(iproj).eq."integer".and.iproj.ne.8).or.\
-          (typeof(iproj).eq."string".and.lower_case(iproj).ne. \
+          (typeof(iproj).eq."string".and.str_lower(iproj).ne. \
                                              "cylindricalequidistant")) then
         print("gsn_csm_map_ce: Warning: you are calling one of the CE map functions,")
         print("but setting the map projection to something other than")
@@ -5724,9 +6461,9 @@ begin
 ;
 ; Increase title zone if map tickmarks are on.
 ;
-    if(check_attr(res2,"pmTickMarkDisplayMode","Always",True).or.\
-       check_attr(res2,"pmTickMarkDisplayMode",2,False).or.\
-       check_attr(res2,"pmTickMarkDisplayMode",3,False)) then
+    if(check_attr_enum_value(res2,"pmTickMarkDisplayMode","Always").or.\
+       check_attr_enum_value(res2,"pmTickMarkDisplayMode","Conditional").or.\
+       check_attr_enum_value(res2,"pmTickMarkDisplayMode","ForceAlways")) then
       main_zone = main_zone + 1
     end if
     lat_spacing  = get_res_value(res2,"gsnMajorLatSpacing",0.)
@@ -5757,9 +6494,9 @@ begin
     if(typeof(limit_mode).eq."integer") then
       limit_modes = (/"MaximalArea","LatLon","Angles","NPC","NDC",\
                       "Corners","Points","Window"/)
-      limit_mode := lower_case(limit_modes(limit_mode))
+      limit_mode := str_lower(limit_modes(limit_mode))
     else
-      limit_mode = lower_case(limit_mode)
+      limit_mode = str_lower(limit_mode)
     end if
 ;
 ; If automatic tick marks are turned on, or if mpCenterLatF != 0,
@@ -6634,8 +7371,7 @@ begin
     return(gsn_csm_map_polar(wks,res2))
   else
     if(.not.isatt(res2,"mpProjection").or.\
-       check_attr(res2,"mpProjection","cylindricalequidistant",True).or.\
-       check_attr(res2,"mpProjection",8,True))
+       check_attr_enum_value(res2,"mpProjection","CylindricalEquidistant"))
       return(gsn_csm_map_ce(wks,res2))
     else   
       return(gsn_csm_map_other(wks,res2))
@@ -6682,7 +7418,7 @@ end
 undef("gsn_csm_contour_map_polar")
 function gsn_csm_contour_map_polar(wks:graphic,data:numeric,resources:logical)
 local i, contour_object, map_object, res, lbar_pos, lbar_zone, \
-old_lbar_on, new_lbar_on, calldraw, callframe, main_offset, datanew, res2, \
+use_old_lbar, use_mgr_lbar, calldraw, callframe, main_offset, datanew, res2, \
 cnres, mpres, vpwf, vphf, font_height, levels, colors, lbres, \
 infolabel_on, infolabel_zone, lbar_zone, lbar_height, lbar_width
 begin
@@ -6694,10 +7430,8 @@ begin
       return
     end if
 
-; Initialize.
-    old_lbar_on   = False     ; Labelbar flag
-    new_lbar_on   = False
-    res2          = get_resources(resources) ; Copy of resources
+    res2  = get_resources(resources) ; Copy of resources
+
 ;
 ; Write data and plot resource information to a file so we can 
 ; reconstruct plot if desired, without all the computational
@@ -6707,15 +7441,10 @@ begin
       gsnp_write_debug_info(data,new(1,float),new(1,float),\
                        "gsn_csm_contour_map_polar",res2,1)
     end if
+    mpres = True      ; Will hold map resources
 
-    lbar_zone     = 3         ; Zone for labelbar (may change later)
-    mpres         = True      ; Will hold map resources
-
-; Check for cyclic point (default is True if we are not setting both
-; lon2d/lat2d attributes).
-
-    set_cyclic = .not.(isatt(data,"lat2d").and.isatt(data,"lon2d"))
-    if(get_res_value(res2,"gsnAddCyclic",set_cyclic)) then
+; Check for whether a cyclic point might need to be added.
+    if(get_lon_cyclic_point_default(data,res2,"map",False)) then
       datanew = gsn_add_cyclic_point(data)
     else
       datanew = data
@@ -6775,22 +7504,26 @@ begin
                               "gsnPolar"/))
     cnres = get_res_ne(res2,(/"mp","vp","lb","tx","am","gsnPolar"/))
 
-    if(cnres)
-      if(check_attr(cnres,"cnFillOn",True,False))
-        if(.not.isatt(lbres,"lbLabelBarOn").or.\
-          check_attr(lbres,"lbLabelBarOn",True,False))
-          old_lbar_on = get_res_value(cnres,"gsnOldLabelBar",GSN_OLD_LABELBAR)
-          new_lbar_on = .not.old_lbar_on
-          if(new_lbar_on) then
+;---Labelbar stuff
+    lbar_zone = 3         ; Zone for labelbar (may change later)
+    if(check_attr(cnres,"cnFillOn",True,False))
+      lbar_on = get_res_value(lbres,"lbLabelBarOn",True)
+      use_old_lbar = get_res_value(cnres,"gsnOldLabelBar",GSN_OLD_LABELBAR)
+      use_mgr_lbar = .not.use_old_lbar
+      if(lbar_on) then
+        if(use_mgr_lbar) then
 ;---Make sure we keep the labelbar resources as part of cnres resources
-            delete(cnres)
-            cnres = get_res_ne(res2,(/"mp","vp","tx","am","gsnPolar"/))
-            set_labelbar_res(cnres,"polar")
-          end if
-          set_attr(cnres,"cnLineLabelsOn",False)
+          delete(cnres)
+          cnres = get_res_ne(res2,(/"mp","vp","tx","am","gsnPolar"/))
+          set_labelbar_res(cnres,"polar")
         end if
-        set_attr(cnres,"cnInfoLabelOn",False)
+        set_attr(cnres,"cnLineLabelsOn",False)
       end if
+      set_attr(cnres,"cnInfoLabelOn",False)
+    else
+      use_old_lbar = False
+      use_mgr_lbar = False
+      lbar_on = False
     end if
 ;
 ; Compute zone for labelbar if it is supposed to get drawn.
@@ -6837,13 +7570,13 @@ begin
         "tiMainFontHeightF"    : main_font_height ; main title size
     end setvalues
 
-;---Create a labelbar, or fix an existing one
-    if(old_lbar_on) then
+;---Create a labelbar or fix an existing one
+    if(use_old_lbar) then
       add_labelbar(wks,contour_object,lbar_zone,\
-                   font_height,"polar",lbres)
+                   font_height,"polar",lbar_on,lbres)
     end if
-    if(new_lbar_on) then
-      fix_labelbar(contour_object,font_height,cnres)
+    if(use_mgr_lbar) then
+      fix_labelbar(contour_object,font_height,lbar_on,cnres)
     end if
   
     draw_and_frame(wks,map_object,calldraw,callframe,0,maxbb)
@@ -6892,7 +7625,7 @@ end
 undef("gsn_csm_contour_map_ce")
 function gsn_csm_contour_map_ce(wks:graphic,data:numeric,resources:logical)
 local i, contour_object, labelbar_object, xy_object, map_object, \
-calldraw, callframe, old_lbar_on, zonal_mean_plot, min_lat, max_lat, datanew, \
+calldraw, callframe, use_old_lbar, zonal_mean_plot, min_lat, max_lat, datanew, \
 res, res2, lbres, xy_res, mpres, cnres, levels, colors, \
 lbar_zone, lbar_orient, lbar_side, lbar_height, lbar_width, lbar_just, \
 map_vpwf, map_vphf, vphf, contour_plot, zonal_zone
@@ -6906,8 +7639,6 @@ begin
     end if
 
 ; Initialize.
-    old_lbar_on    = False    ; Default is no labelbar.
-    new_lbar_on    = False    ; Default is no labelbar.
     mpres          = True
 
     infolabel_zone = 2        ; Zone for info label (may change later)
@@ -6928,11 +7659,8 @@ begin
 ; Default is no zonal mean plot.
     zonal_mean_plot = get_res_value(res2,"gsnZonalMean",False)
 
-; Check for cyclic point (default is True if we are not setting both
-; lon2d/lat2d attributes and data is not 1D).
-
-    set_cyclic = .not.(isatt(data,"lat2d").and.isatt(data,"lon2d"))
-    if(get_res_value(res2,"gsnAddCyclic",set_cyclic)) then
+; Check for whether a cyclic point might need to be added.
+    if(get_lon_cyclic_point_default(data,res2,"map",False)) then
         datanew = gsn_add_cyclic_point(data)
     else
         datanew = data
@@ -7045,29 +7773,32 @@ begin
     mpres = get_res_eq(res2,(/"mp","vp","tm","ti","tx","am","pmA","pmO","pmT"/))
     cnres = get_res_ne(res2,(/"mp","vp","tm","lb","tx","am","pm","gsnZonal"/))
 
-    if(cnres)
-      if(check_attr(cnres,"cnFillOn",True,False))
-        if(.not.check_attr(lbres,"lbLabelBarOn",False,False))
-          old_lbar_on = get_res_value(cnres,"gsnOldLabelBar",GSN_OLD_LABELBAR)
-          new_lbar_on = .not.old_lbar_on
-          if(new_lbar_on) then
+;---Labelbar stuff
+    if(check_attr(cnres,"cnFillOn",True,False))
+      lbar_on = get_res_value(lbres,"lbLabelBarOn",True)
+      use_old_lbar = get_res_value(cnres,"gsnOldLabelBar",GSN_OLD_LABELBAR)
+      use_mgr_lbar = .not.use_old_lbar
+      if(lbar_on) then
+        if(use_mgr_lbar) then
 ;---Make sure we keep the labelbar resources as part of cnres resources
-            delete(cnres)
-            cnres = get_res_ne(res2,(/"mp","vp","tm","tx","am","pm","gsnZonal"/))
-            set_labelbar_res(cnres,"ce")
-          else
-            if(check_attr(lbres,"lbOrientation","vertical",True).or.\
-               check_attr(lbres,"lbOrientation",1,True))
-              set_attr(mpres, "vpWidthF",0.75)   ; Make room for labelbar
-              set_attr(mpres,"vpHeightF",0.75)   ; on the side.
-              set_attr(mpres,     "vpXF",0.08)
-              set_attr(mpres,     "vpYF",0.90)
-            end if
+          delete(cnres)
+          cnres = get_res_ne(res2,(/"mp","vp","tm","tx","am","pm","gsnZonal"/))
+          set_labelbar_res(cnres,"ce")
+        else
+          if(check_attr_enum_value(lbres,"lbOrientation","vertical"))
+            set_attr(mpres, "vpWidthF",0.75)   ; Make room for labelbar
+            set_attr(mpres,"vpHeightF",0.75)   ; on the side.
+            set_attr(mpres,     "vpXF",0.08)
+            set_attr(mpres,     "vpYF",0.90)
           end if
-          set_attr(cnres,"cnLineLabelsOn",False)
         end if
-        set_attr(cnres,"cnInfoLabelOn",False)
+        set_attr(cnres,"cnLineLabelsOn",False)
       end if
+      set_attr(cnres,"cnInfoLabelOn",False)
+    else
+      lbar_on = False
+      use_old_lbar = False
+      use_mgr_lbar = False
     end if
 ;
 ; Compute zones for zonal means plot, info label, and labelbar if
@@ -7149,12 +7880,12 @@ begin
       end if
     end if
 
-;---Create a labelbar, or fix an existing one.
-    if(old_lbar_on) then
-      add_labelbar(wks,contour_object,lbar_zone,xbfontf,"ce",lbres)
+;---Create a labelbar or fix an existing one.
+    if(use_old_lbar) then
+      add_labelbar(wks,contour_object,lbar_zone,xbfontf,"ce",lbar_on,lbres)
     end if
-    if(new_lbar_on) then
-      fix_labelbar(contour_object,xbfontf,cnres)
+    if(use_mgr_lbar) then
+      fix_labelbar(contour_object,xbfontf,lbar_on,cnres)
     end if
 
 ; Add a zonal mean plot if requested.
@@ -7217,7 +7948,7 @@ undef("gsn_csm_contour_map_other")
 function gsn_csm_contour_map_other(wks:graphic,data:numeric,\
                                    resources:logical)
 local i, contour_object, labelbar_object, xy_object, map_object, \
-calldraw, callframe, old_lbar_on, min_lat, max_lat, datanew, \
+calldraw, callframe, use_old_lbar, min_lat, max_lat, datanew, \
 res, res2, lbres, xy_res, mpres, cnres, levels, colors, \
 lbar_zone, lbar_orient, lbar_side, lbar_height, lbar_width, lbar_just, \
 map_vpwf, map_vphf, vphf, contour_plot, zonal_mean_plot, zonal_zone
@@ -7231,10 +7962,7 @@ begin
     end if
 
 ; Initialize.
-    old_lbar_on    = False    ; Default is no labelbar.
-    new_lbar_on    = False
     mpres          = True
-
     infolabel_zone = 2        ; Zone for info label (may change later)
     lbar_zone      = 2        ; Zone for labelbar (may change later)
     zonal_zone     = 2        ; Zone for zonal means plot
@@ -7253,11 +7981,8 @@ begin
 ; Default is no zonal mean plot.
     zonal_mean_plot = get_res_value(res2,"gsnZonalMean",False)
 
-; Check for cyclic point (default is True if we are not setting both
-; lon2d/lat2d attributes).
-
-    set_cyclic = .not.(isatt(data,"lat2d").and.isatt(data,"lon2d"))
-    if(get_res_value(res2,"gsnAddCyclic",set_cyclic)) then
+; Check for whether a cyclic point might need to be added.
+    if(get_lon_cyclic_point_default(data,res2,"map",False)) then
         datanew = gsn_add_cyclic_point(data)
     else
         datanew = data
@@ -7332,30 +8057,32 @@ begin
     mpres = get_res_eq(res2,(/"mp","vp","tm","ti","tx","am","pmA","pmO","pmT","gsnMask"/))
     cnres = get_res_ne(res2,(/"mp","vp","tm","lb","tx","am","pm","gsnMask","gsnZonal"/))
 
-    if(cnres)
-      if(check_attr(cnres,"cnFillOn",True,False))
-        if(.not.isatt(lbres,"lbLabelBarOn").or.\
-          check_attr(lbres,"lbLabelBarOn",True,False))
-          old_lbar_on = get_res_value(cnres,"gsnOldLabelBar",GSN_OLD_LABELBAR)
-          new_lbar_on = .not.old_lbar_on
-          if(new_lbar_on) then
+;---Labelbar stuff
+    if(check_attr(cnres,"cnFillOn",True,False))
+      lbar_on = get_res_value(lbres,"lbLabelBarOn",True)
+      use_old_lbar = get_res_value(cnres,"gsnOldLabelBar",GSN_OLD_LABELBAR)
+      use_mgr_lbar = .not.use_old_lbar
+      if(lbar_on) then
+        if(use_mgr_lbar) then
 ;---Make sure we keep the labelbar resources as part of cnres resources
-            delete(cnres)
-            cnres = get_res_ne(res2,(/"mp","vp","tm","tx","am","pm","gsnMask","gsnZonal"/))
-            set_labelbar_res(cnres,"other")
-          else
-            if(check_attr(lbres,"lbOrientation","vertical",True).or.\
-               check_attr(lbres,"lbOrientation",1,True))
-              set_attr(mpres, "vpWidthF",0.75)   ; Make room for labelbar
-              set_attr(mpres,"vpHeightF",0.75)   ; on the side.
-              set_attr(mpres,     "vpXF",0.08)
-              set_attr(mpres,     "vpYF",0.85)
-            end if
+          delete(cnres)
+          cnres = get_res_ne(res2,(/"mp","vp","tm","tx","am","pm","gsnMask","gsnZonal"/))
+          set_labelbar_res(cnres,"other")
+        else
+          if(check_attr_enum_value(lbres,"lbOrientation","vertical"))
+            set_attr(mpres, "vpWidthF",0.75)   ; Make room for labelbar
+            set_attr(mpres,"vpHeightF",0.75)   ; on the side.
+            set_attr(mpres,     "vpXF",0.08)
+            set_attr(mpres,     "vpYF",0.85)
           end if
-          set_attr(cnres,"cnLineLabelsOn",False)
         end if
-        set_attr(cnres,"cnInfoLabelOn",False)
+        set_attr(cnres,"cnLineLabelsOn",False)
       end if
+      set_attr(cnres,"cnInfoLabelOn",False)
+    else
+      use_old_lbar = False
+      use_mgr_lbar = False
+      lbar_on = False
     end if
 ;
 ; Compute zones for info label and labelbar if
@@ -7380,10 +8107,10 @@ begin
 ;
 ; Increase labelbar zone if map tickmarks are on.
 ;
-    if(old_lbar_on.and.\
-       check_attr(mpres,"pmTickMarkDisplayMode","Always",True).or.\
-       check_attr(mpres,"pmTickMarkDisplayMode",2,False).or.\
-       check_attr(mpres,"pmTickMarkDisplayMode",3,False)) then
+    if(lbar_on.and.use_old_lbar.and.\
+        (check_attr_enum_value(mpres,"pmTickMarkDisplayMode","Always").or.\
+         check_attr_enum_value(mpres,"pmTickMarkDisplayMode","Conditional").or.\
+         check_attr_enum_value(mpres,"pmTickMarkDisplayMode","ForceAlways"))) then
       lbar_zone = lbar_zone + 1
     end if
 
@@ -7435,14 +8162,13 @@ begin
       end setvalues
     end if
 
-; Create a labelbar.
-
-    if(old_lbar_on) then
+; Create a labelbar or fix existing one.
+    if(use_old_lbar) then
       add_labelbar(wks,contour_object,lbar_zone,\
-                   0.6 * font_height,"other",lbres)
+                   0.6 * font_height,"other",lbar_on,lbres)
     end if
-    if(new_lbar_on) then
-      fix_labelbar(contour_object,0.6*font_height,cnres)
+    if(use_mgr_lbar) then
+      fix_labelbar(contour_object,0.6*font_height,lbar_on,cnres)
     end if
 
 ; Add a zonal mean plot if requested.
@@ -7502,15 +8228,13 @@ function gsn_csm_vector_map_ce(wks:graphic,u[*][*]:numeric,v[*][*]:numeric,\
                                resources:logical)
 local i, vector_object, map_object, res, res2, calldraw, vcres, \
 lbres, map_vpwf, map_vphf, vpwf, vphf, callframe, min_lat, max_lat, \
-old_lbar_on, lbar_zone, unew, vnew
+use_old_lbar, lbar_zone, unew, vnew
 begin
 
 ; Initialize.
     annolabel_zone = 2        ; Zone for vector anno label
     mpres          = True
-    lbar_zone      = 2        ; Zone for labelbar (may change later)
-    old_lbar_on    = False
-    new_lbar_on    = False
+
     res2 = get_resources(resources)
 ;
 ; Write data and plot resource information to a file so we can 
@@ -7527,12 +8251,8 @@ begin
       user_set_ref_orth = False
     end if
 
-; Check for cyclic point (default is True if we are not setting both
-; lon2d/lat2d attributes).
-
-    set_cyclic = .not.((isatt(u,"lat2d").and.isatt(u,"lon2d")).or.\
-                       (isatt(v,"lat2d").and.isatt(v,"lon2d")))
-    if(get_res_value(res2,"gsnAddCyclic",set_cyclic)) then
+; Check for whether a cyclic point might need to be added.
+    if(get_lon_cyclic_point_default([/u,v/],res2,"map",False)) then
       unew = gsn_add_cyclic_point(u)
       vnew = gsn_add_cyclic_point(v)
     else
@@ -7608,28 +8328,31 @@ begin
     vcres = get_res_ne(res2,(/"mp","vp","tm","tx","am","lb","pm"/))
     lbres = get_res_eq(res2,(/"lb","pm"/))
 
-    if(vcres)
-      if(check_attr(vcres,"vcMonoLineArrowColor",False,False))
-        if(.not.isatt(lbres,"lbLabelBarOn").or.\
-          check_attr(lbres,"lbLabelBarOn",True,False))
-          old_lbar_on = get_res_value(vcres,"gsnOldLabelBar",GSN_OLD_LABELBAR)
-          new_lbar_on = .not.old_lbar_on
-          if(new_lbar_on) then
+;---Labelbar stuff
+    lbar_zone      = 2        ; Zone for labelbar (may change later)
+    if(check_attr(vcres,"vcMonoLineArrowColor",False,False))
+      lbar_on = get_res_value(lbres,"lbLabelBarOn",True)
+      use_old_lbar = get_res_value(vcres,"gsnOldLabelBar",GSN_OLD_LABELBAR)
+      use_mgr_lbar = .not.use_old_lbar
+      if(lbar_on) then
+        if(use_mgr_lbar) then
 ;---Make sure we keep the labelbar resources as part of vcres resources
-            delete(vcres)
-            vcres = get_res_ne(res2,(/"mp","vp","tm","tx","am","pm"/))
-            set_labelbar_res(vcres,"vector")
-          else
-            if(check_attr(lbres,"lbOrientation","vertical",True).or.\
-               check_attr(lbres,"lbOrientation",1,True))
-              set_attr(mpres, "vpWidthF",0.75)   ; Make room for labelbar
-              set_attr(mpres,"vpHeightF",0.75)   ; on the side.
-              set_attr(mpres,     "vpXF",0.08)
-              set_attr(mpres,     "vpYF",0.90)
-            end if
+          delete(vcres)
+          vcres = get_res_ne(res2,(/"mp","vp","tm","tx","am","pm"/))
+          set_labelbar_res(vcres,"vector")
+        else
+          if(check_attr_enum_value(lbres,"lbOrientation","vertical"))
+            set_attr(mpres, "vpWidthF",0.75)   ; Make room for labelbar
+            set_attr(mpres,"vpHeightF",0.75)   ; on the side.
+            set_attr(mpres,     "vpXF",0.08)
+            set_attr(mpres,     "vpYF",0.90)
           end if
         end if
       end if
+    else
+      use_old_lbar = False
+      use_mgr_lbar = False
+      lbar_on = False
     end if
 ;
 ; Default is for the vector reference anno label to be on.  To be
@@ -7698,13 +8421,12 @@ begin
       end setvalues
     end if
 
-; Create a labelbar.
-
-    if(old_lbar_on)
-      add_labelbar(wks,vector_object,lbar_zone,xbfontf,"vector",lbres)
+; Create a labelbar or fix an existing one.
+    if(use_old_lbar) then
+      add_labelbar(wks,vector_object,lbar_zone,xbfontf,"vector",lbar_on,lbres)
     end if
-    if(new_lbar_on) then
-      fix_labelbar(vector_object,xbfontf,vcres)
+    if(use_mgr_lbar) then
+      fix_labelbar(vector_object,xbfontf,lbar_on,vcres)
     end if
   
 ; Draw all this stuff: map plot, subtitles, and tick marks.
@@ -7750,12 +8472,10 @@ function gsn_csm_vector_map_polar(wks:graphic,u[*][*]:numeric, \
                                   v[*][*]:numeric,resources:logical)
 local i, vector_object, map_object, res, res2, calldraw, vcres, \
 lbres, map_vpwf, map_vphf, vpwf, vphf, callframe, min_lat, max_lat, \
-old_lbar_on, lbar_zone, unew, vnew
+use_old_lbar, lbar_zone, unew, vnew
 begin
 
 ; Initialize.
-    old_lbar_on    = False
-    new_lbar_on    = False
     annolabel_zone = 2        ; Zone for vector anno label
     lbar_zone      = 2        ; Zone for labelbar (may change later)
     mpres          = True
@@ -7769,12 +8489,8 @@ begin
       gsnp_write_debug_info(u,v,new(1,float),"gsn_csm_vector_map_polar",res2,2)
     end if
 
-; Check for cyclic point (default is True if we are not setting both
-; lon2d/lat2d attributes).
-
-    set_cyclic = .not.((isatt(u,"lat2d").and.isatt(u,"lon2d")).or.\
-                       (isatt(v,"lat2d").and.isatt(v,"lon2d")))
-    if(get_res_value(res2,"gsnAddCyclic",set_cyclic)) then
+; Check for whether a cyclic point might need to be added.
+    if(get_lon_cyclic_point_default([/u,v/],res2,"map",False)) then
       unew = gsn_add_cyclic_point(u)
       vnew = gsn_add_cyclic_point(v)
     else
@@ -7820,25 +8536,27 @@ begin
     vcres = get_res_ne(res2,(/"mp","vp","tm","tx","am","lb","pm","gsnPolar"/))
     lbres = get_res_eq(res2,(/"lb","pm"/))
 
-    if(vcres)
-      if(check_attr(vcres,"vcMonoLineArrowColor",False,False))
-        if(.not.isatt(lbres,"lbLabelBarOn").or.\
-          check_attr(lbres,"lbLabelBarOn",True,False))
-          old_lbar_on = get_res_value(vcres,"gsnOldLabelBar",GSN_OLD_LABELBAR)
-          new_lbar_on = .not.old_lbar_on
-          if(new_lbar_on) then
-;---Make sure we keep the labelbar resources as part of cnres resources
-            delete(vcres)
-            vcres = get_res_ne(res2,(/"mp","vp","tm","tx","am","pm","gsnPolar"/))
-            set_labelbar_res(vcres,"polar")
-          end if
+;---Labelbar stuff
+    if(check_attr(vcres,"vcMonoLineArrowColor",False,False))
+      lbar_on = get_res_value(lbres,"lbLabelBarOn",True)
+      use_old_lbar = get_res_value(vcres,"gsnOldLabelBar",GSN_OLD_LABELBAR)
+      use_mgr_lbar = .not.use_old_lbar
+      if(lbar_on) then
+        if(use_mgr_lbar) then
+;---Make sure we keep the labelbar resources as part of vcres resources
+          delete(vcres)
+          vcres = get_res_ne(res2,(/"mp","vp","tm","tx","am","pm","gsnPolar"/))
+          set_labelbar_res(vcres,"polar")
         end if
       end if
+    else
+      use_old_lbar = False
+      use_mgr_lbar = False
+      lbar_on = False
     end if
 
-    if(old_lbar_on)
-      if(check_attr(lbres,"lbOrientation","vertical",True).or.\
-         check_attr(lbres,"lbOrientation",1,True))
+    if(lbar_on.and.use_old_lbar)
+      if(check_attr_enum_value(lbres,"lbOrientation","vertical"))
         set_attr(mpres,"vpXF",0.15)
         set_attr(vcres,"vcRefAnnoOrthogonalPosF",0.04)
         set_attr(lbres,"pmLabelBarOrthogonalPosF",0.1)
@@ -7892,14 +8610,13 @@ begin
         "tiMainFontHeightF"    : main_font_height  ; main title size
     end setvalues
 
-; Create a labelbar.
-
-    if(old_lbar_on)
+; Create a labelbar or fix an existing one.
+    if(use_old_lbar) then
       add_labelbar(wks,vector_object,lbar_zone, \
-                   font_height,"vector",lbres)
+                   font_height,"vector",lbar_on,lbres)
     end if
-    if(new_lbar_on) then
-      fix_labelbar(vector_object,font_height,vcres)
+    if(use_mgr_lbar) then
+      fix_labelbar(vector_object,font_height,lbar_on,vcres)
     end if
   
 ; Draw all this stuff: map plot, subtitles, and tick marks.
@@ -7941,17 +8658,14 @@ undef("gsn_csm_vector_map_other")
 function gsn_csm_vector_map_other(wks:graphic,u[*][*]:numeric,\
                                   v[*][*]:numeric,resources:logical)
 local i, vector_object, labelbar_object, xy_object, map_object, \
-calldraw, callframe, old_lbar_on, min_lat, max_lat, datanew, \
+calldraw, callframe, use_old_lbar, min_lat, max_lat, datanew, \
 res, res2, lbres, xy_res, mpres, vcres, levels, colors, \
 lbar_zone, lbar_orient, lbar_side, lbar_height, lbar_width, lbar_just, \
 map_vpwf, map_vphf, vphf 
 begin
 ; Initialize.
-    old_lbar_on    = False    ; Default is no labelbar.
-    new_lbar_on    = False    ; Default is no labelbar.
-    mpres          = True
-
-    res2 = get_resources(resources)
+    mpres = True
+    res2  = get_resources(resources)
 ;
 ; Write data and plot resource information to a file so we can 
 ; reconstruct plot if desired, without all the computational
@@ -7961,12 +8675,8 @@ begin
       gsnp_write_debug_info(u,v,new(1,float),"gsn_csm_vector_map_other",res2,2)
     end if
 
-; Check for cyclic point (default is True if we are not setting both
-; lon2d/lat2d attributes).
-
-    set_cyclic = .not.((isatt(u,"lat2d").and.isatt(u,"lon2d")).or.\
-                       (isatt(v,"lat2d").and.isatt(v,"lon2d")))
-    if(get_res_value(res2,"gsnAddCyclic",set_cyclic)) then
+; Check for whether a cyclic point might need to be added.
+    if(get_lon_cyclic_point_default([/u,v/],res2,"map",False)) then
       unew = gsn_add_cyclic_point(u)
       vnew = gsn_add_cyclic_point(v)
     else
@@ -8009,20 +8719,23 @@ begin
     mpres = get_res_eq(res2,(/"mp","vp","tm","ti","tx","am","pmA","pmO","pmT","gsnMask"/))
     vcres = get_res_ne(res2,(/"mp","vp","tm","lb","tx","am","pm","gsnMask"/))
 
-    if(vcres)
-      if(check_attr(vcres,"vcMonoLineArrowColor",False,False))
-        if(.not.isatt(lbres,"lbLabelBarOn").or.\
-          check_attr(lbres,"lbLabelBarOn",True,False))
-          old_lbar_on = get_res_value(vcres,"gsnOldLabelBar",GSN_OLD_LABELBAR)
-          new_lbar_on = .not.old_lbar_on
-          if(new_lbar_on) then
+;---Labelbar stuff
+    if(check_attr(vcres,"vcMonoLineArrowColor",False,False))
+      lbar_on = get_res_value(lbres,"lbLabelBarOn",True)
+      use_old_lbar = get_res_value(vcres,"gsnOldLabelBar",GSN_OLD_LABELBAR)
+      use_mgr_lbar = .not.use_old_lbar
+      if(lbar_on) then
+        if(use_mgr_lbar) then
 ;---Make sure we keep the labelbar resources as part of vcres resources
-            delete(vcres)
-            vcres = get_res_ne(res2,(/"mp","vp","tm","tx","am","pm","gsnMask"/))
-            set_labelbar_res(vcres,"other")
-          end if
+          delete(vcres)
+          vcres = get_res_ne(res2,(/"mp","vp","tm","tx","am","pm","gsnMask"/))
+          set_labelbar_res(vcres,"other")
         end if
       end if
+    else
+      use_old_lbar = False
+      use_mgr_lbar = False
+      lbar_on = False
     end if
 
 ; Before we create the objects, turn off draw and frame for them.
@@ -8066,14 +8779,14 @@ begin
       end setvalues
     end if
 
-; Create a labelbar.
+; Create a labelbar or fix an existing one.
+    if(use_old_lbar) then
+      add_labelbar(wks,vector_object,2,0.6 * font_height,"other",lbar_on,lbres)
+    end if
+    if(use_mgr_lbar) then
+      fix_labelbar(vector_object,0.6*font_height,lbar_on,vcres)
+    end if
 
-    if(old_lbar_on)
-      add_labelbar(wks,vector_object,2,0.6 * font_height,"other",lbres)
-    end if
-    if(new_lbar_on) then
-      fix_labelbar(vector_object,0.6*font_height,vcres)
-    end if
 ; Draw all this stuff: map plot, subtitles, and tick marks.
 
     draw_and_frame(wks,map_object,calldraw,callframe,0,maxbb)
@@ -8128,8 +8841,6 @@ begin
 ; Initialize.
     infolabel_zone = 2        ; Zone for info label (may change later)
     mpres          = True
-    new_lbar_on    = False
-
     res2 = get_resources(resources)
 ;
 ; Write data and plot resource information to a file so we can 
@@ -8140,12 +8851,8 @@ begin
       gsnp_write_debug_info(u,v,new(1,float),"gsn_csm_streamline_map_ce",res2,2)
     end if
 
-; Check for cyclic point (default is True if we are not setting both
-; lon2d/lat2d attributes).
-
-    set_cyclic = .not.((isatt(u,"lat2d").and.isatt(u,"lon2d")).or.\
-                       (isatt(v,"lat2d").and.isatt(v,"lon2d")))
-    if(get_res_value(res2,"gsnAddCyclic",set_cyclic)) then
+; Check for whether a cyclic point might need to be added.
+    if(get_lon_cyclic_point_default([/u,v/],res2,"map",False)) then
       unew = gsn_add_cyclic_point(u)
       vnew = gsn_add_cyclic_point(v)
     else
@@ -8219,17 +8926,16 @@ begin
     mpres = get_res_eq(res2,(/"mp","vp","tm","ti","tx","am","pmA","pmO","pmT"/))
     stres = get_res_ne(res2,(/"mp","vp","tm","tx","am"/))
 
-;---Check for labelbar addition
-    if(stres)
-      if(check_attr(stres,"stMonoLineColor",False,False).and.\
-         (.not.isatt(stres,"lbLabelBarOn").or.\
-        check_attr(stres,"lbLabelBarOn",True,False)))
-        new_lbar_on = True
+;---Labelbar stuff. We only use the PlotManager labelbar here, just because.
+    use_mgr_lbar = False
+    if(check_attr(stres,"stMonoLineColor",False,False))
+      lbar_on = get_res_value(stres,"lbLabelBarOn",True)
+      if(lbar_on)
+        use_mgr_lbar = True
         set_labelbar_res(stres,"ce")
       end if
-    end if
-    if(isatt(stres,"lbLabelBarOn"))
-      delete(stres@lbLabelBarOn)
+    else
+      lbar_on = get_res_value(stres,"lbLabelBarOn",False) ; make sure to remove it
     end if
 
 ; Before we create the objects, turn off draw and frame for them.
@@ -8271,8 +8977,8 @@ begin
     end setvalues
 
 ;---Create a labelbar.
-    if(new_lbar_on)
-      fix_labelbar(stream_object,font_height,stres)
+    if(use_mgr_lbar)
+      fix_labelbar(stream_object,font_height,lbar_on,stres)
     end if
 
 ; Draw all this stuff: map plot, subtitles, and tick marks.
@@ -8315,12 +9021,11 @@ undef("gsn_csm_streamline_map_polar")
 function gsn_csm_streamline_map_polar(wks:graphic,u[*][*]:numeric, \
                                       v[*][*]:numeric,resources:logical)
 local i, stream_object, map_object, res, res2, calldraw, stres, \
-new_lbar_on, map_vpwf, map_vphf, vpwf, vphf, callframe, unew, vnew
+use_mgr_lbar, map_vpwf, map_vphf, vpwf, vphf, callframe, unew, vnew
 begin
 
 ; Initialize.
     mpres          = True
-    new_lbar_on    = False
     res2 = get_resources(resources)
 ;
 ; Write data and plot resource information to a file so we can 
@@ -8331,12 +9036,8 @@ begin
       gsnp_write_debug_info(u,v,new(1,float),"gsn_csm_streamline_map_polar",res2,2)
     end if
 
-; Check for cyclic point (default is True if we are not setting both
-; lon2d/lat2d attributes).
-
-    set_cyclic = .not.((isatt(u,"lat2d").and.isatt(u,"lon2d")).or.\
-                       (isatt(v,"lat2d").and.isatt(v,"lon2d")))
-    if(get_res_value(res2,"gsnAddCyclic",set_cyclic)) then
+; Check for whether a cyclic point might need to be added.
+    if(get_lon_cyclic_point_default([/u,v/],res2,"map",False)) then
       unew = gsn_add_cyclic_point(u)
       vnew = gsn_add_cyclic_point(v)
     else
@@ -8381,17 +9082,14 @@ begin
                               "pmT","gsnPolar"/))
     stres = get_res_ne(res2,(/"mp","vp","tm","tx","am","gsnPolar"/))
 
-;---Check for labelbar addition
-    if(stres)
-      if(check_attr(stres,"stMonoLineColor",False,False).and.\
-         (.not.isatt(stres,"lbLabelBarOn").or.\
-        check_attr(stres,"lbLabelBarOn",True,False)))
-        new_lbar_on = True
-        set_labelbar_res(stres,"polar")
-      end if
-    end if
-    if(isatt(stres,"lbLabelBarOn"))
-      delete(stres@lbLabelBarOn)
+;---Labelbar stuff
+    if(check_attr(stres,"stMonoLineColor",False,False))
+      lbar_on = get_res_value(stres,"lbLabelBarOn",True)
+      use_mgr_lbar = True
+      set_labelbar_res(stres,"polar")
+    else
+      lbar_on = get_res_value(stres,"lbLabelBarOn",False)  ; to make sure it is not set
+      use_mgr_lbar = False
     end if
 
 ; Before we create the objects, turn off draw and frame for them.
@@ -8428,8 +9126,8 @@ begin
     end setvalues
 
 ;---Create a labelbar.
-    if(new_lbar_on)
-      fix_labelbar(stream_object,font_height,stres)
+    if(use_mgr_lbar)
+      fix_labelbar(stream_object,font_height,lbar_on,stres)
     end if
 
 ; Draw all this stuff: map plot, subtitles, and tick marks.
@@ -8472,12 +9170,11 @@ undef("gsn_csm_streamline_map_other")
 function gsn_csm_streamline_map_other(wks:graphic,u[*][*]:numeric,\
                                       v[*][*]:numeric,resources:logical)
 local i, stream_object, labelbar_object, xy_object, map_object, \
-calldraw, callframe, min_lat, max_lat, datanew, new_lbar_on, \
+calldraw, callframe, min_lat, max_lat, datanew, use_mgr_lbar, \
 res, res2, mpres, stres, map_vpwf, map_vphf, vphf 
 begin
 ; Initialize.
     mpres          = True
-    new_lbar_on    = False
 
     res2 = get_resources(resources)
 ;
@@ -8489,12 +9186,8 @@ begin
       gsnp_write_debug_info(u,v,new(1,float),"gsn_csm_streamline_map_other",res2,2)
     end if
 
-; Check for cyclic point (default is True if we are not setting both
-; lon2d/lat2d attributes).
-
-    set_cyclic = .not.((isatt(u,"lat2d").and.isatt(u,"lon2d")).or.\
-                       (isatt(v,"lat2d").and.isatt(v,"lon2d")))
-    if(get_res_value(res2,"gsnAddCyclic",set_cyclic)) then
+; Check for whether a cyclic point might need to be added.
+    if(get_lon_cyclic_point_default([/u,v/],res2,"map",False)) then
       unew = gsn_add_cyclic_point(u)
       vnew = gsn_add_cyclic_point(v)
     else
@@ -8535,17 +9228,14 @@ begin
     mpres = get_res_eq(res2,(/"mp","vp","tm","ti","tx","am","pmA","pmO","pmT","gsnMask"/))
     stres = get_res_ne(res2,(/"mp","vp","tm","ti","tx","am","pmA","pmO","pmT","gsnMask"/))
 
-;---Check for labelbar addition
-    if(stres)
-      if(check_attr(stres,"stMonoLineColor",False,False).and.\
-         (.not.isatt(stres,"lbLabelBarOn").or.\
-        check_attr(stres,"lbLabelBarOn",True,False)))
-        new_lbar_on = True
-        set_labelbar_res(stres,"other")
-      end if
-    end if
-    if(isatt(stres,"lbLabelBarOn"))
-      delete(stres@lbLabelBarOn)
+;---Labelbar stuff
+    if(check_attr(stres,"stMonoLineColor",False,False))
+      lbar_on = get_res_value(stres,"lbLabelBarOn",True)
+      use_mgr_lbar = True
+      set_labelbar_res(stres,"other")
+    else
+      lbar_on = get_res_value(stres,"lbLabelBarOn",False)
+      use_mgr_lbar = False
     end if
 
 ; Before we create the objects, turn off draw and frame for them.
@@ -8580,8 +9270,8 @@ begin
     end setvalues
 
 ;---Create a labelbar.
-    if(new_lbar_on)
-      fix_labelbar(stream_object,font_height,stres)
+    if(use_mgr_lbar)
+      fix_labelbar(stream_object,font_height,lbar_on,stres)
     end if
 
 ; Draw all this stuff: map plot, subtitles, and tick marks.
@@ -8612,7 +9302,7 @@ function gsn_csm_streamline_contour_map_ce(wks:graphic,u[*][*]:numeric,\
                    v[*][*]:numeric,data:numeric,resources:logical)
 local i, stream_object, map_object, res, res2, \
 calldraw, callframe, min_lat, max_lat, unew, vnew, datanew, \
-map_vpwf, map_vphf, vpwf, vphf, old_lbar_on
+map_vpwf, map_vphf, vpwf, vphf, use_old_lbar
 begin
 ;
 ; Make sure input data is 1D or 2D
@@ -8624,8 +9314,6 @@ begin
 
 ; Initialize.
     infolabel_on   = False
-    old_lbar_on    = False
-    new_lbar_on    = False
     mpres          = True
     res2 = get_resources(resources)
 ;
@@ -8637,12 +9325,8 @@ begin
       gsnp_write_debug_info(u,v,data,"gsn_csm_streamline_contour_map_ce",res2,3)
     end if
 
-; Check for cyclic point (default is True if we are not setting both
-; lon2d/lat2d attributes). Check the vector and contour data separately.
-
-    set_cyclic = .not.((isatt(u,"lat2d").and.isatt(u,"lon2d")).or.\
-                       (isatt(v,"lat2d").and.isatt(v,"lon2d")))
-    if(get_res_value_keep(res2,"gsnAddCyclic",set_cyclic)) then
+; Check for whether a cyclic point might need to be added.
+    if(get_lon_cyclic_point_default([/u,v/],res2,"map",True)) then
       unew    = gsn_add_cyclic_point(u)
       vnew    = gsn_add_cyclic_point(v)
     else
@@ -8650,8 +9334,7 @@ begin
       vnew    = v
     end if
 
-    set_cyclic = .not.(isatt(data,"lat2d").and.isatt(data,"lon2d"))
-    if(get_res_value(res2,"gsnAddCyclic",set_cyclic)) then
+    if(get_lon_cyclic_point_default(data,res2,"map",False)) then
       datanew = gsn_add_cyclic_point(data)
     else
       datanew = data
@@ -8712,21 +9395,24 @@ begin
       delete(res2@gsnMinorLatSpacing)
     end if
 
-; Turn on labelbar if cnFillOn is True and it wasn't explicitly 
-; turned off.
+;---Labelbar stuff
     if(check_attr(res2,"cnFillOn",True,False))
       set_attr(res2,"cnFillDrawOrder","Predraw")
       set_attr(res2,"cnInfoLabelOn",False)
-      if(.not.isatt(lbres,"lbLabelBarOn").or.\
-         check_attr(lbres,"lbLabelBarOn",True,False))
+      lbar_on = get_res_value(lbres,"lbLabelBarOn",True)
+      use_old_lbar = get_res_value(res2,"gsnOldLabelBar",GSN_OLD_LABELBAR)
+      use_mgr_lbar = .not.use_old_lbar
+      if(lbar_on) then
         set_attr(res2,"cnLineLabelsOn",False)
         set_attr(res2,"cnInfoLabelOn",False)
-        old_lbar_on = get_res_value(res2,"gsnOldLabelBar",GSN_OLD_LABELBAR)
-        new_lbar_on = .not.old_lbar_on
-        if(new_lbar_on) then
+        if(use_mgr_lbar) then
           set_labelbar_res(res2,"vector")
         end if
       end if
+    else
+      use_old_lbar = False
+      use_mgr_lbar = False
+      lbar_on = False
     end if
 
     check_for_y_lat_coord(datanew,res2,"contour_map")
@@ -8764,8 +9450,8 @@ begin
     mpres@gsnDraw  = False
     mpres@gsnFrame = False
 
-    if(old_lbar_on.and.(check_attr(lbres,"lbOrientation","vertical",True).or.\
-                        check_attr(lbres,"lbOrientation",1,True)))
+    if(lbar_on.and.use_old_lbar.and.\
+       check_attr_enum_value(lbres,"lbOrientation","vertical"))
       set_attr(mpres, "vpWidthF",0.75)   ; Make room for labelbar
       set_attr(mpres,"vpHeightF",0.75)   ; on the side.
       set_attr(mpres,     "vpXF",0.08)
@@ -8817,19 +9503,17 @@ begin
       end setvalues
     end if
 
-; Create a labelbar.
-
-    if(old_lbar_on)
+; Create a labelbar or fix an existing one
+    if(use_old_lbar)
       if(.not.infolabel_on)
         lbar_zone = 2
       else
         lbar_zone = 3
       end if
-
-      add_labelbar(wks,stream_object@contour,lbar_zone,xbfontf,"vector",lbres)
+      add_labelbar(wks,stream_object@contour,lbar_zone,xbfontf,"vector",lbar_on,lbres)
     end if
-    if(new_lbar_on)
-      fix_labelbar(stream_object@contour,xbfontf,stres)
+    if(use_mgr_lbar)
+      fix_labelbar(stream_object@contour,xbfontf,lbar_on,stres)
     end if
   
 ; Draw all this stuff: map plot, subtitles, and tick marks.
@@ -8860,7 +9544,7 @@ function gsn_csm_streamline_contour_map_polar(wks:graphic,u[*][*]:numeric, \
                                          v[*][*]:numeric,data:numeric,
                                          resources:logical)
 local i, stream_object, map_object, res, res2, calldraw, vcres, \
-lbres, vpwf, vphf, callframe, old_lbar_on, lbar_zone, unew, vnew
+lbres, vpwf, vphf, callframe, use_old_lbar, lbar_zone, unew, vnew
 begin
 ;
 ; Make sure input data is 1D or 2D
@@ -8876,8 +9560,6 @@ begin
 ; needed.
 ;
 ; Initialize.
-    old_lbar_on   = False     ; Labelbar flag
-    new_lbar_on   = False
     res2  = get_resources(resources)
 ;
 ; Write data and plot resource information to a file so we can 
@@ -8890,12 +9572,8 @@ begin
 
     mpres = True
 
-; Check for cyclic point (default is True if we are not setting both
-; lon2d/lat2d attributes). Check the vector and contour data separately.
-
-    set_cyclic = .not.((isatt(u,"lat2d").and.isatt(u,"lon2d")).or.\
-                       (isatt(v,"lat2d").and.isatt(v,"lon2d")))
-    if(get_res_value_keep(res2,"gsnAddCyclic",set_cyclic)) then
+; Check for whether a cyclic point might need to be added.
+    if(get_lon_cyclic_point_default([/u,v/],res2,"map",True)) then
       unew    = gsn_add_cyclic_point(u)
       vnew    = gsn_add_cyclic_point(v)
     else
@@ -8903,8 +9581,7 @@ begin
       vnew    = v
     end if
 
-    set_cyclic = .not.(isatt(data,"lat2d").and.isatt(data,"lon2d"))
-    if(get_res_value(res2,"gsnAddCyclic",set_cyclic)) then
+    if(get_lon_cyclic_point_default(data,res2,"map",False)) then
       datanew = gsn_add_cyclic_point(data)
     else
       datanew = data
@@ -8938,23 +9615,25 @@ begin
 ; Check for subtitles at top and add to mpres if exist.
 
     set_subtitles_res(res2,mpres)
-; 
-; Determine which annotations (labelbar, info label) should be turned on. 
-; By default, labelbar is on, and contour info label is off.
-;
+
+;---Labelbar stuff
     if(check_attr(res2,"cnFillOn",True,False))
       set_attr(res2,"cnFillDrawOrder","Predraw")
       set_attr(res2,"cnLineLabelsOn",False)
       set_attr(res2,"cnLinesOn",False)
       set_attr(res2,"cnInfoLabelOn",False)
-      old_lbar_on = get_res_value(res2,"lbLabelBarOn",GSN_OLD_LABELBAR)
-      new_lbar_on = .not.old_lbar_on
-      if(new_lbar_on) then
+      lbar_on = get_res_value(res2,"lbLabelBarOn",True)
+      use_old_lbar = get_res_value(res2,"gsnOldLabelBar",GSN_OLD_LABELBAR)
+      use_mgr_lbar = .not.use_old_lbar
+      if(use_mgr_lbar) then
         set_labelbar_res(res2,"polar")
       end if
     else    
       set_attr(res2,"cnInfoLabelOn",True)
       set_attr(res2,"lbLabelBarOn",False)
+      use_old_lbar = False
+      use_mgr_lbar = False
+      lbar_on = False
     end if
 ;
 ; Check for coordinate variables for scalar field.
@@ -8962,8 +9641,8 @@ begin
     check_for_y_lat_coord(datanew,res2,"contour_map")
     check_for_lon_coord(datanew,res2,"contour_map")
 
-    lbar_orient  = lower_case(get_res_value_keep(res2,"lbOrientation", \
-                              "horizontal"))
+    lbar_orient  = str_lower(get_res_value_keep(res2,"lbOrientation", \
+                             "horizontal"))
     infolabel_on = get_res_value_keep(res2,"cnInfoLabelOn",False)
 ;
 ; Now that we know what's being drawn for annotations (labelbar, 
@@ -8977,7 +9656,7 @@ begin
       set_attr(res2,"cnInfoLabelJust","TopRight")
     end if
 
-    if(old_lbar_on)
+    if(lbar_on.and.use_old_lbar)
       if(lbar_orient.eq."vertical")
         set_attr(res2,"vpXF",0.15)
         set_attr(res2,"pmLabelBarOrthogonalPosF",0.1)
@@ -9026,24 +9705,21 @@ begin
         "tiMainFontHeightF"    : main_font_height  ; main title size
     end setvalues
 
-; Create a labelbar.
-
-    if(old_lbar_on)
+; Create a labelbar or fix an existing one.
+    if(use_old_lbar)
       if(.not.infolabel_on)
         lbar_zone = 2
       else
         lbar_zone = 3
       end if
-;
-; Get labelbar resources, if any.
-;
-      lbres = get_res_eq(res2,(/"lb","pm"/))
-
-      add_labelbar(wks,stream_object@contour, \
-                   lbar_zone,font_height,"vector",lbres)
     end if
-    if(new_lbar_on)
-      fix_labelbar(stream_object@contour,font_height,stres)
+    if(use_old_lbar)
+      lbres = get_res_eq(res2,(/"lb","pm"/))
+      add_labelbar(wks,stream_object@contour, \
+                   lbar_zone,font_height,"vector",lbar_on,lbres)
+    end if
+    if(use_mgr_lbar)
+      fix_labelbar(stream_object@contour,font_height,lbar_on,stres)
     end if
   
 ; Draw all this stuff: map plot, subtitles, and tick marks.
@@ -9075,7 +9751,7 @@ function gsn_csm_streamline_contour_map_other(wks:graphic,u[*][*]:numeric,\
                                         v[*][*]:numeric,data:numeric, \
                                         resources:logical)
 local i, stream_object, labelbar_object, map_object, \
-calldraw, callframe, old_lbar_on, min_lat, max_lat, datanew, \
+calldraw, callframe, use_old_lbar, min_lat, max_lat, datanew, \
 res, res2, lbres, mpres, vcres, levels, colors, \
 lbar_zone, lbar_orient, lbar_side, lbar_height, lbar_width, lbar_just, \
 map_vpwf, map_vphf, vphf 
@@ -9089,8 +9765,6 @@ begin
     end if
 ; Initialize.
     infolabel_on   = False
-    old_lbar_on    = False    ; Default is no labelbar.
-    new_lbar_on    = False    ; Default is no labelbar.
     mpres          = True
 
     res2 = get_resources(resources)
@@ -9103,12 +9777,8 @@ begin
       gsnp_write_debug_info(u,v,data,"gsn_csm_streamline_contour_map_other",res2,3)
     end if
 
-; Check for cyclic point (default is True if we are not setting both
-; lon2d/lat2d attributes). Check the vector and contour data separately.
-
-    set_cyclic = .not.((isatt(u,"lat2d").and.isatt(u,"lon2d")).or.\
-                       (isatt(v,"lat2d").and.isatt(v,"lon2d")))
-    if(get_res_value_keep(res2,"gsnAddCyclic",set_cyclic)) then
+; Check for whether a cyclic point might need to be added.
+    if(get_lon_cyclic_point_default([/u,v/],res2,"map",True)) then
       unew = gsn_add_cyclic_point(u)
       vnew = gsn_add_cyclic_point(v)
     else
@@ -9116,8 +9786,7 @@ begin
       vnew = v
     end if
 
-    set_cyclic = .not.(isatt(data,"lat2d").and.isatt(data,"lon2d"))
-    if(get_res_value(res2,"gsnAddCyclic",set_cyclic)) then
+    if(get_lon_cyclic_point_default(data,res2,"map",False)) then
       datanew = gsn_add_cyclic_point(data)
     else
       datanew = data
@@ -9163,16 +9832,25 @@ begin
 ;
     check_for_y_lat_coord(datanew,res2,"contour_map")
     check_for_lon_coord(datanew,res2,"contour_map")
-
-    if(get_res_value_keep(res2,"lbLabelBarOn",True)) then
-      old_lbar_on = get_res_value(res2,"gsnOldLabelBar",GSN_OLD_LABELBAR)
-      new_lbar_on = .not.old_lbar_on
-      if(new_lbar_on) then
+;
+; Labelbar stuff
+;
+; This is a bit difference because we have to check for labelbars
+; for both contours and streamlines.
+;
+    lbar_on = get_res_value_keep(res2,"lbLabelBarOn",True)
+    if(lbar_on)
+      use_old_lbar = get_res_value(res2,"gsnOldLabelBar",GSN_OLD_LABELBAR)
+      use_mgr_lbar = .not.use_old_lbar
+      if(use_mgr_lbar) then
         set_labelbar_res(res2,"contour")
       end if
+    else
+      use_old_lbar = False
+      use_mgr_lbar = False
     end if
-    lbar_orient  = lower_case(get_res_value_keep(res2,"lbOrientation", \
-                              "horizontal"))
+    lbar_orient  = str_lower(get_res_value_keep(res2,"lbOrientation", \
+                             "horizontal"))
     infolabel_on = get_res_value_keep(res2,"cnInfoLabelOn",False)
 
 ;
@@ -9196,7 +9874,7 @@ begin
 
 ; This section tests for regular resources.
     mpres = get_res_eq(res2,(/"mp","vp","tm","ti","tx","am","pmA","pmO","pmT","gsnMask"/))
-    if(old_lbar_on) then
+    if(use_old_lbar) then
       stres = get_res_ne(res2,(/"mp","vp","tm","lb","tx","am","pm","gsnMask"/))
     else
       stres = get_res_ne(res2,(/"mp","vp","tm","tx","am","pm","gsnMask"/))
@@ -9234,23 +9912,20 @@ begin
       "tiMainFontHeightF"    : main_font_height  ; main title size
     end setvalues
 
-; Create a labelbar.
-
-    if(old_lbar_on)
+; Create a labelbar or fix an existing one.
+    if(use_old_lbar)
       if(.not.infolabel_on)
         lbar_zone = 2
       else
         lbar_zone = 3
       end if
-;
-; Get labelbar resources, if any.
-;
-      lbres = get_res_eq(res2,(/"lb","pm"/))
-
-      add_labelbar(wks,stream_object@contour,lbar_zone,font_height,"vector",lbres)
     end if
-    if(new_lbar_on)
-      fix_labelbar(stream_object@contour,font_height,stres)
+    if(use_old_lbar)
+      lbres = get_res_eq(res2,(/"lb","pm"/))
+      add_labelbar(wks,stream_object@contour,lbar_zone,font_height,"vector",lbar_on,lbres)
+    end if
+    if(use_mgr_lbar)
+      fix_labelbar(stream_object@contour,font_height,lbar_on,stres)
     end if
   
 ; Draw all this stuff: map plot, subtitles, and tick marks.
@@ -9286,8 +9961,8 @@ end
 undef("gsn_csm_vector_scalar")
 function gsn_csm_vector_scalar(wks:graphic,u[*][*]:numeric,v[*][*]:numeric, \
                                data:numeric,resources:logical)
-local i, vector_object, res, res2, old_lbar_on, new_lbar_on, \
-calldraw, callframe, unew, vnew, datanew, vpwf, vphf, old_lbar_on, lbar_type
+local i, vector_object, res, res2, use_old_lbar, use_mgr_lbar, \
+calldraw, callframe, unew, vnew, datanew, vpwf, vphf, use_old_lbar, lbar_type
 begin
 ;
 ; Make sure input data is 1D or 2D
@@ -9301,9 +9976,6 @@ begin
     main_zone      = 2         ; Zone for main title (may change later)
     infolabel_on   = False
     refanno_on     = True
-    old_lbar_on    = False
-    new_lbar_on    = False
-    lbar_type      = ""
     res2 = get_resources(resources)
 ;
 ; Write data and plot resource information to a file so we can 
@@ -9317,8 +9989,8 @@ begin
     tm_scale      = get_res_value_keep(res2,"gsnScale",True)
     point_outward = get_res_value(res2,"gsnTickMarksPointOutward",True)
 
-; The default is to not add a cyclic point.
-    if(get_res_value_keep(res2,"gsnAddCyclic",False)) then
+; Check for whether a cyclic point might need to be added.
+    if(get_lon_cyclic_point_default([/u,v/],res2,"",True)) then
       unew    = gsn_add_cyclic_point(u)
       vnew    = gsn_add_cyclic_point(v)
     else
@@ -9326,7 +9998,7 @@ begin
       vnew    = v
     end if
 
-    if(get_res_value(res2,"gsnAddCyclic",False)) then
+    if(get_lon_cyclic_point_default(data,res2,"",False)) then
       datanew = gsn_add_cyclic_point(data)
     else
       datanew = data
@@ -9370,25 +10042,27 @@ begin
 ; Check for type of scalar field representation.
     scalar_contour = get_res_value(res2,"gsnScalarContour",False)
 
-; Get labelbar resources.
+;---Labelbar stuff
+    lbar_type = ""
     lbres = get_res_eq(res2,(/"lb","pm"/))
-
     if(scalar_contour)
-; Turn on labelbar if cnFillOn is True and it wasn't explicitly 
-; turned off.
       if(check_attr(res2,"cnFillOn",True,False))
         lbar_type = "contour"
         set_attr(res2,"cnFillDrawOrder","Predraw")
         set_attr(res2,"cnInfoLabelOn",False)
-        if(.not.isatt(lbres,"lbLabelBarOn").or.\
-           check_attr(lbres,"lbLabelBarOn",True,False))
+        lbar_on = get_res_value(lbres,"lbLabelBarOn",True)
+        use_old_lbar = get_res_value(res2,"gsnOldLabelBar",GSN_OLD_LABELBAR)
+        use_mgr_lbar = .not.use_old_lbar
+        if(lbar_on)
           set_attr(res2,"cnLineLabelsOn",False)
-          old_lbar_on = get_res_value(res2,"gsnOldLabelBar",GSN_OLD_LABELBAR)
-          new_lbar_on = .not.old_lbar_on
-          if(new_lbar_on) then
+          if(use_mgr_lbar) then
             set_labelbar_res(res2,"contour")
           end if
         end if
+      else
+        lbar_on = False
+        use_old_lbar = False
+        use_mgr_lbar = False
       end if
     else
 ;
@@ -9398,14 +10072,18 @@ begin
 ;
       if(.not.check_attr(res2,"vcMonoLineArrowColor",True,False))
         lbar_type = "vector"
-        if(.not.isatt(lbres,"lbLabelBarOn").or.\
-           check_attr(lbres,"lbLabelBarOn",True,False))
-          old_lbar_on = get_res_value(res2,"gsnOldLabelBar",GSN_OLD_LABELBAR)
-          new_lbar_on = .not.old_lbar_on
-          if(new_lbar_on) then
+        lbar_on = get_res_value(lbres,"lbLabelBarOn",True)
+        use_old_lbar = get_res_value(res2,"gsnOldLabelBar",GSN_OLD_LABELBAR)
+        use_mgr_lbar = .not.use_old_lbar
+        if(lbar_on)
+          if(use_mgr_lbar) then
             set_labelbar_res(res2,"vector")
           end if
         end if
+      else
+        lbar_on = False
+        use_old_lbar = False
+        use_mgr_lbar = False
       end if
     end if
 
@@ -9416,7 +10094,7 @@ begin
 
 ; Turn off info label if labelbar is on, unless otherwise specified by user.
     if(scalar_contour)
-      if(old_lbar_on.or.new_lbar_on)
+      if(lbar_on.and.(use_old_lbar.or.use_mgr_lbar))
         set_attr(res2,"cnInfoLabelOn",False)
       else
         set_attr(res2,"cnInfoLabelOn",True)
@@ -9424,8 +10102,8 @@ begin
       infolabel_on = res2@cnInfoLabelOn
     end if
 
-    if(old_lbar_on.and.(check_attr(lbres,"lbOrientation","vertical",True).or.\
-                        check_attr(lbres,"lbOrientation",1,True)))
+    if(lbar_on.and.use_old_lbar.and.\
+       check_attr_enum_value(lbres,"lbOrientation","vertical")) then
       set_attr(res2, "vpWidthF",0.75)   ; Make room for labelbar
       set_attr(res2,"vpHeightF",0.75)   ; on the side.
       set_attr(res2,     "vpXF",0.08)
@@ -9448,7 +10126,7 @@ begin
     end if
 
 ; Before we create the vector object, turn off draw and frame for it.
-    if(new_lbar_on) then
+    if(lbar_on.and.use_mgr_lbar) then
       vcres = get_res_ne(res2,(/"mp","tx","am"/))
     else
       vcres = get_res_ne(res2,(/"mp","lb","tx","am","pm"/))
@@ -9460,19 +10138,19 @@ begin
     vcres@gsnScale = tm_scale  ; Force labels and ticks to be same, if True.
 
     if(scalar_contour)
-      vector_object = gsn_vector_contour(wks,unew,vnew,datanew,vcres)
+      base_object = gsn_vector_contour(wks,unew,vnew,datanew,vcres)
     else
-      vector_object = gsn_vector_scalar(wks,unew,vnew,datanew,vcres)
+      base_object = gsn_vector_scalar(wks,unew,vnew,datanew,vcres)
     end if
 
 ; Add lat/lon labels to X/Y axes if appropriate coordinate arrays exist.
 
-    add_latlon_labels(vector_object,unew,res2)
+    add_latlon_labels(base_object,unew,res2)
 
 ; Retrieve some font heights and make the X/Y axis labels the same
 ; size, and the info label size the same as the tick mark label size.
 
-    getvalues vector_object
+    getvalues base_object
       "vpHeightF"            : height
       "vpWidthF"             : width
 
@@ -9503,11 +10181,11 @@ begin
 ; If gsnScale is True, then make sure we have a valid tickmark
 ; object before we do anything else.
 ;
-    if(tm_scale.and.is_tm_obj_valid(vector_object)) then
+    if(tm_scale.and.is_tm_obj_valid(base_object)) then
 ;
 ; Make tick marks same length and point outward.
 ;
-      getvalues vector_object
+      getvalues base_object
         "tmYLMajorLengthF"     : ylength
         "tmXBMajorLengthF"     : xlength
         "tmYLMinorLengthF"     : ymlength
@@ -9521,33 +10199,39 @@ begin
       minor_length = scale * minor_length
 
       tmres = get_res_eq(res2,"tm")
-      gsnp_point_tickmarks_outward(vector_object,tmres,xlength,ylength,\
+      gsnp_point_tickmarks_outward(base_object,tmres,xlength,ylength,\
                                    xmlength,ymlength,\
                                    major_length,minor_length,point_outward)
     end if
 
 ; Make sure info labels, line labels, and vector labels are same size.
     if(scalar_contour)
-      if(.not.isatt(res2,"cnLineLabelFontHeightF"))
-        setvalues vector_object@contour
+      if(.not.isatt(res2,"cnInfoLabelFontHeightF"))
+        setvalues base_object
           "cnInfoLabelFontHeightF" : xbfontf
        end setvalues
       end if
       if(.not.isatt(res2,"cnLineLabelFontHeightF"))
-        setvalues vector_object@contour
+        setvalues base_object
           "cnLineLabelFontHeightF"    : xbfontf
         end setvalues
       end if
     end if
 
     if(.not.isatt(res2,"vcRefAnnoFontHeightF"))
-      setvalues vector_object
-        "vcRefAnnoFontHeightF" : xbfontf
-     end setvalues
+      if(scalar_contour) then
+        setvalues base_object@vector
+          "vcRefAnnoFontHeightF" : xbfontf
+        end setvalues
+      else
+        setvalues base_object
+          "vcRefAnnoFontHeightF" : xbfontf
+        end setvalues
+      end if
     end if
 
-;---Create a labelbar.
-    if(old_lbar_on)
+;---Create a labelbar or fix an existing one.
+    if(use_old_lbar)
       if(.not.refanno_on.and..not.infolabel_on)
         lbar_zone = 2
       else
@@ -9555,19 +10239,20 @@ begin
       end if
     end if
     if(scalar_contour)
-      if(old_lbar_on)
-        add_labelbar(wks,vector_object@contour,lbar_zone,xbfontf, \
-                     "vector",lbres)
+      if(use_old_lbar)
+        add_labelbar(wks,base_object,lbar_zone,xbfontf, \
+                     "vector",lbar_on,lbres)
       end if
-      if(new_lbar_on)
-        fix_labelbar(vector_object@contour,xbfontf,vcres)
+      if(use_mgr_lbar)
+        fix_labelbar(base_object,xbfontf,lbar_on,vcres)
       end if
     else
-      if(old_lbar_on)
-        add_labelbar(wks,vector_object,lbar_zone,xbfontf,"vector",lbres)
+      if(use_old_lbar)
+        add_labelbar(wks,base_object,lbar_zone,xbfontf, \
+                     "vector",lbar_on,lbres)
       end if
-      if(new_lbar_on)
-        fix_labelbar(vector_object,xbfontf,vcres)
+      if(use_mgr_lbar)
+        fix_labelbar(base_object,xbfontf,lbar_on,vcres)
       end if
     end if
   
@@ -9575,21 +10260,21 @@ begin
     subres = get_res_eq(res2,(/"tx","am"/))  ; Get textitem resources
     subres                  = True
     set_attr(subres,"txFontHeightF",font_height)
-    add_subtitles(wks,vector_object,left_string,center_string,\
+    add_subtitles(wks,base_object,left_string,center_string,\
                   right_string,subres)
 
 ; Draw all this stuff: vector/contour plot, subtitles, and tick marks.
-    draw_and_frame(wks,vector_object,calldraw,callframe,0,maxbb)
+    draw_and_frame(wks,base_object,calldraw,callframe,0,maxbb)
 
 ; Return plot object and data object (as attribute of plot object).
 
-    vector_object@vfdata  = vector_object@vfdata
-    vector_object@sfdata  = vector_object@sfdata
+    base_object@vfdata  = base_object@vfdata
+    base_object@sfdata  = base_object@sfdata
     if(lbar_type.eq."contour") then
-      vector_object@labelbar      = vector_object@contour
-      vector_object@labelbar_type = lbar_type
+      base_object@labelbar      = base_object
+      base_object@labelbar_type = lbar_type
     end if
-    return(vector_object)
+    return(base_object)
 end
 
 ;***********************************************************************;
@@ -9613,7 +10298,7 @@ function gsn_csm_vector_scalar_map_ce(wks:graphic,u[*][*]:numeric,\
                    v[*][*]:numeric,data:numeric,resources:logical)
 local i, vector_object, map_object, res, res2, \
 calldraw, callframe, min_lat, max_lat, unew, vnew, datanew, \
-map_vpwf, map_vphf, vpwf, vphf, old_lbar_on, new_lbar_on, lbar_type
+map_vpwf, map_vphf, vpwf, vphf, use_old_lbar, use_mgr_lbar, lbar_type
 begin
 ;
 ; Make sure input data is 1D or 2D
@@ -9626,9 +10311,6 @@ begin
 ; Initialize.
     infolabel_on   = False
     refanno_on     = True
-    old_lbar_on    = False
-    new_lbar_on    = False
-    lbar_type      = ""
     mpres          = True
     res2           = get_resources(resources)
 ;
@@ -9646,12 +10328,8 @@ begin
       user_set_ref_orth = False
     end if
 
-; Check for cyclic point (default is True if we are not setting both
-; lon2d/lat2d attributes). Check the vector and contour data separately.
-
-    set_cyclic = .not.((isatt(u,"lat2d").and.isatt(u,"lon2d")).or.\
-                       (isatt(v,"lat2d").and.isatt(v,"lon2d")))
-    if(get_res_value_keep(res2,"gsnAddCyclic",set_cyclic)) then
+; Check for whether a cyclic point might need to be added.
+    if(get_lon_cyclic_point_default([/u,v/],res2,"map",True)) then
       unew    = gsn_add_cyclic_point(u)
       vnew    = gsn_add_cyclic_point(v)
     else
@@ -9659,8 +10337,7 @@ begin
       vnew    = v
     end if
 
-    set_cyclic = .not.(isatt(data,"lat2d").and.isatt(data,"lon2d"))
-    if(get_res_value(res2,"gsnAddCyclic",set_cyclic)) then
+    if(get_lon_cyclic_point_default(data,res2,"map",False)) then
       datanew = gsn_add_cyclic_point(data)
     else
       datanew = data
@@ -9724,23 +10401,27 @@ begin
       delete(res2@gsnMinorLatSpacing)
     end if
 
+;---Labelbar stuff
+    lbar_type = ""
     if(scalar_contour)
-; Turn on labelbar if cnFillOn is True and it wasn't explicitly 
-; turned off.
       if(check_attr(res2,"cnFillOn",True,False))
         lbar_type = "contour"
         set_attr(res2,"cnFillDrawOrder","Predraw")
         set_attr(res2,"cnInfoLabelOn",False)
-        if(.not.isatt(lbres,"lbLabelBarOn").or.\
-           check_attr(lbres,"lbLabelBarOn",True,False))
-          old_lbar_on = get_res_value(res2,"gsnOldLabelBar",GSN_OLD_LABELBAR)
-          new_lbar_on = .not.old_lbar_on
-          if(new_lbar_on) then
+        lbar_on = get_res_value(lbres,"lbLabelBarOn",True)
+        use_old_lbar = get_res_value(res2,"gsnOldLabelBar",GSN_OLD_LABELBAR)
+        use_mgr_lbar = .not.use_old_lbar
+        if(lbar_on) then
+          if(use_mgr_lbar) then
             set_labelbar_res(res2,"contour")
           end if
           set_attr(res2,"cnLineLabelsOn",False)
           set_attr(res2,"cnInfoLabelOn",False)
         end if
+      else
+        lbar_on = False
+        use_old_lbar = False
+        use_mgr_lbar = False
       end if
 
       check_for_y_lat_coord(datanew,res2,"contour_map")
@@ -9763,14 +10444,18 @@ begin
 ;
       if(.not.check_attr(res2,"vcMonoLineArrowColor",True,False))
         lbar_type = "vector"
-        if(.not.isatt(lbres,"lbLabelBarOn").or.\
-           check_attr(lbres,"lbLabelBarOn",True,False))
-          old_lbar_on = get_res_value(res2,"gsnOldLabelBar",GSN_OLD_LABELBAR)
-          new_lbar_on = .not.old_lbar_on
-          if(new_lbar_on) then
+        lbar_on = get_res_value(lbres,"lbLabelBarOn",True)
+        use_old_lbar = get_res_value(res2,"gsnOldLabelBar",GSN_OLD_LABELBAR)
+        use_mgr_lbar = .not.use_old_lbar
+        if(lbar_on) then
+          if(use_mgr_lbar) then
             set_labelbar_res(res2,"vector")
           end if
         end if
+      else
+        lbar_on = False
+        use_old_lbar = False
+        use_mgr_lbar = False
       end if
     end if
 
@@ -9781,7 +10466,7 @@ begin
 
 ; Turn off info label if labelbar is on, unless otherwise specified by user.
     if(scalar_contour)
-      if(old_lbar_on.or.new_lbar_on)
+      if(lbar_on.and.(use_old_lbar.or.use_mgr_lbar))
         set_attr(res2,"cnInfoLabelOn",False)
       else
         set_attr(res2,"cnInfoLabelOn",True)
@@ -9800,7 +10485,7 @@ begin
 
 ; This section tests for regular resources.
     mpres = get_res_eq(res2,(/"mp","vp","tm","ti","tx","am","pmA","pmO","pmT"/))
-    if(new_lbar_on) then
+    if(use_mgr_lbar.and.lbar_on) then
       vcres = get_res_ne(res2,(/"mp","vp","tm","tx","am"/))
     else
       vcres = get_res_ne(res2,(/"mp","vp","tm","lb","tx","am","pm"/))
@@ -9814,8 +10499,8 @@ begin
     mpres@gsnDraw  = False
     mpres@gsnFrame = False
 
-    if(old_lbar_on.and.(check_attr(lbres,"lbOrientation","vertical",True).or.\
-                    check_attr(lbres,"lbOrientation",1,True)))
+    if(lbar_on.and.use_old_lbar.and.\
+       check_attr_enum_value(lbres,"lbOrientation","vertical"))
       set_attr(mpres, "vpWidthF",0.75)   ; Make room for labelbar
       set_attr(mpres,"vpHeightF",0.75)   ; on the side.
       set_attr(mpres,     "vpXF",0.08)
@@ -9838,13 +10523,13 @@ begin
     end if
 
     if(scalar_contour)
-      vector_object = gsn_vector_contour(wks,unew,vnew,datanew,vcres)
+      base_object = gsn_vector_contour(wks,unew,vnew,datanew,vcres)
     else
-      vector_object = gsn_vector_scalar(wks,unew,vnew,datanew,vcres)
+      base_object = gsn_vector_scalar(wks,unew,vnew,datanew,vcres)
     end if
 
     map_object = gsn_csm_map_ce(wks,mpres)          ; Create map.
-    overlay(map_object,vector_object)               ; Overlay vectors on map.
+    overlay(map_object,base_object)               ; Overlay vectors on map.
 
 ; Retrieve some font heights and make the X/Y axis labels the same
 ; size, and the info label size the same as the tick mark label size.
@@ -9873,27 +10558,33 @@ begin
 
 ; Make sure info labels, line labels, and vector labels are same size.
     if(scalar_contour)
-      if(.not.isatt(vcres,"cnLineLabelFontHeightF"))
-        setvalues vector_object@contour
+      if(.not.isatt(vcres,"cnInfoLabelFontHeightF"))
+        setvalues base_object
           "cnInfoLabelFontHeightF" : xbfontf
        end setvalues
       end if
       if(.not.isatt(vcres,"cnLineLabelFontHeightF"))
-        setvalues vector_object@contour
+        setvalues base_object
           "cnLineLabelFontHeightF"    : xbfontf
         end setvalues
       end if
     end if
 
     if(.not.isatt(vcres,"vcRefAnnoFontHeightF"))
-      setvalues vector_object
-        "vcRefAnnoFontHeightF" : xbfontf
-     end setvalues
+      if(scalar_contour) then
+        setvalues base_object@vector
+          "vcRefAnnoFontHeightF" : xbfontf
+        end setvalues
+      else
+        setvalues base_object
+          "vcRefAnnoFontHeightF" : xbfontf
+        end setvalues
+      end if
     end if
 
 ; Create a labelbar.
 
-    if(old_lbar_on)
+    if(use_old_lbar)
       if(.not.refanno_on.and..not.infolabel_on)
         lbar_zone = 2
       else
@@ -9912,19 +10603,19 @@ begin
       end if
     end if
     if(scalar_contour)
-      if(old_lbar_on)
-        add_labelbar(wks,vector_object@contour,lbar_zone,xbfontf, \
-                     "vector",lbres)
+      if(use_old_lbar)
+        add_labelbar(wks,base_object,lbar_zone,xbfontf, \
+                     "vector",lbar_on,lbres)
       end if
-      if(new_lbar_on)
-        fix_labelbar(vector_object@contour,xbfontf,vcres)
+      if(use_mgr_lbar)
+        fix_labelbar(base_object,xbfontf,lbar_on,vcres)
       end if
     else
-      if(old_lbar_on)
-        add_labelbar(wks,vector_object,lbar_zone,xbfontf,"vector",lbres)
+      if(use_old_lbar)
+        add_labelbar(wks,base_object,lbar_zone,xbfontf,"vector",lbar_on,lbres)
       end if
-      if(new_lbar_on)
-        fix_labelbar(vector_object,xbfontf,vcres)
+      if(use_mgr_lbar)
+        fix_labelbar(base_object,xbfontf,lbar_on,vcres)
       end if
     end if
 
@@ -9934,17 +10625,17 @@ begin
 ; Return plot object and data object (as attribute of plot object).
 
     if(lbar_type.eq."contour") then
-      map_object@labelbar      = vector_object@contour
+      map_object@labelbar = base_object
       map_object@labelbar_type = lbar_type
     end if
 
-    map_object@vfdata  = vector_object@vfdata
-    map_object@sfdata  = vector_object@sfdata
+    map_object@vfdata  = base_object@vfdata
+    map_object@sfdata  = base_object@sfdata
     if(scalar_contour)
-      map_object@vector  = vector_object
-      map_object@contour = vector_object@contour
+      map_object@contour = base_object
+      map_object@vector  = base_object@vector
     else
-      map_object@vector  = vector_object
+      map_object@vector  = base_object
     end if
 
     return(map_object)
@@ -9972,11 +10663,8 @@ function gsn_csm_vector_scalar_map_polar(wks:graphic,u[*][*]:numeric, \
                                          v[*][*]:numeric,data:numeric,
                                          resources:logical)
 local i, vector_object, map_object, res, res2, calldraw, vcres, lbres, \
-vpwf, vphf, callframe, old_lbar_on, new_lbar_on, lbar_type, lbar_zone, unew, vnew
+vpwf, vphf, callframe, use_old_lbar, use_mgr_lbar, lbar_type, lbar_zone, unew, vnew
 begin
-; Initialize.
-    old_lbar_on    = False
-    new_lbar_on    = False
 ;
 ; Make sure input data is 1D or 2D
 ;
@@ -10002,12 +10690,8 @@ begin
 
     mpres = True
 
-; Check for cyclic point (default is True if we are not setting both
-; lon2d/lat2d attributes). Check the vector and contour data separately.
-
-    set_cyclic = .not.((isatt(u,"lat2d").and.isatt(u,"lon2d")).or.\
-                       (isatt(v,"lat2d").and.isatt(v,"lon2d")))
-    if(get_res_value_keep(res2,"gsnAddCyclic",set_cyclic)) then
+; Check for whether a cyclic point might need to be added.
+    if(get_lon_cyclic_point_default([/u,v/],res2,"map",True)) then
       unew    = gsn_add_cyclic_point(u)
       vnew    = gsn_add_cyclic_point(v)
     else
@@ -10015,8 +10699,7 @@ begin
       vnew    = v
     end if
 
-    set_cyclic = .not.(isatt(data,"lat2d").and.isatt(data,"lon2d"))
-    if(get_res_value(res2,"gsnAddCyclic",set_cyclic)) then
+    if(get_lon_cyclic_point_default(data,res2,"map",False)) then
       datanew = gsn_add_cyclic_point(data)
     else
       datanew = data
@@ -10073,23 +10756,26 @@ begin
       check_for_lon_coord(datanew,res2,"contour_map")
     end if
 
+;---Labelbar stuff
     lbar_type = ""
     if(scalar_contour)
-; Turn on labelbar if cnFillOn is True and it wasn't explicitly 
-; turned off.
       if(check_attr(res2,"cnFillOn",True,False))
+        lbar_on = get_res_value(res2,"lbLabelBarOn",True)
+        use_old_lbar = get_res_value(res2,"gsnOldLabelBar",GSN_OLD_LABELBAR)
+        use_mgr_lbar = .not.use_old_lbar
         lbar_type = "contour"
         set_attr(res2,"cnFillDrawOrder","Predraw")
         set_attr(res2,"cnInfoLabelOn",False)
-        if(.not.isatt(res2,"lbLabelBarOn").or.\
-           check_attr(res2,"lbLabelBarOn",True,False))
-          old_lbar_on = get_res_value(res2,"gsnOldLabelBar",GSN_OLD_LABELBAR)
-          new_lbar_on = .not.old_lbar_on
-          if(new_lbar_on) then
+        if(lbar_on) then
+          if(use_mgr_lbar) then
             set_labelbar_res(res2,"polar")
           end if
           set_attr(res2,"cnInfoLabelOn",False)
         end if
+      else
+        lbar_on = get_res_value(res2,"lbLabelBarOn",False)   ; make sure this resource gets removed from res2
+        use_old_lbar = False
+        use_mgr_lbar = False
       end if
     else
 ;
@@ -10098,23 +10784,23 @@ begin
 ; being True here.
 ;
       if(.not.check_attr(res2,"vcMonoLineArrowColor",True,False))
+        lbar_on = get_res_value(res2,"lbLabelBarOn",True)
+        use_old_lbar = get_res_value(res2,"gsnOldLabelBar",GSN_OLD_LABELBAR)
+        use_mgr_lbar = .not.use_old_lbar
         lbar_type = "vector"
-        if(.not.isatt(res2,"lbLabelBarOn").or.\
-           check_attr(res2,"lbLabelBarOn",True,False))
-          old_lbar_on = get_res_value(res2,"gsnOldLabelBar",GSN_OLD_LABELBAR)
-          new_lbar_on = .not.old_lbar_on
-          if(new_lbar_on) then
+        if(lbar_on) then
+          if(use_mgr_lbar) then
             set_labelbar_res(res2,"polar")
           end if
         end if
+      else
+        lbar_on = get_res_value(res2,"lbLabelBarOn",False)   ; make sure this resource gets removed from res2
+        use_old_lbar = False
+        use_mgr_lbar = False
       end if
     end if
 
-    if(isatt(res2,"lbLabelBarOn"))
-      delete(res2@lbLabelBarOn)
-    end if
-
-    lbar_orient  = lower_case(get_res_value_keep(res2,"lbOrientation", \
+    lbar_orient  = str_lower(get_res_value_keep(res2,"lbOrientation", \
                               "horizontal"))
     infolabel_on = get_res_value_keep(res2,"cnInfoLabelOn",False)
     refanno_on   = get_res_value_keep(res2,"vcRefAnnoOn",True)
@@ -10145,7 +10831,7 @@ begin
       set_attr(res2,"cnInfoLabelJust","TopRight")
     end if
 
-    if(old_lbar_on)
+    if(lbar_on.and.use_old_lbar)
       if(lbar_orient.eq."vertical")
         set_attr(res2,"vpXF",0.15)
         set_attr(res2,"pmLabelBarOrthogonalPosF",0.1)
@@ -10162,7 +10848,7 @@ begin
     mpres = get_res_eq(res2,(/"mp","vp","tm","ti","tx","am","pmA","pmO",\
                               "pmT","gsnPolar"/))
 
-    if(old_lbar_on) then
+    if(lbar_on.and.use_old_lbar) then
       vcres = get_res_ne(res2,(/"mp","vp","tm","tx","am","lb","pm","gsnPolar"/))
     else
       vcres = get_res_ne(res2,(/"mp","vp","tm","tx","am","gsnPolar"/))
@@ -10177,12 +10863,13 @@ begin
     mpres@gsnFrame = False
 
     if(scalar_contour)
-      vector_object = gsn_vector_contour(wks,unew,vnew,datanew,vcres)
+      base_object = gsn_vector_contour(wks,unew,vnew,datanew,vcres)
     else
-      vector_object = gsn_vector_scalar(wks,unew,vnew,datanew,vcres)
+      base_object = gsn_vector_scalar(wks,unew,vnew,datanew,vcres)
     end if
+
     map_object    = gsn_csm_map_polar(wks,mpres)    ; Create map.
-    overlay(map_object,vector_object)               ; Overlay vectors on map.
+    overlay(map_object,base_object)               ; Overlay vectors on map.
 
 ; Retrieve plot height so we can compute font height.
 
@@ -10205,33 +10892,29 @@ begin
 
 ; Create a labelbar.
 
-    if(old_lbar_on)
+    if(use_old_lbar)
       if(.not.refanno_on.and..not.infolabel_on)
         lbar_zone = 2
       else
         lbar_zone = 3
       end if
-;
-; Get labelbar resources, if any.
-;
       lbres = get_res_eq(res2,(/"lb","pm"/))
-
     end if
 
     if(scalar_contour)
-      if(old_lbar_on)
-        add_labelbar(wks,vector_object@contour,lbar_zone,font_height, \
-                     "vector",lbres)
+      if(use_old_lbar)
+        add_labelbar(wks,base_object,lbar_zone,font_height, \
+                     "vector",lbar_on,lbres)
       end if
-      if(new_lbar_on)
-        fix_labelbar(vector_object@contour,font_height,vcres)
+      if(use_mgr_lbar)
+        fix_labelbar(base_object,font_height,lbar_on,vcres)
       end if
     else
-      if(old_lbar_on)
-        add_labelbar(wks,vector_object,lbar_zone,font_height,"vector",lbres)
+      if(use_old_lbar)
+        add_labelbar(wks,base_object,lbar_zone,font_height,"vector",lbar_on,lbres)
       end if
-      if(new_lbar_on)
-        fix_labelbar(vector_object,font_height,vcres)
+      if(use_mgr_lbar)
+        fix_labelbar(base_object,font_height,lbar_on,vcres)
       end if
     end if
   
@@ -10241,17 +10924,17 @@ begin
 ; Return plot object and data object (as attribute of plot object).
 
     if(lbar_type.eq."contour") then
-      map_object@labelbar      = vector_object@contour
+      map_object@labelbar      = base_object
       map_object@labelbar_type = lbar_type
     end if
 
-    map_object@vfdata  = vector_object@vfdata
-    map_object@sfdata  = vector_object@sfdata
+    map_object@vfdata  = base_object@vfdata
+    map_object@sfdata  = base_object@sfdata
     if(scalar_contour)
-      map_object@vector  = vector_object
-      map_object@contour = vector_object@contour
+      map_object@contour = base_object
+      map_object@vector  = base_object@vector
     else
-      map_object@vector  = vector_object
+      map_object@vector  = base_object
     end if
     return(map_object)
 end
@@ -10279,8 +10962,8 @@ function gsn_csm_vector_scalar_map_other(wks:graphic,u[*][*]:numeric,\
                                         v[*][*]:numeric,data:numeric, \
                                         resources:logical)
 local i, vector_object, labelbar_object, map_object, \
-calldraw, callframe, old_lbar_on, lbar_type, min_lat, max_lat, datanew, \
-res, res2, lbres, mpres, vcres, levels, colors, new_lbar_on, \
+calldraw, callframe, use_old_lbar, lbar_type, min_lat, max_lat, datanew, \
+res, res2, lbres, mpres, vcres, levels, colors, use_mgr_lbar, \
 lbar_zone, lbar_orient, lbar_side, lbar_height, lbar_width, lbar_just, \
 map_vpwf, map_vphf, vphf 
 begin
@@ -10295,12 +10978,9 @@ begin
 ; Initialize.
     infolabel_on   = False
     refanno_on     = True
-    old_lbar_on    = False    ; Default is no labelbar.
-    new_lbar_on    = False
-    lbar_type      = ""
     mpres          = True
-
     res2           = get_resources(resources)
+
 ;
 ; Write data and plot resource information to a file so we can 
 ; reconstruct plot if desired, without all the computational
@@ -10310,12 +10990,8 @@ begin
       gsnp_write_debug_info(u,v,data,"gsn_csm_vector_scalar_map_other",res2,3)
     end if
 
-; Check for cyclic point (default is True if we are not setting both
-; lon2d/lat2d attributes). Check the vector and contour data separately.
-
-    set_cyclic = .not.((isatt(u,"lat2d").and.isatt(u,"lon2d")).or.\
-                       (isatt(v,"lat2d").and.isatt(v,"lon2d")))
-    if(get_res_value_keep(res2,"gsnAddCyclic",set_cyclic)) then
+; Check for whether a cyclic point might need to be added.
+    if(get_lon_cyclic_point_default([/u,v/],res2,"map",True)) then
       unew = gsn_add_cyclic_point(u)
       vnew = gsn_add_cyclic_point(v)
     else
@@ -10323,8 +10999,7 @@ begin
       vnew = v
     end if
 
-    set_cyclic = .not.(isatt(data,"lat2d").and.isatt(data,"lon2d"))
-    if(get_res_value(res2,"gsnAddCyclic",set_cyclic)) then
+    if(get_lon_cyclic_point_default(data,res2,"map",False)) then
       datanew = gsn_add_cyclic_point(data)
     else
       datanew = data
@@ -10356,10 +11031,16 @@ begin
     scalar_contour = get_res_value(res2,"gsnScalarContour",False)
 
 ; 
+; Labelbar stuff
+;
 ; Determine which annotations (labelbar, vector reference anno, info label)
 ; should be turned on.  By default, labelbar and vector anno are on, and
 ; contour info label is off.
 ;
+    lbar_on        = False
+    lbar_type      = ""
+    use_old_lbar   = False    ; Default is no labelbar.
+    use_mgr_lbar   = False
     if(scalar_contour)
       if(check_attr(res2,"cnFillOn",True,False))
         lbar_type = "contour"
@@ -10386,15 +11067,17 @@ begin
         lbar_type = "contour"
         set_attr(res2,"cnFillDrawOrder","Predraw")
         set_attr(res2,"cnInfoLabelOn",False)
-        if(.not.isatt(res2,"lbLabelBarOn").or.\
-           check_attr(res2,"lbLabelBarOn",True,False))
-          old_lbar_on = get_res_value(res2,"gsnOldLabelBar",GSN_OLD_LABELBAR)
-          new_lbar_on = .not.old_lbar_on
-          if(new_lbar_on) then
+        lbar_on = get_res_value(res2,"lbLabelBarOn",True)
+        use_old_lbar = get_res_value(res2,"gsnOldLabelBar",GSN_OLD_LABELBAR)
+        use_mgr_lbar = .not.use_old_lbar
+        if(lbar_on) then
+          if(use_mgr_lbar) then
             set_labelbar_res(res2,"contour")
           end if
           set_attr(res2,"cnInfoLabelOn",False)
         end if
+      else
+        lbar_on = get_res_value(res2,"lbLabelBarOn",False)  ; make sure this gets removed from res2
       end if
     else
 ;
@@ -10404,22 +11087,20 @@ begin
 ;
       if(.not.check_attr(res2,"vcMonoLineArrowColor",True,False))
         lbar_type = "vector"
-        if(.not.isatt(res2,"lbLabelBarOn").or.\
-           check_attr(res2,"lbLabelBarOn",True,False))
-          old_lbar_on = get_res_value(res2,"gsnOldLabelBar",GSN_OLD_LABELBAR)
-          new_lbar_on = .not.old_lbar_on
-          if(new_lbar_on) then
+        use_old_lbar = get_res_value(res2,"gsnOldLabelBar",GSN_OLD_LABELBAR)
+        use_mgr_lbar = .not.use_old_lbar
+        lbar_on = get_res_value(res2,"lbLabelBarOn",True)
+        if(lbar_on) then
+          if(use_mgr_lbar) then
             set_labelbar_res(res2,"vector")
           end if
         end if
+      else
+        lbar_on = get_res_value(res2,"lbLabelBarOn",False)  ; make sure this gets removed from res2
       end if
     end if
 
-    if(isatt(res2,"lbLabelBarOn"))
-      delete(res2@lbLabelBarOn)
-    end if
-
-    lbar_orient  = lower_case(get_res_value_keep(res2,"lbOrientation", \
+    lbar_orient  = str_lower(get_res_value_keep(res2,"lbOrientation", \
                               "horizontal"))
     infolabel_on = get_res_value_keep(res2,"cnInfoLabelOn",False)
     refanno_on   = get_res_value_keep(res2,"vcRefAnnoOn",True)
@@ -10462,7 +11143,7 @@ begin
 ; This section tests for regular resources.
     mpres = get_res_eq(res2,(/"mp","vp","tm","ti","tx","am","pmA","pmO","pmT","gsnMask"/))
 
-    if(old_lbar_on) then
+    if(lbar_on.and.use_old_lbar) then
       vcres = get_res_ne(res2,(/"mp","vp","tm","lb","tx","am","pm","gsnMask"/))
     else
       vcres = get_res_ne(res2,(/"mp","vp","tm","tx","am","gsnMask"/))
@@ -10477,13 +11158,13 @@ begin
     mpres@gsnFrame  = False
 
     if(scalar_contour)
-      vector_object = gsn_vector_contour(wks,unew,vnew,datanew,vcres)
+      base_object = gsn_vector_contour(wks,unew,vnew,datanew,vcres)
     else
-      vector_object = gsn_vector_scalar(wks,unew,vnew,datanew,vcres)
+      base_object = gsn_vector_scalar(wks,unew,vnew,datanew,vcres)
     end if
 
     map_object = gsn_csm_map_other(wks,mpres)   ; Create map.
-    overlay(map_object,vector_object)           ; Overlay vectors on map.
+    overlay(map_object,base_object)           ; Overlay vectors on map.
 
 ; Retrieve plot height so we can compute font height.
 
@@ -10507,14 +11188,20 @@ begin
 ; Set font heights only if they haven't been set explicitly by user.
 
     if(.not.isatt(vcres,"vcRefAnnoFontHeightF"))
-      setvalues vector_object
-        "vcRefAnnoFontHeightF"  : font_height
-      end setvalues
+      if(scalar_contour) then
+        setvalues base_object@vector
+          "vcRefAnnoFontHeightF" : font_height
+        end setvalues
+      else
+        setvalues base_object
+          "vcRefAnnoFontHeightF" : font_height
+        end setvalues
+      end if
     end if
 
 ; Create a labelbar.
 
-    if(old_lbar_on)
+    if(use_old_lbar)
       if(.not.refanno_on.and..not.infolabel_on)
         lbar_zone = 2
       else
@@ -10524,20 +11211,20 @@ begin
       lbres = get_res_eq(res2,(/"lb","pm"/))
     end if
     if(scalar_contour)
-      if(old_lbar_on)
-        add_labelbar(wks,vector_object@contour,lbar_zone,font_height, \
-                     "vector",lbres)
+      if(use_old_lbar)
+        add_labelbar(wks,base_object,lbar_zone,font_height, \
+                     "vector",lbar_on,lbres)
       end if
-      if(new_lbar_on)
-        fix_labelbar(vector_object@contour,font_height,vcres)
+      if(use_mgr_lbar)
+        fix_labelbar(base_object,font_height,lbar_on,vcres)
       end if
     else
-      if(old_lbar_on)
-        add_labelbar(wks,vector_object,lbar_zone,font_height, \
-                     "vector",lbres)
+      if(use_old_lbar)
+        add_labelbar(wks,base_object,lbar_zone,font_height, \
+                     "vector",lbar_on,lbres)
       end if
-      if(new_lbar_on)
-        fix_labelbar(vector_object,font_height,vcres)
+      if(use_mgr_lbar)
+        fix_labelbar(base_object,font_height,lbar_on,vcres)
       end if
     end if
   
@@ -10548,17 +11235,17 @@ begin
 ; Return plot object and data object (as attribute of plot object).
 
     if(lbar_type.eq."contour") then
-      map_object@labelbar      = vector_object@contour
+      map_object@labelbar      = base_object
       map_object@labelbar_type = lbar_type
     end if
 
-    map_object@vfdata  = vector_object@vfdata
-    map_object@sfdata  = vector_object@sfdata
+    map_object@vfdata  = base_object@vfdata
+    map_object@sfdata  = base_object@sfdata
     if(scalar_contour)
-      map_object@vector  = vector_object
-      map_object@contour = vector_object@contour
+      map_object@contour = base_object
+      map_object@vector  = base_object@vector
     else
-      map_object@vector  = vector_object
+      map_object@vector  = base_object
     end if
     return(map_object)
 end
@@ -10593,8 +11280,7 @@ begin
               isatt(res,"gsnPolar")))
     return(gsn_csm_contour_map_polar(wks,data,res))
   else
-    if((check_attr(res,"mpProjection","CylindricalEquidistant",True).or.\
-        check_attr(res,"mpProjection",8,True)).or.\
+    if(check_attr_enum_value(res,"mpProjection","CylindricalEquidistant").or.\
        .not.isatt(res,"mpProjection"))
       return(gsn_csm_contour_map_ce(wks,data,res))
     else
@@ -10634,8 +11320,7 @@ begin
               isatt(res,"gsnPolar")))
     return(gsn_csm_streamline_map_polar(wks,u,v,res))
   else
-    if((check_attr(res,"mpProjection","CylindricalEquidistant",True).or.\
-        check_attr(res,"mpProjection",8,True)).or.\
+    if(check_attr_enum_value(res,"mpProjection","CylindricalEquidistant").or.\
        .not.isatt(res,"mpProjection"))
       return(gsn_csm_streamline_map_ce(wks,u,v,res))
     else
@@ -10675,8 +11360,7 @@ begin
               isatt(res,"gsnPolar")))
     return(gsn_csm_vector_map_polar(wks,u,v,res))
   else
-    if((check_attr(res,"mpProjection","CylindricalEquidistant",True).or.\
-        check_attr(res,"mpProjection",8,True)).or.\
+    if(check_attr_enum_value(res,"mpProjection","CylindricalEquidistant").or.\
        .not.isatt(res,"mpProjection"))
       return(gsn_csm_vector_map_ce(wks,u,v,res))
     else
@@ -10718,8 +11402,7 @@ begin
               isatt(res,"gsnPolar")))
     return(gsn_csm_vector_scalar_map_polar(wks,u,v,data,res))
   else
-    if((check_attr(res,"mpProjection","CylindricalEquidistant",True).or.\
-        check_attr(res,"mpProjection",8,True)).or.\
+    if(check_attr_enum_value(res,"mpProjection","CylindricalEquidistant").or.\
        .not.isatt(res,"mpProjection"))
       return(gsn_csm_vector_scalar_map_ce(wks,u,v,data,res))
     else
@@ -10762,8 +11445,7 @@ begin
               isatt(res,"gsnPolar")))
     return(gsn_csm_streamline_contour_map_polar(wks,u,v,data,res))
   else
-    if((check_attr(res,"mpProjection","CylindricalEquidistant",True).or.\
-        check_attr(res,"mpProjection",8,True)).or.\
+    if(check_attr_enum_value(res,"mpProjection","CylindricalEquidistant").or.\
        .not.isatt(res,"mpProjection"))
       return(gsn_csm_streamline_contour_map_ce(wks,u,v,data,res))
     else
@@ -10771,6 +11453,950 @@ begin
     end if
   end if
 end
+
+
+;***********************************************************************;
+; Function : gsn_csm_streamline_scalar                                  ;
+;                   wks: workstation object                             ;
+;                     u: 2-dimensional data                             ;
+;                     v: 2-dimensional data                             ;
+;                  data: 2-dimensional scalar data                      ;
+;               resources: optional resources                           ;
+;                                                                       ;
+; This function colors streamlines according to a scalar field.         ;
+;                                                                       ;
+;          Otherwise, the streamlines will be colored                   ;
+;                   according to the scalar field.                      ;
+;                                                                       ;
+;               Edited from gsn_csm_vector_scalar                       ;
+;                       by Alan Brammer   2015-02-04                    ;
+;***********************************************************************;
+undef("gsn_csm_streamline_scalar")
+function gsn_csm_streamline_scalar(wks:graphic,u[*][*]:numeric,v[*][*]:numeric, \
+                               data:numeric,resources:logical)
+local i, streamline_object, res, res2, use_old_lbar, use_mgr_lbar, \
+calldraw, callframe, unew, vnew, datanew, vpwf, vphf, use_old_lbar, lbar_type
+begin
+;
+; Make sure input data is 1D or 2D
+;
+    if(.not.is_data_1d_or_2d(data)) then
+      print("gsn_csm_streamline_scalar: Fatal: the input data array must be 1D or 2D")
+      return
+    end if
+
+; Initialize.
+    main_zone      = 2         ; Zone for main title (may change later)
+    infolabel_on   = False
+    res2 = get_resources(resources)
+
+;
+; Write data and plot resource information to a file so we can
+; reconstruct plot if desired, without all the computational
+; code beforehand.
+;
+    if(isatt(res2,"gsnDebugWriteFileName")) then
+      gsnp_write_debug_info(u,v,data,"gsn_csm_streamline_scalar",res2,3)
+    end if
+
+    tm_scale      = get_res_value_keep(res2,"gsnScale",True)
+    point_outward = get_res_value(res2,"gsnTickMarksPointOutward",True)
+
+; Check for whether a cyclic point might need to be added.
+    if(get_lon_cyclic_point_default([/u,v/],res2,"",True)) then
+      unew    = gsn_add_cyclic_point(u)
+      vnew    = gsn_add_cyclic_point(v)
+    else
+      unew    = u
+      vnew    = v
+    end if
+
+    if(get_lon_cyclic_point_default(data,res2,"",False)) then
+      datanew = gsn_add_cyclic_point(data)
+    else
+      datanew = data
+    end if
+
+; Check for left/right titles at top. Use valid "long_name" type attributes
+; and "units" if they exist.
+
+    set_right_subtitle(datanew,res2,res2)
+    set_left_subtitle(datanew,res2,res2)
+
+; Check for existence of the left, center, and right subtitles.
+
+    left_string   = new(1,logical)
+    center_string = new(1,logical)
+    right_string  = new(1,logical)
+
+    check_for_subtitles(res2,left_string,center_string,right_string)
+
+    if(left_string.or.center_string.or.right_string)
+      main_zone   = main_zone+1
+    end if
+
+; Check if gsnShape set.
+
+    if(check_attr(res2,"gsnShape",True,False))
+      main_zone     = main_zone+1 ; Zone for main title
+    end if
+
+; Use coordinate variables for X and/or Y if they exist.
+
+    check_for_coord_arrays(datanew,res2,"contour")
+    check_for_coord_arrays(unew,res2,"vector")
+
+; Check if frame and/or draw are not supposed to be called.
+
+    calldraw  = get_res_value(res2,"gsnDraw", True)
+    callframe = get_res_value(res2,"gsnFrame",True)
+    maxbb     = get_bb_res(res2)
+
+; Get labelbar resources.
+    lbres = get_res_eq(res2,(/"lb","pm"/))
+
+;
+; Labelbar stuff
+;
+; Check for a streamline labelbar. stMonoLineColor is set to False
+; by gsn_streamline_scalar, so you have to check for it explicitly
+; being True here.
+;
+    lbar_type      = ""
+    if(.not.check_attr(res2,"stMonoLineColor",True,False))
+      lbar_type = "streamline"
+      lbar_on = get_res_value(lbres,"lbLabelBarOn",True)
+      use_old_lbar = get_res_value(res2,"gsnOldLabelBar",GSN_OLD_LABELBAR)
+      use_mgr_lbar = .not.use_old_lbar
+      if(lbar_on) then
+        if(use_mgr_lbar) then
+          set_labelbar_res(res2,"other")
+        end if
+      end if
+    else
+      lbar_on = False
+      use_old_lbar   = False
+      use_mgr_lbar   = False
+    end if
+
+    if(lbar_on.and.use_old_lbar.and.check_attr_enum_value(lbres,"lbOrientation","vertical"))
+      set_attr(res2, "vpWidthF",0.75)   ; Make room for labelbar
+      set_attr(res2,"vpHeightF",0.75)   ; on the side.
+      set_attr(res2,     "vpXF",0.08)
+      set_attr(res2,     "vpYF",0.90)
+    end if
+
+; Before we create the streamline object, turn off draw and frame for it.
+    if(lbar_on.and.use_mgr_lbar) then
+      stres = get_res_ne(res2,(/"mp","tx","am"/))
+    else
+      stres = get_res_ne(res2,(/"mp","lb","tx","am","pm"/))
+    end if
+
+    stres          = True
+    stres@gsnDraw  = False
+    stres@gsnFrame = False
+    stres@gsnScale = tm_scale  ; Force labels and ticks to be same, if True.
+
+      streamline_object = gsn_streamline_scalar(wks,unew,vnew,datanew,stres)
+
+; Add lat/lon labels to X/Y axes if appropriate coordinate arrays exist.
+
+    add_latlon_labels(streamline_object,unew,res2)
+
+; Retrieve some font heights and make the X/Y axis labels the same
+; size, and the info label size the same as the tick mark label size.
+
+    getvalues streamline_object
+      "vpHeightF"            : height
+      "vpWidthF"             : width
+
+      "tmXBLabelFontHeightF" : xbfontf
+      "tiXAxisFontHeightF"   : xfontf
+      "tiYAxisFontHeightF"   : yfontf
+    end getvalues
+
+    font_height = min((/xfontf,yfontf/))  ; Make subtitle label sizes a
+                                          ; function of the size of the
+                                          ; X/Y axis labels.
+
+; If the plot is close to square in size, then make the
+; three top titles and the tick marks smaller.
+
+    font_scale = (/1.0,0.8,0.8/)
+    ratios     = (/0.5,0.75,1.0/)
+
+    ratio = height/width
+    if(ratio.gt.1)
+      ratio = 1./ratio
+    end if
+    index = ind(ratio.le.ratios)
+
+    scale = font_scale(index(0))
+    font_height  = scale * font_height
+;
+; If gsnScale is True, then make sure we have a valid tickmark
+; object before we do anything else.
+;
+    if(tm_scale.and.is_tm_obj_valid(streamline_object)) then
+;
+; Make tick marks same length and point outward.
+;
+      getvalues streamline_object
+        "tmYLMajorLengthF"     : ylength
+        "tmXBMajorLengthF"     : xlength
+        "tmYLMinorLengthF"     : ymlength
+        "tmXBMinorLengthF"     : xmlength
+      end getvalues
+
+      major_length = min((/ylength,xlength/))    ; New length for major ticks.
+      minor_length = min((/ymlength,xmlength/))  ; New length for minor ticks.
+
+      major_length = scale * major_length
+      minor_length = scale * minor_length
+
+      tmres = get_res_eq(res2,"tm")
+      gsnp_point_tickmarks_outward(streamline_object,tmres,xlength,ylength,\
+                                   xmlength,ymlength,\
+                                   major_length,minor_length,point_outward)
+    end if
+
+;---Create a labelbar or fix an existing one.
+    if(lbar_on.and.use_old_lbar)
+      if(.not.infolabel_on)
+        lbar_zone = 2
+      else
+        lbar_zone = 3
+      end if
+    end if
+    if(use_old_lbar)
+      add_labelbar(wks,streamline_object,lbar_zone,xbfontf,"streamline",lbar_on,lbres)
+    end if
+    if(use_mgr_lbar)
+      fix_labelbar(streamline_object,xbfontf,lbar_on,stres)
+    end if
+
+; Set up three subtitles at top, if they exist.
+    subres = get_res_eq(res2,(/"tx","am"/))  ; Get textitem resources
+    subres                  = True
+    set_attr(subres,"txFontHeightF",font_height)
+    add_subtitles(wks,streamline_object,left_string,center_string,\
+                  right_string,subres)
+
+; Draw all this stuff: streamline/contour plot, subtitles, and tick marks.
+    draw_and_frame(wks,streamline_object,calldraw,callframe,0,maxbb)
+
+; Return plot object and data object (as attribute of plot object).
+
+    streamline_object@vfdata  = streamline_object@vfdata
+    streamline_object@sfdata  = streamline_object@sfdata
+    if(lbar_type.eq."contour") then
+      streamline_object@labelbar      = streamline_object@contour
+      streamline_object@labelbar_type = lbar_type
+    end if
+    return(streamline_object)
+end
+
+;***********************************************************************;
+; Function : gsn_csm_streamline_scalar_map_ce                           ;
+;                   wks: workstation object                             ;
+;                     u: 2-dimensional data                             ;
+;                     v: 2-dimensional data                             ;
+;                  data: 2-dimensional scalar data                      ;
+;               resources: optional resources                           ;
+;                                                                       ;
+; This function is similar to gsn_csm_streamline_map_ce except it       ;
+; colors the streamlines according to a scalar field.                   ;
+;                                                                       ;
+;                                                                       ;
+;               Edited from gsn_csm_streamline_scalar_map_ce            ;
+;                       by Alan Brammer   2015-02-04                    ;
+;***********************************************************************;
+undef("gsn_csm_streamline_scalar_map_ce")
+function gsn_csm_streamline_scalar_map_ce(wks:graphic,u[*][*]:numeric,\
+                   v[*][*]:numeric,data:numeric,resources:logical)
+local i, streamline_object, map_object, res, res2, \
+calldraw, callframe, min_lat, max_lat, unew, vnew, datanew, \
+map_vpwf, map_vphf, vpwf, vphf, use_old_lbar, use_mgr_lbar, lbar_type
+begin
+;
+; Make sure input data is 1D or 2D
+;
+    if(.not.is_data_1d_or_2d(data)) then
+      print("gsn_csm_streamline_scalar_map_ce: Fatal: the input data array must be 1D or 2D")
+      return
+    end if
+
+; Initialize.
+    infolabel_on   = False
+    mpres          = True
+    res2           = get_resources(resources)
+;
+; Write data and plot resource information to a file so we can
+; reconstruct plot if desired, without all the computational
+; code beforehand.
+;
+    if(isatt(res2,"gsnDebugWriteFileName")) then
+      gsnp_write_debug_info(u,v,data,"gsn_csm_streamline_scalar_map_ce",res2,3)
+    end if
+
+; Check for whether a cyclic point might need to be added.
+    if(get_lon_cyclic_point_default([/u,v/],res2,"map",True)) then
+      unew    = gsn_add_cyclic_point(u)
+      vnew    = gsn_add_cyclic_point(v)
+    else
+      unew    = u
+      vnew    = v
+    end if
+
+    if(get_lon_cyclic_point_default(data,res2,"map",False)) then
+      datanew = gsn_add_cyclic_point(data)
+    else
+      datanew = data
+    end if
+
+; Check for coordinate variables. These values will determine where to
+; overlay streamline on map.
+
+    check_for_y_lat_coord(unew,res2,"vector_map")
+    check_for_lon_coord(unew,res2,"vector_map")
+
+
+; Check for left/right titles at top. Use valid "long_name" type attributes
+; and "units" if they exist.
+
+    set_right_subtitle(datanew,res2,mpres)
+    set_left_subtitle(datanew,res2,mpres)
+
+; Check if frame and/or draw are not supposed to be called.
+
+    calldraw  = get_res_value(res2,"gsnDraw", True)
+    callframe = get_res_value(res2,"gsnFrame",True)
+    maxbb     = get_bb_res(res2)
+
+    lbres = get_res_eq(res2,(/"lb","pm"/))
+
+; Check for subtitles at top and add to mpres if exist.
+
+    set_subtitles_res(res2,mpres)
+
+;
+; Check for other special resources.
+;
+    if(isatt(res2,"gsnMajorLonSpacing"))
+      mpres@gsnMajorLonSpacing = res2@gsnMajorLonSpacing
+      delete(res2@gsnMajorLonSpacing)
+    end if
+    if(isatt(res2,"gsnMajorLatSpacing"))
+      mpres@gsnMajorLatSpacing = res2@gsnMajorLatSpacing
+      delete(res2@gsnMajorLatSpacing)
+    end if
+
+    if(isatt(res2,"gsnMinorLonSpacing"))
+      mpres@gsnMinorLonSpacing = res2@gsnMinorLonSpacing
+      delete(res2@gsnMinorLonSpacing)
+    end if
+    if(isatt(res2,"gsnMinorLatSpacing"))
+      mpres@gsnMinorLatSpacing = res2@gsnMinorLatSpacing
+      delete(res2@gsnMinorLatSpacing)
+    end if
+
+;
+; Labelbar stuff
+;
+; Check for a streamline labelbar. stMonoLineColor is set to False
+; by gsn_streamline_scalar, so you have to check for it explicitly
+; being True here.
+;
+    lbar_type = ""
+    if(.not.check_attr(res2,"stMonoLineColor",True,False))
+      lbar_type = "streamline"
+      lbar_on = get_res_value(lbres,"lbLabelBarOn",True)
+      use_old_lbar = get_res_value(res2,"gsnOldLabelBar",GSN_OLD_LABELBAR)
+      use_mgr_lbar = .not.use_old_lbar
+      if(lbar_on) then
+        if(use_mgr_lbar) then
+          set_labelbar_res(res2,"other")
+        end if
+      end if
+    else
+      lbar_on = False
+      use_old_lbar = False
+      use_mgr_lbar = False
+    end if
+;
+; Tickmarks.
+;
+    display_mode = get_display_mode(res2,"pmTickMarkDisplayMode","nocreate")
+    if(display_mode.eq.1.or.display_mode.eq.2) then
+      mpres@gsnTickMarksOn = get_res_value(res2,"gsnTickMarksOn",False)
+    else
+      mpres@gsnTickMarksOn = get_res_value(res2,"gsnTickMarksOn",True)
+    end if
+
+; This section tests for regular resources.
+    mpres = get_res_eq(res2,(/"mp","vp","tm","ti","tx","am","pmA","pmO","pmT"/))
+    if(lbar_on.and.use_mgr_lbar) then
+      stres = get_res_ne(res2,(/"mp","vp","tm","tx","am"/))
+    else
+      stres = get_res_ne(res2,(/"mp","vp","tm","lb","tx","am","pm"/))
+    end if
+
+; Before we create the objects, turn off draw and frame for them.
+    stres          = True
+    mpres          = True
+    stres@gsnDraw  = False
+    stres@gsnFrame = False
+    mpres@gsnDraw  = False
+    mpres@gsnFrame = False
+
+    if(lbar_on.and.use_old_lbar.and.check_attr_enum_value(lbres,"lbOrientation","vertical"))
+      set_attr(mpres, "vpWidthF",0.75)   ; Make room for labelbar
+      set_attr(mpres,"vpHeightF",0.75)   ; on the side.
+      set_attr(mpres,     "vpXF",0.08)
+      set_attr(mpres,     "vpYF",0.90)
+    end if
+
+
+      streamline_object = gsn_streamline_scalar(wks,unew,vnew,datanew,stres)
+
+    map_object = gsn_csm_map_ce(wks,mpres)          ; Create map.
+    overlay(map_object,streamline_object)               ; Overlay streamlines on map.
+
+; Retrieve some font heights and make the X/Y axis labels the same
+; size, and the info label size the same as the tick mark label size.
+
+    getvalues map_object@tickmarks
+      "tmXBLabelFontHeightF" : xbfontf
+    end getvalues
+
+    getvalues map_object
+      "vpWidthF"           : vpwf
+      "vpHeightF"          : vphf
+      "tiXAxisFontHeightF" : xfontf
+      "tiYAxisFontHeightF" : yfontf
+    end getvalues
+
+    font_height = min((/xfontf,yfontf/))  ; Make label sizes a function of
+                                          ; the size of the X/Y axis labels.
+;
+; Check if user setting own font heights.
+;
+    main_font_height = get_res_value(res2,"tiMainFontHeightF", \
+                                     1.3*font_height)
+    setvalues map_object
+        "tiMainFontHeightF"    : main_font_height  ; main title size
+    end setvalues
+
+; Create a labelbar or fix an existing one.
+    if(use_old_lbar.and..not.infolabel_on)
+      lbar_zone = 2
+    end if
+    if(use_old_lbar)
+      add_labelbar(wks,streamline_object,lbar_zone,xbfontf,"streamline",lbar_on,lbres)
+    end if
+    if(use_mgr_lbar)
+      fix_labelbar(streamline_object,xbfontf,lbar_on,stres)
+    end if
+
+; Draw all this stuff: map plot, subtitles, and tick marks.
+    draw_and_frame(wks,map_object,calldraw,callframe,0,maxbb)
+
+; Return plot object and data object (as attribute of plot object).
+
+    if(lbar_type.eq."contour") then
+      map_object@labelbar      = streamline_object@contour
+      map_object@labelbar_type = lbar_type
+    end if
+
+    map_object@vfdata  = streamline_object@vfdata
+    map_object@sfdata  = streamline_object@sfdata
+    map_object@streamline  = streamline_object
+
+    return(map_object)
+end
+
+;***********************************************************************;
+; Function : gsn_csm_streamline_scalar_map_polar                        ;
+;                   wks: workstation object                             ;
+;                     u: 2-dimensional data                             ;
+;                     v: 2-dimensional data                             ;
+;                  data: 2-dimensional scalar data                      ;
+;               resources: optional resources                           ;
+;                                                                       ;
+; This function is similar to gsn_csm_streamline_map_polar except it    ;
+; either colors the streamlines according to a scalar field, or it      ;
+; overlays a contour plot.                                              ;
+;                                                                       ;
+;                                                                       ;
+;               Edited from gsn_csm_vector_scalar_map_polar             ;
+;                       by Alan Brammer   2015-02-04                    ;
+;***********************************************************************;
+undef("gsn_csm_streamline_scalar_map_polar")
+function gsn_csm_streamline_scalar_map_polar(wks:graphic,u[*][*]:numeric, \
+                                         v[*][*]:numeric,data:numeric,
+                                         resources:logical)
+local i, streamline_object, map_object, res, res2, calldraw, stres, lbres, \
+vpwf, vphf, callframe, use_old_lbar, use_mgr_lbar, lbar_type, lbar_zone, unew, vnew
+begin
+;
+; Make sure input data is 1D or 2D
+;
+    if(.not.is_data_1d_or_2d(data)) then
+      print("gsn_csm_streamline_scalar_map_polar: Fatal: the input data array must be 1D or 2D")
+      return
+    end if
+;
+; The default is to draw streamlines colored by a scalar field, so this
+; means a labelbar should be drawn, and no contour information is
+; needed.
+;
+; Initialize.
+    res2  = get_resources(resources)
+;
+; Write data and plot resource information to a file so we can
+; reconstruct plot if desired, without all the computational
+; code beforehand.
+;
+    if(isatt(res2,"gsnDebugWriteFileName")) then
+      gsnp_write_debug_info(u,v,data,"gsn_csm_streamline_scalar_map_polar",res2,3)
+    end if
+
+    mpres = True
+
+; Check for whether a cyclic point might need to be added.
+    if(get_lon_cyclic_point_default([/u,v/],res2,"map",True)) then
+      unew    = gsn_add_cyclic_point(u)
+      vnew    = gsn_add_cyclic_point(v)
+    else
+      unew    = u
+      vnew    = v
+    end if
+
+    if(get_lon_cyclic_point_default(data,res2,"map",False)) then
+      datanew = gsn_add_cyclic_point(data)
+    else
+      datanew = data
+    end if
+
+; Check for coordinate variables. These values will determine where
+; overlay streamlines on map.
+
+    check_for_y_lat_coord(unew,res2,"vector_map")
+    check_for_lon_coord(unew,res2,"vector_map")
+
+; Check for left/right titles at top. Use valid "long_name" type attributes
+; and "units" if they exist.
+
+    set_right_subtitle(datanew,res2,mpres)
+    set_left_subtitle(datanew,res2,mpres)
+
+; Check for draw and frame.
+
+    calldraw  = get_res_value(res2,"gsnDraw", True)
+    callframe = get_res_value(res2,"gsnFrame",True)
+    maxbb     = get_bb_res(res2)
+
+;
+; Check for type of polar plot and scalar field representation.
+;
+    mpres@gsnPolar     = get_polar_type(res2)
+    mpres@gsnPolarTime = get_res_value(res2,"gsnPolarTime",False)
+    mpres@gsnPolarUT   = get_res_value(res2,"gsnPolarUT",0.)
+
+; Check for subtitles at top and add to mpres if exist.
+
+    set_subtitles_res(res2,mpres)
+;
+; Labelbar stuff
+;
+; Determine which annotations (labelbar, streamline reference anno, info label)
+; should be turned on.  By default, labelbar and streamline anno are on, and
+; contour info label is off.
+;
+; Check for a streamline labelbar. stMonoLineColor is set to False
+; by gsn_streamline_scalar, so you have to check for it explicitly
+; being True here.
+;
+;
+    lbar_type     = "";
+    if(.not.check_attr(res2,"stMonoLineColor",True,False))
+      lbar_type = "streamline"
+      lbar_on = get_res_value(res2,"lbLabelBarOn",True)
+      use_old_lbar = get_res_value(res2,"gsnOldLabelBar",GSN_OLD_LABELBAR)
+      use_mgr_lbar = .not.use_old_lbar
+      if(lbar_on) then
+        if(use_mgr_lbar) then
+          set_labelbar_res(res2,"polar")
+        end if
+      end if
+    else
+      lbar_on = get_res_value(res2,"lbLabelBarOn",False) ; make sure gets removed from res2
+      use_old_lbar  = False
+      use_mgr_lbar  = False
+    end if
+
+    lbar_orient  = str_lower(get_res_value_keep(res2,"lbOrientation", \
+                              "horizontal"))
+    infolabel_on = get_res_value_keep(res2,"cnInfoLabelOn",False)
+;
+; Now that we know what's being drawn for annotations (labelbar,
+; info label, ref anno), we can determine where to put all this
+; stuff. If both info label and ref anno are on, put the info label
+; on the right, and the ref anno on the left.  If only one of them is
+; on, put it on the right.
+;
+
+    if(infolabel_on)
+      set_attr(res2,"cnInfoLabelZone",2)
+      set_attr(res2,"cnInfoLabelOrthogonalPosF", 0.1)
+      set_attr(res2,"cnInfoLabelParallelPosF", 1.0)
+      set_attr(res2,"cnInfoLabelJust","TopRight")
+    end if
+
+    if(lbar_on.and.use_old_lbar)
+      if(lbar_orient.eq."vertical")
+        set_attr(res2,"vpXF",0.15)
+        set_attr(res2,"pmLabelBarOrthogonalPosF",0.1)
+      else
+        set_attr(res2,"vpYF",0.82)
+      end if
+    end if
+;
+; Tickmarks.
+;
+    mpres@gsnTickMarksOn = get_res_value(res2,"gsnTickMarksOn",True)
+
+; This section tests for regular resources.
+    mpres = get_res_eq(res2,(/"mp","vp","tm","ti","tx","am","pmA","pmO",\
+                              "pmT","gsnPolar"/))
+
+    if(lbar_on.and.use_old_lbar) then
+      stres = get_res_ne(res2,(/"mp","vp","tm","tx","am","lb","pm","gsnPolar"/))
+    else
+      stres = get_res_ne(res2,(/"mp","vp","tm","tx","am","gsnPolar"/))
+    end if
+
+; Before we create the objects, turn off draw and frame for them.
+    stres = True
+    mpres = True
+    stres@gsnDraw   = False
+    stres@gsnFrame  = False
+    mpres@gsnDraw  = False
+    mpres@gsnFrame = False
+
+    streamline_object = gsn_streamline_scalar(wks,unew,vnew,datanew,stres)
+    map_object    = gsn_csm_map_polar(wks,mpres)    ; Create map.
+    overlay(map_object,streamline_object)               ; Overlay streamlines on map.
+
+; Retrieve plot height so we can compute font height.
+
+    getvalues map_object
+      "vpHeightF"          : vphf
+    end getvalues
+
+; Make sure axes labels are the same size.
+
+    font_height = 0.02 * vphf     ; Make various label sizes a function
+                                  ; of the height of the viewport.
+;
+; Check if user setting own font heights.
+;
+    main_font_height = get_res_value(res2,"tiMainFontHeightF", \
+                                     1.3*font_height)
+    setvalues map_object
+        "tiMainFontHeightF"    : main_font_height  ; main title size
+    end setvalues
+
+; Create a labelbar.
+
+    if(lbar_on.and.use_old_lbar)
+      if(.not.infolabel_on)
+        lbar_zone = 2
+      else
+        lbar_zone = 3
+      end if
+      lbres = get_res_eq(res2,(/"lb","pm"/))
+    end if
+
+    if(use_old_lbar)
+      add_labelbar(wks,streamline_object,lbar_zone,font_height,"streamline",lbar_on,lbres)
+    end if
+    if(use_mgr_lbar)
+      fix_labelbar(streamline_object,font_height,lbar_on,stres)
+    end if
+
+; Draw all this stuff: map plot, subtitles, and tick marks.
+    draw_and_frame(wks,map_object,calldraw,callframe,0,maxbb)
+
+; Return plot object and data object (as attribute of plot object).
+
+    if(lbar_type.eq."contour") then
+      map_object@labelbar      = streamline_object@contour
+      map_object@labelbar_type = lbar_type
+    end if
+
+    map_object@vfdata  = streamline_object@vfdata
+    map_object@sfdata  = streamline_object@sfdata
+    map_object@streamline  = streamline_object
+    return(map_object)
+end
+
+
+;***********************************************************************;
+; Function : gsn_csm_streamline_scalar_map_other                        ;
+;                   wks: workstation object                             ;
+;                     u: 2-dimensional data                             ;
+;                     v: 2-dimensional data                             ;
+;                  data: 2-dimensional scalar data                      ;
+;               resources: optional resources                           ;
+;                                                                       ;
+; This function is similar to gsn_csm_streamline_map_other except it    ;
+; either colors the streamlines according to a scalar field, or it      ;
+; overlays a contour plot.                                              ;
+;                                                                       ;
+;                                                                       ;
+;               Edited from gsn_csm_vector_scalar_map_other             ;
+;                       by Alan Brammer   2015-02-04                    ;
+;***********************************************************************;
+undef("gsn_csm_streamline_scalar_map_other")
+function gsn_csm_streamline_scalar_map_other(wks:graphic,u[*][*]:numeric,\
+                                        v[*][*]:numeric,data:numeric, \
+                                        resources:logical)
+local i, streamline_object, labelbar_object, map_object, \
+calldraw, callframe, use_old_lbar, lbar_type, min_lat, max_lat, datanew, \
+res, res2, lbres, mpres, stres, levels, colors, use_mgr_lbar, \
+lbar_zone, lbar_orient, lbar_side, lbar_height, lbar_width, lbar_just, \
+map_vpwf, map_vphf, vphf
+begin
+;
+; Make sure input data is 1D or 2D
+;
+    if(.not.is_data_1d_or_2d(data)) then
+      print("gsn_csm_streamline_scalar_map_other: Fatal: the input data array must be 1D or 2D")
+      return
+    end if
+
+; Initialize.
+    infolabel_on   = False
+    mpres          = True
+    res2           = get_resources(resources)
+
+;
+; Write data and plot resource information to a file so we can
+; reconstruct plot if desired, without all the computational
+; code beforehand.
+;
+    if(isatt(res2,"gsnDebugWriteFileName")) then
+      gsnp_write_debug_info(u,v,data,"gsn_csm_streamline_scalar_map_other",res2,3)
+    end if
+
+; Check for whether a cyclic point might need to be added.
+    if(get_lon_cyclic_point_default([/u,v/],res2,"map",True)) then
+      unew = gsn_add_cyclic_point(u)
+      vnew = gsn_add_cyclic_point(v)
+    else
+      unew = u
+      vnew = v
+    end if
+
+    if(get_lon_cyclic_point_default(data,res2,"map",False)) then
+      datanew = gsn_add_cyclic_point(data)
+    else
+      datanew = data
+    end if
+
+; Check for coordinate variables. These values will determine where to
+; overlay streamlines on map.
+
+    check_for_y_lat_coord(unew,res2,"vector_map")
+    check_for_lon_coord(unew,res2,"vector_map")
+
+; Check for left/right titles at top. Use valid "long_name" type attributes
+; and "units" if they exist.
+
+    set_right_subtitle(datanew,res2,mpres)
+    set_left_subtitle(datanew,res2,mpres)
+
+; Check if frame and/or draw are not supposed to be called.
+
+    calldraw  = get_res_value(res2,"gsnDraw", True)
+    callframe = get_res_value(res2,"gsnFrame",True)
+    maxbb     = get_bb_res(res2)
+
+; Check for subtitles at top and add to mpres if exist.
+
+    set_subtitles_res(res2,mpres)
+;
+; Labelbar stuff
+;
+; Check for a streamline labelbar. stMonoLineColor is set to False
+; by gsn_streamline_scalar, so you have to check for it explicitly
+; being True here.
+;
+    lbar_type = ""
+    if(.not.check_attr(res2,"stMonoLineColor",True,False))
+      lbar_type = "streamline"
+      lbar_on = get_res_value(res2,"lbLabelBarOn",True)
+      use_old_lbar = get_res_value(res2,"gsnOldLabelBar",GSN_OLD_LABELBAR)
+      use_mgr_lbar = .not.use_old_lbar
+      if(lbar_on) then
+        if(use_mgr_lbar) then
+          set_labelbar_res(res2,"streamline")
+        end if
+      end if
+    else
+      lbar_on = get_res_value(res2,"lbLabelBarOn",False)    ; to make sure removed from res2
+      use_old_lbar    = False
+      use_mgr_lbar    = False
+    end if
+
+    lbar_orient  = str_lower(get_res_value_keep(res2,"lbOrientation", \
+                              "horizontal"))
+    infolabel_on = get_res_value_keep(res2,"cnInfoLabelOn",False)
+
+;
+; Now that we know what's being drawn for annotations (labelbar,
+; info label, ref anno), we can determine where to put all this
+; stuff. If both info label and ref anno are on, put the info label
+; on the right, and the ref anno on the left.  If only one of them is
+; on, put it on the right.
+;
+    if(infolabel_on)
+      set_attr(res2,"cnInfoLabelZone",2)
+      set_attr(res2,"cnInfoLabelOrthogonalPosF", 0.1)
+      set_attr(res2,"cnInfoLabelParallelPosF", 1.0)
+      set_attr(res2,"cnInfoLabelJust","TopRight")
+    end if
+;
+; By default, mpOutlineOn is False, unless stMonoLineColor is set to
+; False or mpFillOn is set to False, then it is set back to True.
+;
+   if(check_attr(res2,"mpFillOn",False,False))
+      set_attr(res2,"mpOutlineOn",True)
+    end if
+
+; This section tests for regular resources.
+    mpres = get_res_eq(res2,(/"mp","vp","tm","ti","tx","am","pmA","pmO","pmT","gsnMask"/))
+
+    if(lbar_on.and.use_old_lbar) then
+      stres = get_res_ne(res2,(/"mp","vp","tm","lb","tx","am","pm","gsnMask"/))
+    else
+      stres = get_res_ne(res2,(/"mp","vp","tm","tx","am","gsnMask"/))
+    end if
+
+; Before we create the objects, turn off draw and frame for them.
+    stres           = True
+    mpres           = True
+    stres@gsnDraw   = False
+    stres@gsnFrame  = False
+    mpres@gsnDraw   = False
+    mpres@gsnFrame  = False
+
+      streamline_object = gsn_streamline_scalar(wks,unew,vnew,datanew,stres)
+
+    map_object = gsn_csm_map_other(wks,mpres)   ; Create map.
+    overlay(map_object,streamline_object)           ; Overlay streamlines on map.
+
+; Retrieve plot height so we can compute font height.
+
+    getvalues map_object
+      "vpHeightF"          : vphf
+    end getvalues
+
+; Make sure axes labels are the same size.
+
+    font_height = 0.02 * vphf     ; Make various label sizes a function
+                                  ; of the height of the viewport.
+;
+; Check if user setting own font heights.
+;
+    main_font_height = get_res_value(res2,"tiMainFontHeightF", \
+                                     2.*font_height)
+    setvalues map_object
+      "tiMainFontHeightF"    : main_font_height  ; main title size
+    end setvalues
+
+; Create a labelbar or fix an existing one.
+    if(lbar_on.and.use_old_lbar)
+      if(.not.infolabel_on)
+        lbar_zone = 2
+      else
+        lbar_zone = 3
+      end if
+      lbres = get_res_eq(res2,(/"lb","pm"/))
+    end if
+    if(use_old_lbar)
+      add_labelbar(wks,streamline_object,lbar_zone,font_height, \
+                   "streamline",lbar_on,lbres)
+    end if
+    if(use_mgr_lbar)
+      fix_labelbar(streamline_object,font_height,lbar_on,stres)
+    end if
+
+; Draw all this stuff: map plot, subtitles, and tick marks.
+
+    draw_and_frame(wks,map_object,calldraw,callframe,0,maxbb)
+
+; Return plot object and data object (as attribute of plot object).
+
+    if(lbar_type.eq."contour") then
+      map_object@labelbar      = streamline_object@contour
+      map_object@labelbar_type = lbar_type
+    end if
+
+    map_object@vfdata  = streamline_object@vfdata
+    map_object@sfdata  = streamline_object@sfdata
+    map_object@streamline  = streamline_object
+    return(map_object)
+end
+
+
+;***********************************************************************;
+; Function : gsn_csm_streamline_scalar_map                              ;
+;                   wks: workstation object                             ;
+;                     u: 2-dimensional data                             ;
+;                     v: 2-dimensional data                             ;
+;                  data: 2-dimensional data                             ;
+;               resources: optional resources                           ;
+;                                                                       ;
+; This function calls either gsn_csm_streamline_scalar_map_ce,          ;
+; gsn_csm_streamline_scalar_map_polar or                                ;
+; gsn_csm_streamline_scalar_map_other depending on the map projection   ;
+; selected.                                                             ;
+;                                                                       ;
+;               Edited from gsn_csm_vector_scalar_map                   ;
+;                       by Alan Brammer   2015-02-04                    ;
+;***********************************************************************;
+undef("gsn_csm_streamline_scalar_map")
+function gsn_csm_streamline_scalar_map(wks:graphic,u[*][*]:numeric, \
+                                   v[*][*]:numeric,data:numeric, \
+                                   resources:logical)
+local res
+begin
+  res  = get_resources(resources)
+;
+; Write data and plot resource information to a file so we can
+; reconstruct plot if desired, without all the computational
+; code beforehand.
+;
+  if(isatt(res,"gsnDebugWriteFileName")) then
+    gsnp_write_debug_info(u,v,data,"gsn_csm_streamline_scalar_map",res,3)
+  end if
+
+  if(res.and.(isatt(res,"gsnPolarNH").or.isatt(res,"gsnPolarSH").or.\
+              isatt(res,"gsnPolar")))
+    return(gsn_csm_streamline_scalar_map_polar(wks,u,v,data,res))
+  else
+    if(check_attr_enum_value(res,"mpProjection","CylindricalEquidistant").or.\
+       .not.isatt(res,"mpProjection"))
+      return(gsn_csm_streamline_scalar_map_ce(wks,u,v,data,res))
+    else
+      return(gsn_csm_streamline_scalar_map_other(wks,u,v,data,res))
+    end if
+  end if
+end
+
 
 
 ;***********************************************************************;
@@ -10825,11 +12451,8 @@ begin
   res2_tmp@gsnDraw  = False
   res2_tmp@gsnFrame = False
 
-; Check for cyclic point (default is True if we are not setting both
-; lon2d/lat2d attributes).
-
-  set_cyclic = .not.(isatt(data2,"lat2d").and.isatt(data2,"lon2d"))
-  if(get_res_value(res2_tmp,"gsnAddCyclic",set_cyclic)) then
+; Check for whether a cyclic point might need to be added.
+  if(get_lon_cyclic_point_default(data2,res2_tmp,"map",False)) then
     datanew = gsn_add_cyclic_point(data2)
   else
     datanew = data2
@@ -10845,8 +12468,7 @@ begin
   set_attr(res2_tmp,"cnLineLabelBackgroundColor",-1)
   if(.not.isatt(res2_tmp,"cnInfoLabelOrthogonalPosF"))
     if(res1_tmp@cnFillOn)
-      if(check_attr(res1_tmp,"lbOrientation","horizontal",True).or.\
-         check_attr(res1_tmp,"lbOrientation",0,True))
+      if(check_attr_enum_value(res1_tmp,"lbOrientation","horizontal"))
         set_attr(res2_tmp,"cnInfoLabelOrthogonalPosF",-0.01)
       else
         set_attr(res2_tmp,"cnInfoLabelOrthogonalPosF",0.12)
@@ -11657,7 +13279,7 @@ end
 ;***********************************************************************;
 undef("gsn_csm_contour")
 function gsn_csm_contour(wks:graphic,data:numeric,resources:logical)
-local res, contour_object, res2, xfontf, yfontf, font_height, old_lbar_on, \
+local res, contour_object, res2, xfontf, yfontf, font_height, use_old_lbar, \
 calldraw, callframe, left_string, center_string, right_string, \
 main_zone, datanew, popgrid, contour_plot
 begin
@@ -11670,8 +13292,6 @@ begin
     end if
 
 ; Initialize.
-    old_lbar_on   = False     ; Labelbar flag
-    new_lbar_on   = False     ; Labelbar flag
     main_zone     = 2         ; Zone for main title (may change later)
     res2          = get_resources(resources)
 ;
@@ -11689,9 +13309,8 @@ begin
 ; This section tests for more special resources: those that start
 ; with "gsn."
 
-; The default is to not add a cyclic point.
-
-    if(get_res_value(res2,"gsnAddCyclic",False)) then
+; Check for whether a cyclic point might need to be added.
+    if(get_lon_cyclic_point_default(data,res2,"",False)) then
         datanew = gsn_add_cyclic_point(data)
     else
         datanew = data
@@ -11743,22 +13362,26 @@ begin
 
     check_for_coord_arrays(datanew,res2,"contour")
 ;
+; Labelbar stuff
+;
 ; Turn on a labelbar if fill is True and if the labelbar is not
 ; explicitly being turned off.
 ;
-    if(check_attr(res2,"cnFillOn",True,False).and. \
-       (.not.isatt(res2,"lbLabelBarOn").or.\
-        .not.check_attr(res2,"lbLabelBarOn",False,False)))
-      old_lbar_on = get_res_value(res2,"gsnOldLabelBar",GSN_OLD_LABELBAR)
-      new_lbar_on = .not.old_lbar_on
-      if(new_lbar_on) then
-        set_labelbar_res(res2,"contour")
+    if(check_attr(res2,"cnFillOn",True,False)) then
+      lbar_on      = get_res_value(res2,"lbLabelBarOn",True)
+      use_old_lbar = get_res_value(res2,"gsnOldLabelBar",GSN_OLD_LABELBAR)
+      use_mgr_lbar = .not.use_old_lbar
+      if(lbar_on)
+        if(use_mgr_lbar) then
+          set_labelbar_res(res2,"contour")
+        end if
+        set_attr(res2,"cnLineLabelsOn",False)
+        set_attr(res2,"cnInfoLabelOn",False)
       end if
-      set_attr(res2,"cnLineLabelsOn",False)
-      set_attr(res2,"cnInfoLabelOn",False)
-    end if
-    if(isatt(res2,"lbLabelBarOn"))
-      delete(res2@lbLabelBarOn)
+    else
+      lbar_on = get_res_value(res2,"lbLabelBarOn",False)
+      use_old_lbar   = False
+      use_mgr_lbar   = False
     end if
 
     res2          = True
@@ -11829,14 +13452,13 @@ begin
       end if
     end if
 
-; Create a labelbar.
-
-    if(old_lbar_on)
+; Create a labelbar or fix an existing one.
+    if(use_old_lbar)
       lbres = get_res_eq(res2,(/"lb","pm"/))
-      add_labelbar(wks,contour_object,3,font_height,"contour",lbres)
+      add_labelbar(wks,contour_object,3,font_height,"contour",lbar_on,lbres)
     end if
-    if(new_lbar_on)
-      fix_labelbar(contour_object,font_height,cnres)
+    if(use_mgr_lbar)
+      fix_labelbar(contour_object,font_height,lbar_on,cnres)
     end if
   
 ; Set up three subtitles at top, if they exist.
@@ -11922,7 +13544,7 @@ begin
         "trXMaxF"   : max_lon
       end getvalues
 ;
-; We want different defaults for longitude spacing, so set them up here.
+; We want different defaults for longitude spacing, so set them up here
 ;
       lon_range        = (/ 20,  40,  60, 180, 360/)
       lon_spacing_arr  = (/ 10,  20,  30,  45,  60/)
@@ -12287,9 +13909,7 @@ begin
                   "trYInterPoints","trYTensionF","trYSamples"/)
 
     do i = 0, dimsizes(irreg_res)-1
-      if(isatt(trres,irreg_res(i))) then
-        delete(trres@$irreg_res(i)$)        ; Remove irreg trans resource.
-      end if
+      delete_attr(trres,irreg_res(i))
     end do
 
     attsetvalues_check(loglin_object,trres)
@@ -12338,16 +13958,14 @@ end
 ;***********************************************************************;
 undef("gsn_csm_vector")
 function gsn_csm_vector(wks:graphic,u[*][*]:numeric,v[*][*],resources:logical)
-local res, vector_object, res2, xfontf, yfontf, font_height, old_lbar_on, \
+local res, vector_object, res2, xfontf, yfontf, font_height, use_old_lbar, \
 calldraw, callframe, left_string, center_string, right_string, \
 main_zone, unew, vnew
 begin
-
 ; Initialize.
-    old_lbar_on   = False     ; Labelbar flag
-    new_lbar_on   = False     ; Labelbar flag
     main_zone     = 2         ; Zone for main title (may change later)
     res2          = get_resources(resources)
+
 ;
 ; Write data and plot resource information to a file so we can 
 ; reconstruct plot if desired, without all the computational
@@ -12363,9 +13981,8 @@ begin
 ; This section tests for more special resources: those that start
 ; with "gsn."
 
-; The default is to not add a cyclic point.
-
-    if(get_res_value(res2,"gsnAddCyclic",False)) then
+; Check for whether a cyclic point might need to be added.
+    if(get_lon_cyclic_point_default([/u,v/],res2,"",False)) then
       unew    = gsn_add_cyclic_point(u)
       vnew    = gsn_add_cyclic_point(v)
     else
@@ -12406,21 +14023,21 @@ begin
 ; Use coordinate variables for X and/or Y if they exist.
 
     check_for_coord_arrays(unew,res2,"vector")
-;
-; Turn on a labelbar if fill is True and if the labelbar is not
-; explicitly being turned off.
-;
-    if(check_attr(res2,"vcMonoLineArrowColor",False,False).and.\
-       (.not.isatt(res2,"lbLabelBarOn").or.\
-        check_attr(res2,"lbLabelBarOn",True,False)))
-      old_lbar_on = get_res_value(res2,"gsnOldLabelBar",GSN_OLD_LABELBAR)
-      new_lbar_on = .not.old_lbar_on
-      if(new_lbar_on) then
-        set_labelbar_res(res2,"vector")
-     end if
-    end if
-    if(isatt(res2,"lbLabelBarOn"))
-      delete(res2@lbLabelBarOn)
+
+;---Labelbar stuff
+    if(check_attr(res2,"vcMonoLineArrowColor",False,False)) then
+      lbar_on = get_res_value(res2,"lbLabelBarOn",True)
+      use_old_lbar = get_res_value(res2,"gsnOldLabelBar",GSN_OLD_LABELBAR)
+      use_mgr_lbar = .not.use_old_lbar
+      if(lbar_on) then
+        if(use_mgr_lbar) then
+          set_labelbar_res(res2,"vector")
+        end if
+      end if
+    else
+      lbar_on = get_res_value(res2,"lbLabelBarOn",False)
+      use_old_lbar   = False
+      use_mgr_lbar   = False
     end if
 
     res2          = True
@@ -12489,14 +14106,13 @@ begin
                                    major_length,minor_length,point_outward)
     end if
 
-; Create a labelbar.
-
-    if(old_lbar_on)
+; Create a labelbar or fix an existing one.
+    if(use_old_lbar)
       lbres = get_res_eq(res2,(/"lb","pm"/))
-      add_labelbar(wks,vector_object,3,font_height,"vector",lbres)
+      add_labelbar(wks,vector_object,3,font_height,"vector",lbar_on,lbres)
     end if
-    if(new_lbar_on)
-      fix_labelbar(vector_object,font_height,vcres)
+    if(use_mgr_lbar)
+      fix_labelbar(vector_object,font_height,lbar_on,vcres)
     end if
   
 ; Set up three subtitles at top, if they exist.
@@ -12563,7 +14179,11 @@ begin
     lbar_orth = get_res_value(res2,"pmLabelBarOrthogonalPosF",0.0)
   end if
 
-  cnres = get_res_ne(res2,(/"vc","vf","pm"/))
+; V6.4.0: Changed this to not exclude the "pm" resources.
+; Since the contour plot is the base plot, I'm thinking that
+; it *should* pass through the "pm" resources.
+;  cnres = get_res_ne(res2,(/"vc","vf","pm"/))
+  cnres = get_res_ne(res2,(/"vc","vf"/))
   vcres = get_res_eq(res2,(/"vc","vf","tr"/))
 
 ;
@@ -12654,14 +14274,12 @@ function gsn_csm_streamline(wks:graphic,u[*][*]:numeric,v[*][*],\
                             resources:logical)
 local res, stream_object, res2, xfontf, yfontf, font_height, \
 calldraw, callframe, left_string, center_string, right_string, \
-main_zone, unew, vnew, old_lbar_on
+main_zone, unew, vnew, use_old_lbar
 begin
-
 ; Initialize.
-    old_lbar_on   = False     ; Labelbar flag
-    new_lbar_on   = False
     main_zone     = 2         ; Zone for main title (may change later)
     res2          = get_resources(resources)
+
 ;
 ; Write data and plot resource information to a file so we can 
 ; reconstruct plot if desired, without all the computational
@@ -12677,9 +14295,8 @@ begin
 ; This section tests for more special resources: those that start
 ; with "gsn."
 
-; The default is to not add a cyclic point.
-
-    if(get_res_value(res2,"gsnAddCyclic",False)) then
+; Check for whether a cyclic point might need to be added.
+    if(get_lon_cyclic_point_default([/u,v/],res2,"",False)) then
       unew    = gsn_add_cyclic_point(u)
       vnew    = gsn_add_cyclic_point(v)
     else
@@ -12718,21 +14335,21 @@ begin
 ; Use coordinate variables for X and/or Y if they exist.
 
     check_for_coord_arrays(unew,res2,"vector")
-;
-; Turn on a labelbar if fill is True and if the labelbar is not
-; explicitly being turned off.
-;
-    if(check_attr(res2,"stMonoLineColor",False,False).and.\
-       (.not.isatt(res2,"lbLabelBarOn").or.\
-        check_attr(res2,"lbLabelBarOn",True,False)))
-      old_lbar_on = get_res_value(res2,"gsnOldLabelBar",GSN_OLD_LABELBAR)
-      new_lbar_on = .not.old_lbar_on
-      if(new_lbar_on) then
-        set_labelbar_res(res2,"streamline")
-     end if
-    end if
-    if(isatt(res2,"lbLabelBarOn"))
-      delete(res2@lbLabelBarOn)
+
+;---Labelbar stuff
+    if(check_attr(res2,"stMonoLineColor",False,False))
+      lbar_on = get_res_value(res2,"lbLabelBarOn",True)
+      use_old_lbar = get_res_value(res2,"gsnOldLabelBar",GSN_OLD_LABELBAR)
+      use_mgr_lbar = .not.use_old_lbar
+      if(lbar_on)
+        if(use_mgr_lbar) then
+          set_labelbar_res(res2,"streamline")
+        end if
+      end if
+    else
+      lbar_on = get_res_value(res2,"lbLabelBarOn",False)
+      use_old_lbar   = False
+      use_mgr_lbar   = False
     end if
 
     res2          = True
@@ -12810,14 +14427,13 @@ begin
     add_subtitles(wks,stream_object,left_string,center_string,\
                   right_string,subres)
 
-; Create a labelbar.
-
-    if(old_lbar_on)
+; Create a labelbar or fix an existing one.
+    if(use_old_lbar)
       lbres = get_res_eq(res2,(/"lb","pm"/))
-      add_labelbar(wks,stream_object,3,font_height,"streamline",lbres)
+      add_labelbar(wks,stream_object,3,font_height,"streamline",lbar_on,lbres)
     end if
-    if(new_lbar_on)
-      fix_labelbar(stream_object,font_height,stres)
+    if(use_mgr_lbar)
+      fix_labelbar(stream_object,font_height,lbar_on,stres)
     end if
 
 ; Draw all this stuff: streamline plot and subtitles.

@@ -110,6 +110,7 @@ begin
   localOpts@DrawHeightScale   = False
   localOpts@DrawHeightScaleFt = True  ;default is feet [otherwise km] 
   localOpts@DrawStandardAtmThk= 2.0
+  localOpts@DrawWindBarbThk   = 1.0   ; default value for wmbarb: BLW
   localOpts@UseMyColorMap     = False
   localOpts@Font              = "helvetica"
                               ; NCL resource names
@@ -304,22 +305,22 @@ begin
   xyOpts@tmYLBorderOn = False
                                    ; "tune" the plot
   xyOpts@tmXBMajorLengthF        = 0.01
-  xyOpts@tmXBMajorThicknessF     = 1.0         ; default is 2.0
+  xyOpts@tmXBMajorThicknessF     = 4.0         ; default is 2.0
   xyOpts@tmXBMajorOutwardLengthF = 0.01
   xyOpts@tmXTMajorLengthF     = 0. 
   xyOpts@tmYLMajorLengthF     = 0.
   xyOpts@tmXBLabelFontHeightF = 0.014
   xyOpts@tmYLLabelFontHeightF = xyOpts@tmXBLabelFontHeightF
   if (localOpts@DrawFahrenheit) then
-      xyOpts@tiXAxisString    = "Temperature (F)"
+      xyOpts@tiXAxisString    = get_res_value_keep(Opts,"tiXAxisString","Temperature (F)")
   else
-      xyOpts@tiXAxisString    = "Temperature (C)"
+      xyOpts@tiXAxisString    = get_res_value_keep(Opts,"tiXAxisString","Temperature (C)")
   end if
   xyOpts@tiXAxisFont          = localOpts@Font
   xyOpts@tiXAxisFontColor     = "Foreground"   ; colTan
   xyOpts@tiXAxisFontHeightF   = 0.0125
   xyOpts@tiYAxisFont          = localOpts@Font
-  xyOpts@tiYAxisString        = "P (hPa)"
+  xyOpts@tiYAxisString        = get_res_value_keep(Opts,"tiYAxisString","P (hPa)")
   xyOpts@tiYAxisOffsetXF      = 0.0200
   xyOpts@tiYAxisOffsetYF      = -0.0200
   xyOpts@tiYAxisFontColor     = "Foreground"   ; colTan
@@ -451,7 +452,7 @@ begin
       gsOpts                   = True
       gsOpts@gsLineDashPattern = 0            ; solid
       gsOpts@gsLineColor       = colTan     
-      gsOpts@gsLineThicknessF  = 1.0
+      gsOpts@gsLineThicknessF  = 3.5
      ;gsOpts@gsLineLabelFontColor    = colTan
      ;gsOpts@gsLineLabelFontHeightF  = 0.0125 
 
@@ -486,7 +487,7 @@ begin
       gsOpts                   = True 
       gsOpts@gsLineDashPattern = 0            ; solid
       gsOpts@gsLineColor       = colTan     
-      gsOpts@gsLineThicknessF  = 1.0
+      gsOpts@gsLineThicknessF  = 3.5
      ;gsOpts@gsLineLabelFontColor    = colTan
      ;gsOpts@gsLineLabelFontHeightF  = 0.0125 
 
@@ -509,7 +510,7 @@ begin
 
   if (localOpts@DrawMixRatio) then
       gsOpts                   = True ; polyline [graphic style] opts
-      gsOpts@gsLineThicknessF  = 1.0
+      gsOpts@gsLineThicknessF  = 3.5
       gsOpts@gsLineDashPattern = 2             ; sat mix ratio only
       gsOpts@gsLineColor       = colGreen ;      "
 
@@ -553,7 +554,7 @@ begin
       gsOpts                   = True 
       gsOpts@gsLineDashPattern = 0            
       gsOpts@gsLineColor       = colTan     
-      gsOpts@gsLineThicknessF  = 1.0
+      gsOpts@gsLineThicknessF  = 3.5
 
       txOpts                   = True
       txOpts@txAngleF          = 300.
@@ -605,7 +606,7 @@ begin
   if (localOpts@DrawMoistAdiabat) then
       gsOpts                   = True 
       gsOpts@gsLineColor       = colGreen     
-      gsOpts@gsLineThicknessF  = 0.5
+      gsOpts@gsLineThicknessF  = 3.5
       gsOpts@gsLineDashPattern = 0            
 
       txOpts                   = True
@@ -665,7 +666,7 @@ begin
   if (localOpts@DrawWind) then
       gsOpts = True 
       gsOpts@gsLineColor       = "Foreground"     
-      gsOpts@gsLineThicknessF  = 0.5
+      gsOpts@gsLineThicknessF  = 1.0
       gsOpts@gsLineDashPattern = 0            
       gsOpts@gsMarkerIndex     = 4   ; "hollow_circle"=> std pres
       gsOpts@gsMarkerColor     = "Foreground"
@@ -687,8 +688,8 @@ begin
       sx(0:nzkmW-1)            = xWind  ; "x" location of wind plot
       sy(0:nzkmW-1)            = skewty(pkmWind)
       gsOpts@gsMarkerIndex     = 16     ; "circle_filled" -> Pibal
-      gsOpts@gsMarkerSizeF     = 0.0035 ; 0.007 is default
-      gsOpts@gsMarkerThicknessF= 0.5    ; 1.0 is default
+      gsOpts@gsMarkerSizeF     = 0.007 ; 0.007 is default
+      gsOpts@gsMarkerThicknessF= 1.0    ; 1.0 is default
       gsn_polymarker (wks,xy,sx(0:nzkmW-1),sy(0:nzkmW-1),gsOpts)
       delete (gsOpts)
   end if    ; DrawWind
@@ -746,7 +747,7 @@ function skewT_PlotData_Original \
   localOpts@Cape      = True     ; plot CAPE parcel profile if cape>0
   localOpts@Parcel    = 0        ; subscript corresponding to initial parcel
   localOpts@hemisphere="NH"      ; hemisphere wind barbs
-  localOpts@Wthin     = 1        ; plot every wind barb          
+  localOpts@Wthin     = 2        ; plot every wind barb          
                                  ; Override the default localOpts
                                  ; with input dataOpts
   if (dataOpts .and. .not.any(ismissing(getvaratts(dataOpts)))) then
@@ -807,7 +808,7 @@ function skewT_PlotData_Original \
                                           ; gs settings for gsn_polyline
   gsOpts                   = True
   gsOpts@gsLineDashPattern = 0            ; solid (default)
-  gsOpts@gsLineThicknessF  = 3.0          ; make thicker
+  gsOpts@gsLineThicknessF  = 6.0          ; make thicker
 
   yp   = skewty (p)                    
   xtc  = skewtx (tc , yp)              ; T-P plot
@@ -893,7 +894,7 @@ function skewT_PlotData_Original \
           if (isatt(localOpts,"gsLineDashPatternCape")) then
               gsOpts@gsLineDashPattern  = localOpts@linePatternCape
            end if
-          gsOpts@gsLineThicknessF  = 2.0
+          gsOpts@gsLineThicknessF  = 2.5
 
           yp   = skewty (pp)                    
           xtp  = skewtx (tpar, yp)
@@ -926,9 +927,14 @@ function skewT_PlotData_Original \
       delete (txOpts)
   end if
 
+  wmsetp("BLW",1.0)    ;  Default is 1.0 
+  if (isatt(localOpts,"DrawWindBarbThk")) then
+      wmsetp("BLW", localOpts@DrawWindBarbThk)    ; override the default
+  end if
+
   if (localOpts@PlotWindP) then
           gsOpts                   = True
-          gsOpts@gsLineThicknessF  = 1.0
+          gsOpts@gsLineThicknessF  = 2.5
       if (.not.all(ismissing(WSPD))) then
                    ; IDW - indices where P/WSPD/WDIR are not all missing
           IDW = ind (.not.ismissing(P)    .and. P.ge.100. .and.     \
@@ -1299,22 +1305,22 @@ begin
   xyOpts@tmYLBorderOn = False
                                    ; "tune" the plot
   xyOpts@tmXBMajorLengthF        = 0.01
-  xyOpts@tmXBMajorThicknessF     = 1.0         ; default is 2.0
+  xyOpts@tmXBMajorThicknessF     = 4.0         ; default is 2.0
   xyOpts@tmXBMajorOutwardLengthF = 0.01
   xyOpts@tmXTMajorLengthF     = 0. 
   xyOpts@tmYLMajorLengthF     = 0.
   xyOpts@tmXBLabelFontHeightF = 0.014
   xyOpts@tmYLLabelFontHeightF = xyOpts@tmXBLabelFontHeightF
   if (localOpts@DrawFahrenheit) then
-      xyOpts@tiXAxisString    = "Temperature (F)"
+      xyOpts@tiXAxisString    = get_res_value_keep(Opts,"tiXAxisString","Temperature (F)")
   else
-      xyOpts@tiXAxisString    = "Temperature (C)"
+      xyOpts@tiXAxisString    = get_res_value_keep(Opts,"tiXAxisString","Temperature (C)")
   end if
   xyOpts@tiXAxisFont          = localOpts@Font
   xyOpts@tiXAxisFontColor     = "Foreground"   ; colTan
   xyOpts@tiXAxisFontHeightF   = 0.0125
   xyOpts@tiYAxisFont          = localOpts@Font
-  xyOpts@tiYAxisString        = "P (hPa)"
+  xyOpts@tiYAxisString        = get_res_value_keep(Opts,"tiYAxisString","P (hPa)")
   xyOpts@tiYAxisOffsetXF      = 0.0200
   xyOpts@tiYAxisOffsetYF      = -0.0200
   xyOpts@tiYAxisFontColor     = "Foreground"   ; colTan
@@ -1463,7 +1469,7 @@ begin
       gsOpts                   = True
       gsOpts@gsLineDashPattern = 0            ; solid
       gsOpts@gsLineColor       = colTan     
-      gsOpts@gsLineThicknessF  = 1.0
+      gsOpts@gsLineThicknessF  = 2.5
      ;gsOpts@gsLineLabelFontColor    = colTan
      ;gsOpts@gsLineLabelFontHeightF  = 0.0125 
 
@@ -1506,7 +1512,7 @@ begin
       gsOpts                   = True 
       gsOpts@gsLineDashPattern = 0            ; solid
       gsOpts@gsLineColor       = colTan     
-      gsOpts@gsLineThicknessF  = 1.0
+      gsOpts@gsLineThicknessF  = 2.5
      ;gsOpts@gsLineLabelFontColor    = colTan
      ;gsOpts@gsLineLabelFontHeightF  = 0.0125 
 
@@ -1534,7 +1540,7 @@ begin
 
   if (localOpts@DrawMixRatio) then
       gsOpts                   = True ; polyline [graphic style] opts
-      gsOpts@gsLineThicknessF  = 1.0
+      gsOpts@gsLineThicknessF  = 2.5
       gsOpts@gsLineDashPattern = 2             ; sat mix ratio only
       gsOpts@gsLineColor       = colGreen ;      "
 
@@ -1587,7 +1593,7 @@ begin
       gsOpts                   = True 
       gsOpts@gsLineDashPattern = 0            
       gsOpts@gsLineColor       = colTan     
-      gsOpts@gsLineThicknessF  = 1.0
+      gsOpts@gsLineThicknessF  = 2.5
 
       txOpts                   = True
       txOpts@txAngleF          = 300.
@@ -1648,7 +1654,7 @@ begin
   if (localOpts@DrawMoistAdiabat) then
       gsOpts                   = True 
       gsOpts@gsLineColor       = colGreen     
-      gsOpts@gsLineThicknessF  = 0.5
+      gsOpts@gsLineThicknessF  = 2.5
       gsOpts@gsLineDashPattern = 0            
 
       txOpts                   = True
@@ -1720,7 +1726,7 @@ begin
   if (localOpts@DrawWind) then
       gsOpts = True 
       gsOpts@gsLineColor       = "Foreground"     
-      gsOpts@gsLineThicknessF  = 0.5
+      gsOpts@gsLineThicknessF  = 1.0
       gsOpts@gsLineDashPattern = 0            
       gsOpts@gsMarkerIndex     = 4   ; "hollow_circle"=> std pres
       gsOpts@gsMarkerColor     = "Foreground"
@@ -1750,8 +1756,8 @@ begin
       sx(0:nzkmW-1)            = xWind  ; "x" location of wind plot
       sy(0:nzkmW-1)            = skewty(pkmWind)
       gsOpts@gsMarkerIndex     = 16     ; "circle_filled" -> Pibal
-      gsOpts@gsMarkerSizeF     = 0.0035 ; 0.007 is default
-      gsOpts@gsMarkerThicknessF= 0.5    ; 1.0 is default
+      gsOpts@gsMarkerSizeF     = 0.007 ; 0.007 is default
+      gsOpts@gsMarkerThicknessF= 1.0    ; 1.0 is default
 
       fooPolyWindPZ = gsn_add_polymarker (wks,xy,sx(0:nzkmW-1),sy(0:nzkmW-1),gsOpts)
 
@@ -1891,7 +1897,7 @@ function skewT_PlotData_Panel (wks:graphic, skewt_bkgd:graphic \
                                           ; gs settings for gsn_polyline
   gsOpts                   = True
   gsOpts@gsLineDashPattern = 0            ; solid (default)
-  gsOpts@gsLineThicknessF  = 3.0          ; make thicker
+  gsOpts@gsLineThicknessF  = 6.0          ; make thicker
 
   yp   = skewty (p)                    
   xtc  = skewtx (tc , yp)              ; T-P plot

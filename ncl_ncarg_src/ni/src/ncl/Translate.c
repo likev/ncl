@@ -1677,7 +1677,7 @@ Unneeded translations
 				_NclPutIntInstr(nsubs,var->line,var->file);
 				break;
 			default:
-				NHLPERROR((NhlFATAL,NhlEUNKNOWN,"Unkown var->ref_type %d\n", var->ref_type));
+				NHLPERROR((NhlFATAL,NhlEUNKNOWN,"Unknown var->ref_type %d\n", var->ref_type));
 				return (NhlFATAL);
 			}
 			break;
@@ -2611,11 +2611,39 @@ Unneeded translations
 				break;
 			case Ncl_PARAMIT:
 				_NclTranslate(filegroup->filegroupnode,fp);
-				_NclPutInstr(PARAM_FILE_VAR_OP,filegroup->line,filegroup->file);
+				_NclPutInstr(PARAM_FILE_GROUP_OP,filegroup->line,filegroup->file);
 				_NclPutInstr((NclValue)filegroup->dfile,filegroup->line,filegroup->file);
 				_NclPutIntInstr(nsubs,filegroup->line,filegroup->file);
 				break;
 			}
+			break;
+		}
+		case Ncl_FILEGROUPLIST:
+		{
+			NclFileVarList *list_op = (NclFileVarList*)groot;
+			int nsubs = 0;
+
+			off1 = _NclPutInstr(ISDEFINED_OP,list_op->line,list_op->file);
+			_NclPutInstr((NclValue)list_op->list,list_op->line,list_op->file);
+			if(list_op->filevar_subscript != NULL) {
+				step = list_op->filevar_subscript;
+				_NclTranslate(step->node,fp);
+				step = step->next;
+				nsubs = 1;
+				while(step != NULL) {
+					(void)_NclTranslate(step->node,fp);
+					step = step->next;
+					nsubs++;
+				}
+			}
+			_NclTranslate(list_op->filevar,fp);
+			if(list_op->list_subscript != NULL) {
+				(void)_NclTranslate(list_op->list_subscript,fp);
+			}
+			_NclPutInstr(LIST_READ_FILEVAR_OP,list_op->line,list_op->file);
+			_NclPutInstr((NclValue)list_op->list,list_op->line,list_op->file);
+			_NclPutIntInstr(list_op->list_subscript?1:0,list_op->line,list_op->file);
+			_NclPutIntInstr(nsubs,list_op->line,list_op->file);
 			break;
 		}
 		default:
@@ -2624,7 +2652,6 @@ Unneeded translations
 			fprintf(stdout,"\tgroot->file = %s\n", groot->file);
 			fprintf(stdout,"\tgroot->line = %d\n", groot->line);
 			fprintf(stdout,"\tgroot->kind = %d\n", groot->kind);
-			fprintf(stdout,"\tUNRECOGNIZED ENUM VALUE!\n");
 			break;
 	}
 	nesting--;

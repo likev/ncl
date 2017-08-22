@@ -39,19 +39,7 @@
 #include   <dlfcn.h>
 #endif /*HPUX */
 
-extern short   NCLverbose;
-extern short   NCLecho;
-extern short   NCLoverrideEcho;
-extern short   NCLnoCopyright;
-extern short   NCLnoPrintElem;
-extern short   NCLnoSysPager;
-extern short   NCLoldBehavior;
-extern short   NCLuseAFS;
-extern short   NCLdebug_on;
-
-#ifdef NCLDEBUG
-extern NclMemoryRecord ncl_memory_record;
-#endif
+#include "NclGlobalParams.h"
 
 extern char *nclf;
 
@@ -70,17 +58,16 @@ extern int  cur_line_number;
 extern char *cur_line_text;
 extern int  cur_line_maxsize;
 extern char *cur_line_text_pos;
+extern char *cur_load_file;
 
 extern FILE *yyin;
 extern int yyparse(int);
 
 #define    BUFF_SIZE   512
 
-extern FILE *error_fp;
-extern FILE *stdout_fp ;
-extern FILE *stdin_fp ;
 extern int  number_of_constants;
 
+extern void InitStdStreams(FILE* inp, FILE* out, FILE* err);
 extern void nclprompt(void *user_data, int arg);
 extern void InitializeReadLine(int opt);
 extern void NclSetPromptFunc(NclPromptFunc prmf, void *user_data);

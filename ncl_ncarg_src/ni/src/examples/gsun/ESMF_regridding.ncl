@@ -14,9 +14,54 @@
 ; This script was added to the NCL trunk on 13 Oct 2011.
 ;
 ;    Important modifications:
+;       22 Dec 2016:
+;           Added check to ensure ESMF_RegridWeightGen can be executed.
+;           Added version detection for ESMF_RegridWeightGen.
+;           Added --ignore_degenerate flag to ESMF_RegridWeightGen for ESMF
+;           >=7.0.0 to match functionality with older versions.
+;           Added --src_loc and --dst_loc flags to ESMF_RegridWeightGen to
+;           further ensure compatibility with old and new versions of ESMF.
+;       27 Apr 2015:
+;           Added unadvertised ElementVertices, so that user can input own 
+;           element vertices mesh when regridding unstructured data.
+;           Currently, the code wants a triangular mesh or a quadrilateral
+;           mesh, and "csstri" will be used if neither is provided. "csstri"
+;           is notoriously slow.
+;       14 March 2015:
+;           Decided to add a SrcSCRIP/DstSCRIP which a user can set to
+;           True to force an unstructured description file to be created
+;           as a SCRIP file instead of an ESMF file  This is currently
+;           unadvertised, and only affects unstructrued files.  See
+;           "unstructured_to_SCRIP" below.
+;
+;       20 Feb 2015:
+;         Created new "Src/DstGridArea" attribute to
+;          allow user to enter the "grid_area" quantity 
+;          required for SCRIP and "conserve" interpolation.
+;          I haven't tested this yet!
+;
+;       14 Feb 2015:
+;           Various cleanup for ESMF regridding:
+;              Created new "Src/DstGridMask" attribute to
+;              replace the misleading "Src/DstMask2D".
+;              The old one will still work.
+;
+;       10 Feb 2015:
+;           Added an (as yet unadvertised) "unstructured_to_SCRIP" function
+;           that writes the grid description file to a SCRIP file instead
+;           of an ESMF file, if SrcESMF or DstESMF is set to False. This
+;           is currently being tested.  (March 2015 followup: I decided
+;           to call this Src/DstSCRIP instead).
+;
+;       04 Feb 2015:                                                                                   
+;           Fixed the "remap" attribute that gets attached to regridded variable                       
+;           to be the ESMF_regrid_method attribute that's on the weights file,                         
+;           and not the "map_method" attribute, which doesn't always have the                          
+;           right interpolation method.                                                                
+;
 ;       01 Sep 2014:
 ;           Renamed print_elapsed_time to print_elapsed_esmf_time
-
+;
 ;       17 Aug 2014:
 ;         Added --norm_type fracarea for the "conserve" method.
 ;           This replaces the old "ApplyFracB" code in 
@@ -524,6 +569,27 @@ begin
 end     ; of totypeof(...)
 
 ;======================================================================
+; This function returns the grid mask name, if any, being provided
+; by the user.  This is to handle the old case of "Mask2D" being
+; used (pre NCL V6.3.0), and the new "GridMask" being used.
+;======================================================================
+undef("get_mask_name")
+function get_mask_name(opt)
+local valid_mask_names, i
+begin
+    if(.not.opt) then
+      return("")
+    end if
+    valid_mask_names = (/"GridMask","Mask2D"/)
+    do i=0,dimsizes(valid_mask_names)-1
+      if(isatt(opt,valid_mask_names(i))) then
+        return(valid_mask_names(i))
+      end if
+    end do
+    return("")
+end
+
+;======================================================================
 ; This procedure rotates the given lat/lon grid, given a rotation angle.
 ; It operates directly on the input lat/lon.
 ;======================================================================
@@ -912,7 +978,7 @@ undef("calc_SCRIP_corners_noboundaries")
 procedure calc_SCRIP_corners_noboundaries(lat2d[*][*],lon2d[*][*], \
                              grid_corner_lat,grid_corner_lon,opt)
 local latlon_dims, nlat, nlon, Extlon2d, Extlat2d, ExtGridCenter_lat, \
-      ExtGridCenter_lon, tmp, ii, jj, DEBUG
+      nm, found_mask, valid_mask_names, ExtGridCenter_lon, tmp, ii, jj, DEBUG
 begin
     DEBUG = isatt_logical_true(opt,"Debug")
     delta = get_att_value(opt,"GridCornerDelta",0.25)
@@ -1045,13 +1111,230 @@ begin
 end     ; of calc_SCRIP_corners_noboundaries(...)
 
 ;======================================================================
+; This procedure generates a SCRIP file for an unstructured grid.
+; This is still being tested as of Feb 17, 2015.
+;======================================================================
+undef("unstructured_to_SCRIP")
+procedure unstructured_to_SCRIP(FName[1]:string,inLat,inLon,Opt[1]:logical)
+begin
+;---Check for options
+    PrintTimings = isatt_logical_true(Opt,"PrintTimings")
+    if(PrintTimings) then
+      start_time = get_start_time()
+    end if
+
+    DEBUG = isatt_logical_true(Opt,"Debug")
+
+;---Check if the file already exists
+    check_for_file(FName,Opt)
+
+;---Do we need to create a large file?
+    if (.not.isatt_logical_false(Opt,"LargeFile")) then
+      setfileoption("nc","Format","LargeFile") 
+    end if
+
+;---Do we need to create a netcdf-4 file?
+    if (isatt(Opt,"NetCDFType").and.\
+        str_lower(Opt@NetCDFType).eq."netcdf4") then
+      setfileoption("nc","Format","netcdf4") 
+      nc_file_type = "netcdf4"
+    else
+      nc_file_type = "netcdf3"
+    end if
+
+    lat_dims = dimsizes(inLat)
+    lon_dims = dimsizes(inLon)
+    lat_rank = dimsizes(lat_dims)
+    lon_rank = dimsizes(lon_dims)
+
+    if (lat_rank.ne.1.or.lon_rank.ne.1.or.lat_dims.ne.lon_dims) then
+        print("unstructured_to_SCRIP: latitude and longitude must be one-dimensional and the same length.")
+        exit
+    end if
+    grid_size = lat_dims
+    grid_rank = lat_rank  ; should be 1
+
+;---Were the grid corners provided?
+    if (isatt(Opt,"GridCornerLat").and.isatt(Opt,"GridCornerLon")) then
+        if(DEBUG) then
+          print("unstructured_to_SCRIP: using grid corners provided by user...")
+        end if
+        if(.not.any(typeof(Opt@GridCornerLat).eq.(/"float","double"/))) then
+          GridCornerLat = tofloat(Opt@GridCornerLat)
+        else
+          GridCornerLat = Opt@GridCornerLat
+        end if
+        if(.not.any(typeof(Opt@GridCornerLon).eq.(/"float","double"/))) then
+          GridCornerLon = tofloat(Opt@GridCornerLon)
+        else
+          GridCornerLon = Opt@GridCornerLon
+        end if
+        corner_lat_dims = dimsizes(GridCornerLat)
+        corner_lon_dims = dimsizes(GridCornerLon)
+        corner_lat_rank = dimsizes(corner_lat_dims)
+        corner_lon_rank = dimsizes(corner_lon_dims)
+        if(corner_lat_rank.ne.2.or.corner_lon_rank.ne.2.or.\
+           any(corner_lat_dims.ne.corner_lon_dims).or.corner_lat_dims(0).ne.grid_size) then
+          print("unstructured_to_SCRIP: the grid corners provided are not the correct dimensionality.")
+          print("Was expecting a " + lat_dims + " x n array, where 'n' represents the number of corners.")
+          exit
+        end if
+        grid_corners    = corner_lat_dims(1)
+        grid_corner_lat = reshape( GridCornerLat,(/ grid_size, grid_corners /))
+        grid_corner_lon = reshape( GridCornerLon,(/ grid_size, grid_corners /))
+    else
+      print("unstructured_to_SCRIP: no grid corners ([Src]/[Dst]GridCorner[Lat]/[Lon]) provided. Can't continue")
+      exit
+    end if
+
+;---Was a mask provided?
+    grid_mask_name = get_mask_name(Opt)
+    if(grid_mask_name.ne."") then
+      mask_dims = dimsizes(Opt@$grid_mask_name$)
+      mask_rank = dimsizes(mask_dims)
+      if(mask_rank.ne.1.or.mask_dims.ne.grid_size) then
+        print("unstructured_to_SCRIP: Opt@" + grid_mask_name + \
+                  " is not the correct dimensionality")
+        exit
+      end if   
+      grid_mask = Opt@$grid_mask_name$
+    else
+      grid_mask = new(grid_size, "integer","No_FillValue")
+      grid_mask = 1
+    end if
+    
+;---Was a grid area provided? (Required for conserve regridding)
+    if(Opt.and.isatt(Opt,"GridArea")) then
+      grid_area = todouble(Opt@GridArea)
+      if (dimsizes(dimsizes(grid_area).ne.1.and.grid_size.ne.dimsizes(grid_area)))
+        print("unstructured_to_SCRIP: Area array is not the appropriate size.")
+        exit
+      end if
+      grid_area_provided = True
+    else
+      grid_area_provided = False
+    end if
+
+    if(Opt.and.isatt(Opt,"InputFileName")) then
+      inputFName = Opt@InputFileName
+    else
+      inputFName = "none provided"
+    end if
+
+    if(Opt.and.isatt(Opt,"Title")) then
+      FTitle = Opt@Title
+    else
+      FTitle = "unstructured_to_SCRIP (" + grid_size + ")"
+    end if
+
+;---Create the file
+    fid = addfile(FName,"c")
+    setfileoption(fid,"DefineMode",True)
+
+;---Define the file attributes
+    FileAtt              = True
+    FileAtt@title        = FTitle
+    FileAtt@Conventions  = "SCRIP"
+    FileAtt@Createdby    = "ESMF_regridding.ncl"
+    FileAtt@date_created = systemfunc("date")
+    FileAtt@inputFile     = inputFName 
+    fileattdef(fid,FileAtt)
+    
+;---Define the SCRIP dimensions on the file
+    FDimNames = (/ "grid_size","grid_corners","grid_rank" /)
+    FDimSizes = (/ grid_size,grid_corners,grid_rank /)
+    FDimUnlim = (/ False,False,False /)
+	
+    filedimdef(fid,FDimNames,FDimSizes,FDimUnlim)
+	
+;---Define Variables
+    filevardef(fid,"grid_dims","integer","grid_rank")
+    filevardef(fid,"grid_center_lat","double","grid_size")
+    filevardef(fid,"grid_center_lon","double","grid_size")
+    filevardef(fid,"grid_corner_lat","double",(/ "grid_size", "grid_corners" /) )
+    filevardef(fid,"grid_corner_lon","double",(/ "grid_size", "grid_corners" /) )
+    filevardef(fid,"grid_imask","integer","grid_size")
+    
+    if(grid_area_provided) then
+      filevardef(fid,"grid_area","double","grid_size")
+    end if
+    
+;---Define the variables unit attribute
+    DummyAtt1       = 0
+    DummyAtt2       = 0
+;
+; The conversion to character arrays for NetCDF-4 files is a 
+; work-around.  ESMF_RegridWeightGen uses the F90 interface to 
+; read NetCDF-4 files, which doesn't yet have support for 
+; NetCDF-4 "string" types.
+; 
+    if(nc_file_type.eq."netcdf3") then
+      DummyAtt1@units = "degrees"
+      DummyAtt2@units = "unitless"
+    else
+      DummyAtt1@units = tochar("degrees")
+      DummyAtt2@units = tochar("unitless")
+    end if
+    filevarattdef(fid,"grid_center_lat",DummyAtt1)
+    filevarattdef(fid,"grid_center_lon",DummyAtt1)
+    filevarattdef(fid,"grid_imask",DummyAtt2)
+    filevarattdef(fid,"grid_corner_lat",DummyAtt1)
+    filevarattdef(fid,"grid_corner_lon",DummyAtt1)
+
+    if(grid_area_provided) then
+      DummyAtt3 = 0
+      if(nc_file_type.eq."netcdf3") then
+        DummyAtt3@units     = "radians^2"
+        DummyAtt3@long_name = "area weights"
+      else
+        DummyAtt3@units     = tochar("radians^2")
+        DummyAtt3@long_name = tochar("area weights")
+      end if
+      filevarattdef(fid,"grid_area",DummyAtt3)
+      delete(DummyAtt3)
+    end if
+
+    delete(DummyAtt1)
+    delete(DummyAtt2)
+    
+;---Prepare the file to store the values
+    setfileoption(fid,"DefineMode",False)
+    
+;---Storing Grid Dims
+    fid->grid_dims = (/grid_size/)
+    
+;---Store Cell Center Lat/Lon
+    fid->grid_center_lat = (/inLat/)
+    fid->grid_center_lon = (/inLon/)
+
+;---Store Cell Corner Lat/Lon
+    fid->grid_corner_lat = (/grid_corner_lat/)
+    fid->grid_corner_lon = (/grid_corner_lon/)
+
+;---Store grid mask
+    fid->grid_imask = (/grid_mask/)
+
+;---Store grid area
+    if(grid_area_provided) then
+      fid->grid_area = (/grid_area/)
+    end if
+
+;---Store grid mask
+    fid->grid_imask = (/grid_mask/)
+
+    if(PrintTimings) then
+      print_elapsed_esmf_time(start_time,"unstructured_to_SCRIP")
+    end if
+end     ; of unstructured_to_SCRIP(...)
+
+;======================================================================
 ; This procedure generates an ESMF file for an unstructured grid.
 ; It is sometimes better to even store logically rectangular and 
 ; structured grids as unstructured grids. (Refer to TriPolar - TGrid)
 ;======================================================================
 undef("unstructured_to_ESMF")
 procedure unstructured_to_ESMF(FName[1]:string,inLat,inLon,Opt[1]:logical)
-local DEBUG, lat, lon, NodeMask, ElementVertices, title
+local DEBUG, lat, lon, NodeMask, ElementVertices, title, grid_mask_name
 begin
 ;---Check for options
     PrintTimings = isatt_logical_true(Opt,"PrintTimings")
@@ -1086,12 +1369,14 @@ begin
         exit
     end if
 ;---Was a mask provided?
-    if(Opt.and.isatt(Opt,"Mask2D")) then
-      if(.not.all(product(dimsizes(Opt@Mask2D)).eq.dimsizes(lat))) then
-        print("unstructured_to_ESMF: Opt@Mask2D is not the correct dimensionality")
+    grid_mask_name = get_mask_name(Opt)
+    if(grid_mask_name.ne."") then
+      if(.not.all(product(dimsizes(Opt@$grid_mask_name$)).eq.dimsizes(lat))) then
+        print("unstructured_to_ESMF: Opt@" + grid_mask_name + \ 
+              " is not the correct dimensionality")
         exit
       else
-        NodeMask = ndtooned(Opt@Mask2D)
+        NodeMask = ndtooned(Opt@$grid_mask_name$)
       end if
     else
 ;---No masking
@@ -1105,36 +1390,48 @@ begin
       inputFName = "none provided"
     end if
 
+;---Were ElementVertices provided?
+    if(Opt.and.isatt(Opt,"ElementVertices")) then
+      if(DEBUG) then
+        print("unstructured_to_ESMF: using element vertices mesh provided by the user")
+      end if
+      if(dimsizes(dimsizes(Opt@ElementVertices)).ne.2) then
+        print("unstructured_to_ESMF: ElementVertices must be an ncells x nedges array")
+        exit
+      end if
+      ElementVertices = Opt@ElementVertices
 ;---Was a triangular mesh provided?
-    if(Opt.and.isatt(Opt,"TriangularMesh")) then
+    else if(Opt.and.isatt(Opt,"TriangularMesh")) then
       dims = dimsizes(Opt@TriangularMesh)
       if(dims(1).ne.3) then
-        print("unstructured_to_ESMF: TriangularMesh must be an n x 3 array")
+        print("unstructured_to_ESMF: TriangularMesh must be an ncells x 3 array")
         exit
-      else
-        if(DEBUG) then
-          print("unstructured_to_ESMF: using triangular mesh provided by the user")
-        end if
-        ElementVertices = Opt@TriangularMesh
       end if
+      if(DEBUG) then
+        print("unstructured_to_ESMF: using triangular mesh provided by the user")
+      end if
+      ElementVertices = Opt@TriangularMesh
 ;---Was a quadrilateral mesh provided?
     else if(Opt.and.isatt(Opt,"QuadrilateralMesh")) then
       dims = dimsizes(Opt@QuadrilateralMesh)
       if(dims(1).ne.4) then
-        print("unstructured_to_ESMF: QuadrilateralMesh must be an n x 4 array")
+        print("unstructured_to_ESMF: QuadrilateralMesh must be an ncells x 4 array")
         exit
-      else
-        if(DEBUG) then
-          print("unstructured_to_ESMF: using quadrilateral mesh provided by the user")
-        end if
-        ElementVertices = Opt@QuadrilateralMesh
       end if
+      if(DEBUG) then
+        print("unstructured_to_ESMF: using quadrilateral mesh provided by the user")
+      end if
+      ElementVertices = Opt@QuadrilateralMesh
     else
 ;---Create a triangular mesh if no mesh provided
       if(DEBUG) then
-        print("unstructured_to_ESMF: triangulating the data ... this can be slow")
+        print("unstructured_to_ESMF: triangulating the data to create the edges for your unstructured data.")
+        print("                      This can be VERY slow if you have a large array.")
+        print("                      To speed up code, provide your own edge vertices via the") 
+        print("                      'ElementVertices' option.")
       end if
       ElementVertices = csstri(lat,lon)       ; Triangulate
+    end if
     end if
     end if
     if(DEBUG) then
@@ -1292,7 +1589,7 @@ procedure curvilinear_to_SCRIP(FName[1]:string,lat2d[*][*]:numeric,\
                                lon2d[*][*]:numeric,Opt[1]:logical)
 local latlon_dims, nlat, nlon, fid, FileAtt, grid_siz, grid_corners, \
 grid_rank, FDimNames, FDimSizes, FDimUnlim, DummyAtt1, DummyAtt2, \
-GridCornerLat, GridCornerLon, grid_corner_lat, grid_corner_lon, mask2d, \
+GridCornerLat, GridCornerLon, grid_corner_lat, grid_corner_lon, grid_mask, \
 lat_type, lon_type, DEBUG, nc_file_type
 begin
 ;---Check for options
@@ -1337,17 +1634,19 @@ begin
     end if
 
 ;---Was a mask provided?
-    if(Opt.and.isatt(Opt,"Mask2D")) then
-      if(.not.all(dimsizes(Opt@Mask2D).eq.latlon_dims)) then
-        print("curvilinear_to_SCRIP: Opt@Mask2D is not the correct dimensionality")
+    grid_mask_name = get_mask_name(Opt)
+    if(grid_mask_name.ne."") then
+      if(.not.all(dimsizes(Opt@$grid_mask_name$).eq.latlon_dims)) then
+        print("curvilinear_to_SCRIP: Opt@" + grid_mask_name + \
+              " is not the correct dimensionality")
         exit
       else
-        mask2d = Opt@Mask2D
+        grid_mask = Opt@$grid_mask_name$
       end if
     else
 ;---No masking
-      mask2d = new(latlon_dims, "integer","No_FillValue")
-      mask2d = 1
+      grid_mask = new(latlon_dims, "integer","No_FillValue")
+      grid_mask = 1
     end if
 
 ;---Create the file
@@ -1380,7 +1679,7 @@ begin
     filevardef(fid,"grid_imask","integer","grid_size")
     filevardef(fid,"grid_corner_lat","double",(/ "grid_size", "grid_corners" /) )
     filevardef(fid,"grid_corner_lon","double",(/ "grid_size", "grid_corners" /) )
-    
+
 ;---Define the variables unit attribute
     DummyAtt1       = 0
     DummyAtt2       = 0
@@ -1417,12 +1716,12 @@ begin
     fid->grid_center_lat = (/ndtooned(lat2d)/)
     fid->grid_center_lon = (/ndtooned(lon2d)/)
 	
-;---Store Cell Maskes
-    if (grid_size.ne.dimsizes(ndtooned(mask2d))) then
+;---Store Cell Masks
+    if (grid_size.ne.dimsizes(ndtooned(grid_mask))) then
         print("curvilinear_to_SCRIP: Mask array is not the appropriate size.")
         exit
     else
-        fid->grid_imask=(/ tointeger(ndtooned(mask2d)) /)
+        fid->grid_imask=(/ tointeger(ndtooned(grid_mask)) /)
     end if
 	
 ;---Get the grid lat/lon corners
@@ -1539,8 +1838,9 @@ begin
     grid_center_lon = conform_dims((/nlat, nlon/),lon,1)
 
 ;---Generate the mask
-    if(.not.isatt(Opt2,"Mask2D")) then
-      Opt2@Mask2D = onedtond(1,(/nlat,nlon/))
+    grid_mask_name = get_mask_name(Opt2)
+    if(grid_mask_name.eq."") then
+      Opt2@GridMask = onedtond(1,(/nlat,nlon/))
     end if
     
 ;---Convert to SCRIP
@@ -1773,9 +2073,9 @@ begin
     end if
     
 ;---Get mask
-    if (.not.isatt(Opt,"Mask2D")) then
-      Opt@Mask2D = new(dimsizes(grid_center_lat),"integer","No_FillValue")
-      Opt@Mask2D = 1
+    if(get_mask_name(Opt).eq."") then
+      Opt@GridMask = new(dimsizes(grid_center_lat),"integer","No_FillValue")
+      Opt@GridMask = 1
     end if
     Opt@Title = FTitle
 
@@ -1910,8 +2210,8 @@ begin
   grid_center_lat = conform_dims((/nlat, nlon/),lat,0)
   grid_center_lon = conform_dims((/nlat, nlon/),lon,1)
 	
-  if(.not.isatt(Opt,"Mask2D")) then
-    Opt@Mask2D = onedtond(1,(/nlat,nlon/))
+  if(get_mask_name(Opt).eq."") then
+    Opt@GridMask = onedtond(1,(/nlat,nlon/))
   end if
 
 ;---Rotate back the box, if needed.
@@ -2423,7 +2723,8 @@ end
 undef("ESMF_regrid_gen_weights")
 procedure ESMF_regrid_gen_weights(srcGridFile[1]:string, dstGridFile[1]:string, \
                            wgtFile[1]:string, opt[1]:logical)
-local DEBUG, NumProc, Executer, ESMFCMD, ESMF_exec, interp_method, pole, opt
+local DEBUG, NumProc, Executer, ESMFCMD, ESMF_exec, interp_method, pole, opt, \
+      path_to_ESMF, ESMF_exec_exists, SRC_LOC, DST_LOC
 begin
   valid_interp_methods = (/"bilinear","patch","conserve", \
                            "nearestdtos","neareststod"/)
@@ -2458,6 +2759,23 @@ begin
 ;---Name of ESMF offline regridder
   ESMF_exec = "ESMF_RegridWeightGen"
 
+;---Check ESMFBINDIR
+  if (ismissing(getenv("ESMFBINDIR"))) then
+    path_to_ESMF = ESMF_exec
+  else
+    path_to_ESMF = getenv("ESMFBINDIR") + "/" + ESMF_exec
+  end if
+
+;---Check if ESMF_exec exists and can be executed
+  ESMF_exec_exists = systemfunc(path_to_ESMF + " --help >/dev/null 2>&1 && echo True || echo False")
+  if (ESMF_exec_exists.eq."False") then
+    print("ESMF_regrid_gen_weights: could not find " + ESMF_exec + " executable.")
+    exit
+  end if
+
+;---Check ESMF_RegridWeightGen version.
+  ESMF_MAJOR_VERSION = toint(systemfunc(path_to_ESMF + " --version | grep MAJOR | awk '{print $2}'"))
+
 ;---Check for options
   PrintTimings   = isatt_logical_true(opt2,"PrintTimings")
   if(PrintTimings) then
@@ -2476,10 +2794,17 @@ begin
   end if
 
 ;---Check if the source grid file is an ESMF file.
-  if (isatt_logical_true(opt2,"SrcESMF").and. \
-      .not.(is_ESMF(srcGridFile,True))) then
-    print("ESMF_regrid_gen_weights: invalid or missing ESMF source grid file.")
-    exit
+  SRC_LOC = ""
+  if (isatt_logical_true(opt2,"SrcESMF")) then
+    if (is_ESMF(srcGridFile,True)) then
+      if (ESMF_MAJOR_VERSION.ge.7) then
+        ;---Necessary flag for ESMF >=7.0.0
+        SRC_LOC = "--src_loc corner "
+      end if
+    else
+      print("ESMF_regrid_gen_weights: invalid or missing ESMF source grid file.")
+      exit
+    end if
   end if
 
 ;---Check if the destination grid file is a SCRIP file.
@@ -2490,10 +2815,17 @@ begin
   end if
 
 ;---Check if the destination grid file is a ESMF file.
-  if (isatt_logical_true(opt2,"DstESMF").and. \
-      .not.(is_ESMF(dstGridFile,True))) then
-    print("ESMF_regrid_gen_weights: invalid or missing ESMF destination grid file.")
-    exit
+  DST_LOC = ""
+  if (isatt_logical_true(opt2,"DstESMF")) then
+    if (is_ESMF(dstGridFile,True)) then
+      if (ESMF_MAJOR_VERSION.ge.7) then
+        ;---Necessary flag for ESMF >=7.0.0
+        DST_LOC = "--dst_loc corner "
+      end if
+    else
+      print("ESMF_regrid_gen_weights: invalid or missing ESMF destination grid file.")
+      exit
+    end if
   end if
 
 ;
@@ -2517,18 +2849,20 @@ begin
 ;---Check if the weight file already exists.
   check_for_file(wgtFile,opt2)
 
-;---Build the command (First Pass - non-optional features)
-  if (ismissing(getenv("ESMFBINDIR"))) then
-    ESMFCMD = Executer + ESMF_exec + " " \
-              + "--source " + srcGridFile \
-              + " --destination " + dstGridFile \
-              + " --weight "+ wgtFile
-  else 
-    ESMFCMD = Executer + "$ESMFBINDIR/" + ESMF_exec + " " \
-              + "--source " + srcGridFile \
-              + " --destination " + dstGridFile \
-              + " --weight " + wgtFile
+;---Add necessary --ignore_degenerate flag for ESMF >=7.0.0
+  if(ESMF_MAJOR_VERSION.ge.7) then
+    ESMF_IGNORE_DEGENERATE = " --ignore_degenerate "
+  else
+    ESMF_IGNORE_DEGENERATE = ""
   end if
+
+;---Build the command (First Pass - non-optional features)
+  ESMFCMD = Executer + path_to_ESMF \
+            + ESMF_IGNORE_DEGENERATE \
+            + SRC_LOC + DST_LOC \
+            + " --source " + srcGridFile \
+            + " --destination " + dstGridFile \
+            + " --weight "+ wgtFile
 
 ;---Check for options
   if (opt2) then
@@ -2885,6 +3219,11 @@ begin
   row = fid->row
   col = fid->col
   v   = fid->S
+  if(isatt(fid,"ESMF_regrid_method")) then
+    esmf_regrid_method = fid@ESMF_regrid_method
+  else
+    esmf_regrid_method = ""
+  end if
 
 ;---Check that the column indexes will map into src_grid_dims
 ;;  if ( max(col).gt.product(srcData_rgt_dims) ) then
@@ -3067,20 +3406,27 @@ begin
 ; Clean up, add, and remove attributes.
 ;
 ; Note that due to standards for the weights file, the map_method
-; attribute will say "Bilinear remapping" for both bilinear and patch
-; methods. If this routine is called by ESMF_regrid, then that routine
-; will set FixMapMethodForPatch to True so this routine knows to fix
-; the "remap" attribute. Otherwise if ESMF_regrid_with_weights is
-; called directly, there's no way to tell if patch or bilinear was
-; used.
+; attribute will say "Bilinear remapping" for bilinear, patch,
+; neareststod, and nearestdtos methods. In newer versions of
+; the offline regridder, there's a ESMF_regrid_method attribute.  Use this
+; attribute if available; otherwise use the old fixed map_method.
+; The ESMF_regrid routine will set FixMapMethod to the correct
+; value so this routine can fix the "remap" attribute. Otherwise if 
+; ESMF_regrid_with_weights is called directly, there's no way to 
+; tell which interpolation method is used.
 ;----------------------------------------------------------------------
   if (.not.isatt(dstData,"remap")) then
-    if(isatt_logical_true(opt,"FixMapMethodForPatch")) then
+    if(esmf_regrid_method.ne."") then
       dstData@remap = "remapped via ESMF_regrid_with_weights: " + \
-                       str_sub_str(map_method,"Bilinear","Patch")
+                      esmf_regrid_method
     else
-      dstData@remap = "remapped via ESMF_regrid_with_weights: " + \
-                      map_method
+      if(isatt(opt,"FixMapMethod")) then
+        dstData@remap = "remapped via ESMF_regrid_with_weights: " + \
+                         str_sub_str(map_method,"Bilinear",opt@FixMapMethod)
+      else
+        dstData@remap = "remapped via ESMF_regrid_with_weights: " + \
+                        map_method
+      end if
     end if
   end if
 
@@ -3415,8 +3761,8 @@ begin
   if(grid_type.eq."unknown") then
     if(lat_rank.eq.1.and.lon_rank.eq.1.and.lat_dims.eq.lon_dims) then
       print("get_dst_grid_info: Error: the lat/lon arrays are both 1D and the same length.")
-      print("   This could be a rectilinear or unstructured grid. Please set 'grid_type'")
-      print("   to 'rectilinear' or 'unstructured'.")
+      print("   This could be a rectilinear or unstructured grid.") 
+      print("   Set 'DstGridType' to 'rectilinear' or 'unstructured'.")
     else   
       print("get_dst_grid_info: " + grid_type_name + " and/or " + \
             grid_lat_name + "/" + grid_lon_name + " were not set.")
@@ -3513,9 +3859,9 @@ begin
 ; set, like "opt@Overwrite", then ignore the specific
 ; attribute, like "opt@SrcOverwrite".
 ;
-  spc_atts = (/"Mask2D","TriangularMesh","LargeFile",\
-               "NetCDFType","Title","LLCorner","URCorner", \
-               "Rotation","GridCornerLat","GridCornerLon",\
+  spc_atts = (/"GridMask","Mask2D","GridArea","TriangularMesh","ElementVertices",\
+               "LargeFile","ESMF","SCRIP","NetCDFType","Title","LLCorner",\
+               "URCorner","Rotation","GridCornerLat","GridCornerLon",\
                "InputFileName","Overwrite","ForceOverwrite"/)
   do i=0,dimsizes(spc_atts)-1
     tmp_att = grid_string + spc_atts(i)
@@ -3565,10 +3911,30 @@ begin
   else if(grid_type.eq."curvilinear") then
     curvilinear_to_SCRIP(grid_file,lat_vals,lon_vals,opt_new)
   else if(grid_type.eq."unstructured") then
-    unstructured_to_ESMF(grid_file,lat_vals,lon_vals,opt_new)
-
-;---Make sure SrcESMF or DstESMF is set (the default is to assume SCRIP)
-    tmp_att = grid_string + "ESMF"
+;
+; This extra code for writing a SCRIP unstructured file
+; file was added Feb 10, 2015. I'm not sure it's robust
+; yet.  It is currently unadvertised, but can be 
+; done by the user if they set opt@SrcSCRIP = True or
+; opt@DstSCRIP = True. The default is to write an
+; ESMF unstructured file.
+;
+    if(.not.isatt_logical_true(opt_new,"SCRIP")) then
+      unstructured_to_ESMF(grid_file,lat_vals,lon_vals,opt_new)
+      tmp_att = grid_string + "ESMF"
+      if(DEBUG) then
+        print("write_grid_description_file: writing unstructured '" + grid_string + \
+        "' grid to an ESMF description file")
+      end if
+    else
+      unstructured_to_SCRIP(grid_file,lat_vals,lon_vals,opt_new)
+;---Make sure SrcSCRIP or DstSCRIP is set (the default is to assume SCRIP)
+      tmp_att = grid_string + "SCRIP"
+      if(DEBUG) then
+        print("write_grid_description_file: writing unstructured '" + grid_string + \
+        "' grid to a SCRIP description file")
+      end if
+    end if
     opt@$tmp_att$ = True
   else
     latlon_to_SCRIP(grid_file,grid_type,opt_new)
@@ -3606,7 +3972,9 @@ end
 ;  SrcFileName / DstFileName
 ;  SrcGridType / SrcGridLat / SrcGridLon
 ;  DstGridType / DstGridLat / DstGridLon
-;  SrcMask2D / DstMask2D
+;  SrcGridMask / DstGridMask    (new names for mask as of NCL V6.3.0)
+;  SrcGridArea / DstGridArea
+;  SrcMask2D   / DstMask2D      (old names, use Src/DstGridMask)
 ;  SrcLargeFile / DstLargeFile
 ;  SrcNetCDFType / DstNetCDFType
 ;  WgtFileName
@@ -3728,8 +4096,8 @@ begin
 ; "remap" attribute.
 ;
   if(opt2.and.isatt(opt2,"InterpMethod").and. \
-     str_lower(opt2@InterpMethod).eq."patch") then
-   opt2@FixMapMethodForPatch = True
+     .not.any(str_lower(opt2@InterpMethod).eq.(/"bilinear","conserve"/)))
+   opt2@FixMapMethod = str_capital(opt2@InterpMethod)
   end if
 
 ;---Regrid the input variable
